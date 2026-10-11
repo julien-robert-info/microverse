@@ -6,6 +6,8 @@
   many commits the base gained; `--merged` runs the checks on the merge result.
 - `agent-check`: an added line starting with `++` is no longer taken for a file
   header by the pattern scan.
+- Script `orch-report --since <commit>`: the mechanical parts of the series
+  report (merges, agent runs and cost, quota, context size) in Markdown.
 
 ## 0.1.0
 

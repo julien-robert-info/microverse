@@ -16,6 +16,7 @@ cleans up; the launch pace follows the usage quota.
 | agent `rick` (Opus, read-only) | reviews a risky diff, returns ranked defects |
 | `orch-quota` | reads the quota counters and advises the launch pace |
 | `orch-usage` | tokens and API-equivalent cost per model or per agent run, context size of a session |
+| `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown |
 | `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (`--merged`: on the merge result), suspicious patterns in the diff |
 | `agent-cleanup <branch>` | removes an agent's worktree and merged branch |
 | `SubagentStop` hook | stops servers left running by a finished agent |
@@ -87,6 +88,7 @@ orch-quota --target 98 --reserve 30
 orch-usage --since 2026-01-01
 orch-usage --context
 orch-usage --agents
+orch-report --since a0f5690 --target 98 --reserve 30
 agent-check feat/subject
 agent-check feat/subject --merged
 agent-cleanup feat/subject

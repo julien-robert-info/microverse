@@ -1,0 +1,67 @@
+#!/usr/bin/env node
+// Mechanical parts of the series report, in Markdown: what was merged, the
+// agent runs and their cost, the quota, the context size.
+//
+// orch-report --since <commit> [--base main] [--target N] [--reserve N] [--five-hour N] [--file <quota file>]
+//
+// Run from the repository root. --since is the commit of the previous report;
+// the other options are those of orch-quota. A sibling script that fails has
+// its message printed in its section and the report goes on.
+"use strict";
+
+const { join } = require("node:path");
+const { defaultBase, fail, git, parseArgs, repoRoot, run } = require("../scripts/orch-lib.js");
+
+const opts = parseArgs(process.argv.slice(2));
+const root = repoRoot();
+if (typeof opts.since !== "string") fail("usage: orch-report --since <commit> [--base main] [--target N] [--reserve N] [--five-hour N] [--file <quota file>]");
+const verify = git(["rev-parse", "--verify", "--quiet", `${opts.since}^{commit}`], root);
+if (verify.code !== 0) fail(`not a commit: ${opts.since}`);
+const since = verify.out.trim();
+const base = typeof opts.base === "string" ? opts.base : defaultBase(root);
+
+const lines = (r) => r.out.split(/\r?\n/).filter(Boolean);
+
+// A sibling's output, or its error message when it fails.
+function sibling(name, args) {
+  const r = run(process.execPath, [join(__dirname, name), ...args], { cwd: process.cwd() });
+  return { ok: r.code === 0, text: (r.out + (r.code === 0 ? "" : r.err)).trim() };
+}
+
+const short = git(["rev-parse", "--short", since], root).out.trim();
+const out = [`## Merged since ${short}`, ""];
+
+const log = git(["log", "--first-parent", "--reverse", "--format=%h%x09%p%x09%s", `${since}..${base}`], root);
+if (log.code !== 0) out.push(log.err.trim());
+else {
+  const commits = lines(log);
+  if (!commits.length) out.push("nothing");
+  for (const c of commits) {
+    const [hash, parents, subject] = c.split("\t");
+    out.push(`- ${hash} ${subject}`);
+    const [first, second] = parents.split(" ");
+    if (!second) continue;
+    const brought = git(["log", "--reverse", "--format=%h %s", `${first}..${second}`], root);
+    for (const l of lines(brought)) out.push(`  - ${l}`);
+  }
+}
+
+const date = git(["log", "-1", "--format=%cI", since], root).out.trim();
+const agents = sibling("orch-usage", ["--agents", "--since", date]);
+out.push("", "## Agents", "", "```", agents.text, "```");
+if (agents.ok) {
+  let total = 0;
+  for (const l of agents.text.split(/\r?\n/).slice(2)) {
+    const cost = Number(l.split("\t")[4]);
+    if (Number.isFinite(cost)) total += cost;
+  }
+  out.push("", `Total: $${total.toFixed(2)} (API-equivalent)`);
+}
+
+const quotaArgs = [];
+for (const o of ["target", "reserve", "five-hour", "file"]) if (typeof opts[o] === "string") quotaArgs.push(`--${o}`, opts[o]);
+out.push("", "## Quota", "", "```", sibling("orch-quota", quotaArgs).text, "```");
+
+out.push("", "## Context", "", "```", sibling("orch-usage", ["--context"]).text, "```");
+
+console.log(out.join("\n"));
