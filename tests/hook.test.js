@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
-const { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { ROOT } = require("./helpers.js");
@@ -13,7 +13,7 @@ const HOOK = join(ROOT, "scripts", "stop-agent-servers.js");
 const idle = "setTimeout(() => {}, 60000)";
 
 function setup(profile) {
-  const project = mkdtempSync(join(tmpdir(), "microverse-hook-"));
+  const project = realpathSync.native(mkdtempSync(join(tmpdir(), "microverse-hook-")));
   mkdirSync(join(project, ".claude", "orchestration"), { recursive: true });
   if (profile) writeFileSync(join(project, ".claude", "orchestration", "profile.json"), JSON.stringify(profile));
   return { project, data: join(project, "data") };

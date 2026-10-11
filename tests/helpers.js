@@ -1,7 +1,7 @@
 "use strict";
 
 const { spawnSync } = require("node:child_process");
-const { mkdirSync, mkdtempSync, writeFileSync } = require("node:fs");
+const { mkdirSync, mkdtempSync, realpathSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join, resolve } = require("node:path");
 
@@ -19,7 +19,9 @@ const script = (name, args, cwd, env) => sh(process.execPath, [bin(name), ...arg
 // A repository on `main` with one commit, a feature branch checked out in a
 // worktree with one commit, and the profile written as given.
 function makeRepo(profile) {
-  const dir = mkdtempSync(join(tmpdir(), "microverse-"));
+  // Long path form: on Windows the temp folder can be an 8.3 short name
+  // (RUNNER~1), which git expands, so command-line matching would miss it.
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "microverse-")));
   git(dir, "init", "-q", "-b", "main", ".");
   git(dir, "config", "user.name", "Test");
   git(dir, "config", "user.email", "test@example.com");
