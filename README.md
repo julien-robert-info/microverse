@@ -15,10 +15,10 @@ cleans up; the launch pace follows the usage quota.
 | agent `meeseeks` (Haiku, read-only) | answers one question with facts and their evidence |
 | agent `rick` (Opus, read-only) | reviews a risky diff, returns ranked defects |
 | `orch-quota` | reads the quota counters and advises the launch pace |
-| `orch-usage` | tokens and API-equivalent cost per model, context size of a session |
+| `orch-usage` | tokens and API-equivalent cost per model or per agent run, context size of a session |
 | `agent-check <branch>` | commits, clean worktree, profile checks, suspicious patterns in the diff |
 | `agent-cleanup <branch>` | removes an agent's worktree and merged branch |
-| `SubagentStop` hook | stops servers left running by a finished agent (Windows) |
+| `SubagentStop` hook | stops servers left running by a finished agent |
 | `user/CLAUDE.md` | writing rules (README, comments, commits), to import into `~/.claude/CLAUDE.md` |
 
 ## Requirements
@@ -29,7 +29,6 @@ cleans up; the launch pace follows the usage quota.
 - Optional: the VS Code extension "Claude Code Usage" (growthjack), whose
   readings `orch-quota` uses. Without it, the orchestrator asks the user for the
   counters.
-- The `SubagentStop` hook works on Windows only (PowerShell).
 
 ## Installation
 
@@ -87,6 +86,7 @@ The scripts can also be run by hand from the repository root:
 orch-quota --target 98 --reserve 30
 orch-usage --since 2026-01-01
 orch-usage --context
+orch-usage --agents
 agent-check feat/subject
 agent-cleanup feat/subject
 ```
@@ -99,7 +99,8 @@ skills/           orchestration (SKILL.md, budget.md, brief.md, review.md), init
 agents/           morty, meeseeks, rick
 bin/              dependency-free Node scripts, added to the Bash tool's PATH;
                   the .cmd files make them callable from PowerShell
-scripts/          orch-lib.js (shared by bin/), SubagentStop hook
+scripts/          orch-lib.js (shared by bin/ and the hook), SubagentStop hook
+tests/            node:test suite, run with `npm test`
 hooks/hooks.json  hook declaration
 user/CLAUDE.md    global writing rules
 ```

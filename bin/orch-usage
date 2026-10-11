@@ -2,7 +2,10 @@
 // Token usage of a project from the Claude Code transcripts, by model and token
 // type, priced at API rates (an equivalent, not the subscription's bill).
 //
-// orch-usage [--since <ISO date>] [--session <id>] [--project <dir>] [--context]
+// orch-usage [--since <ISO date>] [--session <id>] [--project <dir>] [--context | --agents]
+//
+// --agents lists each agent run (type, description, model) with its cost, to
+// compare a chantier's tokens with the weekly counter.
 //
 // --context prints the context size of the session (default: the most recent
 // one), i.e. input + cache read + cache write of its last request.
@@ -42,7 +45,7 @@ if (typeof opts.session === "string" && !sessions.some((s) => s.id === opts.sess
 
 // Streamed replies repeat the same message id + request id on several lines
 // with partial counts: keep the maximum of each counter.
-function readRequests(file, kind, since, requests) {
+function readRequests(file, kind, since, requests, agent = null) {
   for (const line of readFileSync(file, "utf8").split("\n")) {
     if (!line.includes('"usage"')) continue;
     let o;
@@ -62,7 +65,7 @@ function readRequests(file, kind, since, requests) {
     const v = [u.input_tokens ?? 0, w5, w1, u.cache_read_input_tokens ?? 0, u.output_tokens ?? 0];
     const id = `${m.id}:${o.requestId ?? ""}`;
     const prev = requests.get(id);
-    requests.set(id, { kind, model: m.model, ts: o.timestamp, v: prev ? prev.v.map((x, i) => Math.max(x, v[i])) : v });
+    requests.set(id, { kind, agent, model: m.model, ts: o.timestamp, v: prev ? prev.v.map((x, i) => Math.max(x, v[i])) : v });
   }
 }
 
@@ -70,6 +73,17 @@ function priceOf(model, v) {
   let p = PRICES[model];
   if (!p && model.startsWith("claude-haiku-5-5")) p = v[0] + v[1] + v[2] + v[3] > HAIKU.limit ? HAIKU.large : HAIKU.small;
   return p ? v.map((x, i) => (x / 1e6) * p[i]) : null;
+}
+
+// The transcript's sibling .meta.json names the agent type and its task.
+function agentInfo(file) {
+  const id = file.replace(/^.*agent-/, "").replace(/.jsonl$/, "");
+  try {
+    const m = JSON.parse(readFileSync(file.replace(/.jsonl$/, ".meta.json"), "utf8"));
+    return { id, type: m.agentType ?? "?", description: m.description ?? "" };
+  } catch {
+    return { id, type: "?", description: "" };
+  }
 }
 
 const k = (n) => `${Math.round(n / 1e3)}K`;
@@ -95,7 +109,26 @@ for (const s of sessions) {
   readRequests(s.path, "conversation", since, requests);
   const sub = join(dir, s.id, "subagents");
   if (!existsSync(sub)) continue;
-  for (const n of readdirSync(sub)) if (n.endsWith(".jsonl")) readRequests(join(sub, n), "agent", since, requests);
+  for (const n of readdirSync(sub).filter((x) => x.endsWith(".jsonl"))) readRequests(join(sub, n), "agent", since, requests, agentInfo(join(sub, n)));
+}
+
+if (opts.agents) {
+  const runs = new Map();
+  for (const r of requests.values()) {
+    if (r.kind !== "agent") continue;
+    const run = runs.get(r.agent.id) ?? { agent: r.agent, model: r.model, n: 0, cost: 0, priced: true, ts: r.ts };
+    const c = priceOf(r.model, r.v);
+    run.n++;
+    if (c) run.cost += c.reduce((a, x) => a + x, 0);
+    else run.priced = false;
+    if (r.ts < run.ts) run.ts = r.ts;
+    runs.set(r.agent.id, run);
+  }
+  console.log(`Agents since ${since.toISOString().slice(0, 16)}Z (API-equivalent $)`);
+  console.log("started	type	model	requests	$	description");
+  for (const r of [...runs.values()].sort((a, b) => (a.ts < b.ts ? -1 : 1)))
+    console.log(`${r.ts.slice(0, 16)}	${r.agent.type}	${r.model}	${r.n}	${r.priced ? r.cost.toFixed(2) : "?"}	${r.agent.description}`);
+  process.exit(0);
 }
 
 const rows = new Map();

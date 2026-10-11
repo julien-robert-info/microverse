@@ -5,28 +5,7 @@
 // agent-cleanup <branch>
 "use strict";
 
-const { fail, git, normPath, parseArgs, repoRoot, run, worktreeFor } = require("../scripts/orch-lib.js");
-
-function processes() {
-  if (process.platform === "win32") {
-    const r = run("powershell.exe", [
-      "-NoProfile",
-      "-Command",
-      "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress",
-    ]);
-    if (r.code !== 0) fail(`cannot read the process list: ${r.err.trim()}`);
-    const list = JSON.parse(r.out || "[]");
-    return (Array.isArray(list) ? list : [list]).map((p) => ({ pid: p.ProcessId, ppid: p.ParentProcessId, line: p.CommandLine ?? "" }));
-  }
-  const r = run("ps", ["-eo", "pid=,ppid=,args="]);
-  return r.out
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => {
-      const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l);
-      return { pid: Number(m?.[1]), ppid: Number(m?.[2]), line: m?.[3] ?? "" };
-    });
-}
+const { fail, git, listProcesses, normPath, parseArgs, repoRoot, worktreeFor } = require("../scripts/orch-lib.js");
 
 const opts = parseArgs(process.argv.slice(2));
 const branch = opts._[0];
@@ -41,7 +20,7 @@ if (git(["merge-base", "--is-ancestor", branch, "HEAD"], root).code !== 0) fail(
 if (wt) {
   if (normPath(wt) === normPath(root)) fail(`${branch} is the main checkout's branch: nothing to clean up here`);
   const marker = normPath(wt);
-  const all = processes();
+  const all = listProcesses();
   // When the caller ran `cd <worktree> && agent-cleanup`, the shell executing this
   // command carries the worktree path in its own command line: skip ancestors.
   const mine = new Set([process.pid]);

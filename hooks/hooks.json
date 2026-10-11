@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe",
-            "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PLUGIN_ROOT}/scripts/stop-agent-servers.ps1"],
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/stop-agent-servers.js"],
             "timeout": 30
           }
         ]

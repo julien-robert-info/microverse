@@ -52,7 +52,7 @@ function loadProfile(root) {
   try {
     return JSON.parse(readFileSync(file, "utf8"));
   } catch (e) {
-    fail(`profil illisible (${file}) : ${e.message}`);
+    fail(`unreadable profile (${file}): ${e.message}`);
   }
 }
 
@@ -79,4 +79,31 @@ function normPath(p) {
   return p.replace(/\//g, "\\").toLowerCase();
 }
 
-module.exports = { run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath };
+// Running processes as { pid, ppid, name, line }, on Windows (CIM) and POSIX (ps).
+function listProcesses() {
+  if (process.platform === "win32") {
+    const r = run("powershell.exe", [
+      "-NoProfile",
+      "-Command",
+      "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress",
+    ]);
+    if (r.code !== 0) fail(`cannot read the process list: ${r.err.trim()}`);
+    const list = JSON.parse(r.out || "[]");
+    return (Array.isArray(list) ? list : [list]).map((p) => ({
+      pid: p.ProcessId,
+      ppid: p.ParentProcessId,
+      name: p.Name ?? "",
+      line: p.CommandLine ?? "",
+    }));
+  }
+  const r = run("ps", ["-eo", "pid=,ppid=,comm=,args="]);
+  return r.out
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => {
+      const m = /^\s*(\d+)\s+(\d+)\s+(\S+)\s*(.*)$/.exec(l);
+      return { pid: Number(m?.[1]), ppid: Number(m?.[2]), name: m?.[3] ?? "", line: m?.[4] ?? "" };
+    });
+}
+
+module.exports = { run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses };
