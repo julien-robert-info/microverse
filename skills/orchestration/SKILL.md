@@ -99,8 +99,11 @@ Agent(subagent_type: "microverse:meeseeks", model: "haiku",
 
 Written at every stop of the chain (no planned task left, quota threshold,
 blocking question, conversation switch) and at every user request. It covers
-everything since the previous one, whose commit is noted in the state file
-(`git log --oneline <commit>..main`). It stands on its own, in this order:
+everything since the previous one, whose commit is noted in the state file.
+Start from `orch-report --since <last report commit>` (same quota options as
+§ 1): it prints the merges, the agent runs and their cost, the quota and the
+context size. Write on top of it the decisions, requests, open points and next
+steps. The report stands on its own, in this order:
 
 1. **Merged**: per task, what changes for the user, with the commit.
 2. **Decisions taken alone**, to confirm: the rule, the alternative dropped,

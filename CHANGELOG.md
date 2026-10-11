@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Script `orch-report --since <commit>`: the mechanical parts of the series
+  report (merges, agent runs and cost, quota, context size) in Markdown.
+
 ## 0.1.0
 
 - Skills `orchestration` and `init`.
