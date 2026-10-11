@@ -11,8 +11,8 @@ cleans up; the launch pace follows the usage quota.
 |---|---|
 | skill `orchestration` | procedure: roles and models, budget, brief, reception, series report, conversation switch |
 | skill `init` | writes a project's orchestration profile |
-| agent `meeseeks` (Sonnet) | implements a brief in its worktree |
-| agent `morty` (Haiku, read-only) | answers one question with facts and their evidence |
+| agent `meeseeks` (Haiku) | implements a brief in its worktree |
+| agent `morty` (Sonnet, read-only) | answers one question with facts and their evidence |
 | agent `rick` (Opus, read-only) | reviews a risky diff, returns ranked defects |
 | `orch-quota` | reads the quota counters and advises the launch pace |
 | `orch-usage` | tokens and API-equivalent cost per model, context size of a session |

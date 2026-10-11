@@ -1,7 +1,7 @@
 ---
 name: meeseeks
 description: Implements one well-specified task in its own worktree and branch, then reports. Use for scoped code changes whose design is already decided; keep design questions and investigations for a stronger model.
-model: sonnet
+model: haiku
 effort: medium
 isolation: worktree
 background: true

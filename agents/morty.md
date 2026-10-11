@@ -1,7 +1,7 @@
 ---
 name: morty
 description: Answers one factual question about the repository, its data or its logs, and returns the facts with their evidence in at most 30 lines. Read-only. Use to keep bulky raw output (logs, SQL results, large files, long command output) out of the orchestrator's context.
-model: haiku
+model: sonnet
 effort: low
 maxTurns: 30
 disallowedTools: Edit, Write, NotebookEdit, Agent

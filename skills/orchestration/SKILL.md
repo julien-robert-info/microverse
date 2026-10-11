@@ -29,8 +29,8 @@ loss:
 |---|---|---|
 | design conversation | Opus | investigation, rules, brief |
 | execution conversation | Sonnet | launch, review a mechanical diff, merge, clean up, status, report |
-| `microverse:meeseeks` | Sonnet | implements a brief in its worktree |
-| `microverse:morty` | Haiku | reads and summarizes: one question, facts with their evidence |
+| `microverse:meeseeks` | Haiku | implements a brief in its worktree |
+| `microverse:morty` | Sonnet | reads and summarizes: one question, facts with their evidence |
 | `microverse:rick` | Opus | reviews a risky diff, fixes nothing |
 
 - The conversation's model is chosen when it opens and never changes: the cache
@@ -59,10 +59,10 @@ loss:
 ## 2. Launch
 
 ```
-Agent(subagent_type: "microverse:meeseeks", model: "sonnet",
+Agent(subagent_type: "microverse:meeseeks", model: "haiku",
       isolation: "worktree", run_in_background: true,
       description: "<3-5 words>", prompt: <brief>)
-Agent(subagent_type: "microverse:morty", model: "haiku",
+Agent(subagent_type: "microverse:morty", model: "sonnet",
       description: "<3-5 words>", prompt: <one question>)
 ```
 
