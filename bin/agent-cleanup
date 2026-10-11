@@ -1,0 +1,60 @@
+#!/usr/bin/env node
+// Removes an agent's worktree and its merged branch. Refuses while a process
+// still runs from the worktree: a forgotten server locks the folder on Windows.
+//
+// agent-cleanup <branch>
+"use strict";
+
+const { fail, git, normPath, parseArgs, repoRoot, run, worktreeFor } = require("../scripts/orch-lib.js");
+
+function processes() {
+  if (process.platform === "win32") {
+    const r = run("powershell.exe", [
+      "-NoProfile",
+      "-Command",
+      "Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress",
+    ]);
+    if (r.code !== 0) fail(`liste des processus illisible : ${r.err.trim()}`);
+    const list = JSON.parse(r.out || "[]");
+    return (Array.isArray(list) ? list : [list]).map((p) => ({ pid: p.ProcessId, line: p.CommandLine ?? "" }));
+  }
+  const r = run("ps", ["-eo", "pid=,args="]);
+  return r.out
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => {
+      const m = /^\s*(\d+)\s+(.*)$/.exec(l);
+      return { pid: Number(m?.[1]), line: m?.[2] ?? "" };
+    });
+}
+
+const opts = parseArgs(process.argv.slice(2));
+const branch = opts._[0];
+if (!branch) fail("usage : agent-cleanup <branche>");
+const root = repoRoot();
+const wt = worktreeFor(root, branch);
+
+// Checked first, so an unmerged branch keeps its worktree.
+if (git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], root).code !== 0) fail(`branche introuvable : ${branch}`);
+if (git(["merge-base", "--is-ancestor", branch, "HEAD"], root).code !== 0) fail(`REFUS : ${branch} n'est pas mergée dans la branche courante`);
+
+if (wt) {
+  if (normPath(wt) === normPath(root)) fail(`${branch} est la branche du dépôt principal : rien à nettoyer ici`);
+  const marker = normPath(wt);
+  const busy = processes().filter((p) => p.pid !== process.pid && normPath(p.line).includes(marker));
+  if (busy.length) {
+    console.log(`REFUS : processus encore en cours dans ${wt} (${busy.length}) :`);
+    for (const p of busy) console.log(`    ${p.pid} ${p.line.slice(0, 160)}`);
+    console.log("Les arrêter (ou attendre leur fin), puis relancer.");
+    process.exit(1);
+  }
+  // Agent worktrees are locked; unlocking one that is not fails harmlessly.
+  git(["worktree", "unlock", wt], root);
+  const rm = git(["worktree", "remove", wt], root);
+  if (rm.code !== 0) fail(`git worktree remove a échoué : ${rm.err.trim()}`);
+  console.log(`OK worktree supprimé : ${wt}`);
+} else console.log("worktree : aucun pour cette branche");
+
+const del = git(["branch", "-d", branch], root);
+if (del.code !== 0) fail(`git branch -d a échoué (branche non mergée ?) : ${del.err.trim()}`);
+console.log(`OK branche supprimée : ${branch}`);

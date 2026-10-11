@@ -1,0 +1,83 @@
+#!/usr/bin/env node
+// Mechanical checks on an agent's branch before reading its diff: commits
+// exist, worktree is clean, the profile's checks pass, no suspicious pattern in
+// the added lines. Prints OK or the tail of each failure only.
+//
+// agent-check <branch> [--base main] [--no-checks]
+//
+// Exit code: 0 when everything passes, 1 otherwise.
+"use strict";
+
+const { spawnSync } = require("node:child_process");
+const { defaultBase, fail, git, loadProfile, parseArgs, repoRoot, worktreeFor } = require("../scripts/orch-lib.js");
+
+const TAIL = 25;
+// UTF-8 text decoded as cp1252 then re-encoded: U+00E9 becomes U+00C3 U+00A9,
+// U+2014 becomes U+00E2 U+20AC U+201D. Escaped so this file does not match itself.
+const BUILTIN = [{ pattern: "\\u00C3[\\u0080-\\u00BF\\u2018-\\u2030]|\\u00E2\\u20AC", why: "double encodage UTF-8" }];
+
+const opts = parseArgs(process.argv.slice(2));
+const branch = opts._[0];
+if (!branch) fail("usage : agent-check <branche> [--base main] [--no-checks]");
+const root = repoRoot();
+const base = typeof opts.base === "string" ? opts.base : defaultBase(root);
+const profile = loadProfile(root) ?? {};
+let ok = true;
+const tail = (text) => text.trimEnd().split(/\r?\n/).slice(-TAIL).map((l) => `    ${l}`).join("\n");
+
+const log = git(["log", "--oneline", `${base}..${branch}`], root);
+if (log.code !== 0) fail(`branche introuvable : ${branch}\n${log.err.trim()}`);
+const commits = log.out.trim().split("\n").filter(Boolean);
+if (!commits.length) {
+  console.log(`ÉCHEC commits : aucun commit sur ${branch} depuis ${base} (l'agent a-t-il travaillé, ou délégué ?)`);
+  process.exit(1);
+}
+console.log(`commits (${commits.length}) :\n${commits.map((c) => `    ${c}`).join("\n")}`);
+
+const changed = git(["diff", "--name-only", `${base}...${branch}`], root).out.trim().split("\n").filter(Boolean);
+const wt = worktreeFor(root, branch);
+if (!wt) console.log("worktree : aucun pour cette branche, checks lancés nulle part");
+else {
+  const status = git(["status", "--porcelain"], wt).out.trimEnd();
+  if (status) {
+    ok = false;
+    console.log(`ÉCHEC worktree : modifications non commitées dans ${wt}\n${tail(status)}`);
+  } else console.log("OK worktree propre");
+
+  // A check with `paths` runs only when the diff touches one of these prefixes.
+  for (const check of opts["no-checks"] ? [] : (profile.checks ?? [])) {
+    const name = check.name ?? check.run;
+    if (Array.isArray(check.paths) && !changed.some((f) => check.paths.some((p) => f.startsWith(p)))) {
+      console.log(`--  ${name} : sauté (aucun fichier sous ${check.paths.join(", ")})`);
+      continue;
+    }
+    const r = spawnSync(check.run, { cwd: wt, shell: true, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    if (r.status === 0) console.log(`OK  ${name}`);
+    else {
+      ok = false;
+      console.log(`ÉCHEC ${name} (code ${r.status ?? "?"}) :\n${tail(`${r.stdout ?? ""}\n${r.stderr ?? ""}`)}`);
+    }
+  }
+}
+
+// Patterns are matched on added lines only, reported as file:line.
+const patterns = [...BUILTIN, ...(profile.diffPatterns ?? [])].map((p) => ({ re: new RegExp(p.pattern), why: p.why ?? p.pattern }));
+const diff = git(["diff", "--unified=0", "--no-color", `${base}...${branch}`], root).out;
+const hits = [];
+let file = null;
+let line = 0;
+for (const l of diff.split("\n")) {
+  if (l.startsWith("+++ ")) file = l.slice(4).replace(/^b\//, "");
+  else if (l.startsWith("@@")) line = Number(/\+(\d+)/.exec(l)?.[1] ?? 0);
+  else if (l.startsWith("+")) {
+    for (const p of patterns) if (p.re.test(l.slice(1))) hits.push(`    ${file}:${line} ${p.why} : ${l.slice(1).trim().slice(0, 120)}`);
+    line++;
+  }
+}
+if (hits.length) {
+  ok = false;
+  console.log(`ÉCHEC motifs (${hits.length}) :\n${hits.slice(0, 40).join("\n")}`);
+} else console.log(`OK  motifs (${patterns.length})`);
+
+console.log(ok ? `\n${branch} : tout est vert` : `\n${branch} : à corriger`);
+process.exit(ok ? 0 : 1);

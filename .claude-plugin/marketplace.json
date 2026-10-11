@@ -1,0 +1,14 @@
+{
+  "name": "microverse",
+  "description": "Catalogue du plugin microverse.",
+  "owner": {
+    "name": "Julien Robert"
+  },
+  "plugins": [
+    {
+      "name": "microverse",
+      "source": "./",
+      "description": "Conduite d'un projet par chantiers délégués à des agents en arrière-plan : une tâche, une branche, un worktree."
+    }
+  ]
+}

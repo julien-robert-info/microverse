@@ -1,0 +1,123 @@
+#!/usr/bin/env node
+// Reads the quota counters recorded by the VS Code extension "Claude Code
+// Usage" (growthjack) and turns them into a pacing advice for launching agents.
+//
+// orch-quota [--target 98] [--reserve 30] [--five-hour 90] [--file <path>]
+//
+// The weekly window is split in two periods: the weekend (window start to
+// Sunday 24:00 local time) may use up to target - reserve %, the weekdays
+// share the rest up to the target. The window is assumed to start at the end
+// of a week.
+"use strict";
+
+const { existsSync, readFileSync } = require("node:fs");
+const { homedir } = require("node:os");
+const { join } = require("node:path");
+const { parseArgs } = require("../scripts/orch-lib.js");
+
+const HOUR = 3600e3;
+const DAY = 24 * HOUR;
+const AHEAD = 5; // points above the pacing line before advising to slow down
+const BEHIND = 10; // points below it before advising to speed up
+const AGENT_COST = 3; // weekly points a meeseeks may still use once launched
+const FIVE_HOUR_RESUME = 5; // points above the five-hour limit where resuming stops too
+
+const opts = parseArgs(process.argv.slice(2));
+const num = (v, d) => (v === undefined || v === true || Number.isNaN(Number(v)) ? d : Number(v));
+const target = num(opts.target, 98);
+const reserve = num(opts.reserve, 30);
+const fiveLimit = num(opts["five-hour"], 90);
+
+function defaultFile() {
+  const rel = ["Code", "User", "globalStorage", "growthjack.claude-code-usage", "quota-observations-v2.json"];
+  if (process.platform === "win32") return join(process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"), ...rel);
+  if (process.platform === "darwin") return join(homedir(), "Library", "Application Support", ...rel);
+  return join(homedir(), ".config", ...rel);
+}
+
+// An unset plugin option can reach us as an empty string or as the literal
+// `${user_config.quota_file}`: both mean "use the default location".
+const given = typeof opts.file === "string" && opts.file && !opts.file.includes("${") ? opts.file : null;
+const file = given ?? defaultFile();
+if (!existsSync(file)) {
+  console.log(`Compteurs introuvables : ${file} absent.`);
+  console.log("Demander à l'utilisateur ses deux compteurs (5h et semaine, en %).");
+  process.exit(1);
+}
+
+let observations;
+try {
+  observations = JSON.parse(readFileSync(file, "utf8")).observations ?? [];
+} catch (e) {
+  console.log(`Compteurs illisibles (${file}) : ${e.message}`);
+  process.exit(1);
+}
+
+const byType = (type) =>
+  observations
+    .filter((o) => o.periodType === type && (o.provider ?? "claude") === "claude")
+    .sort((a, b) => a.observedAt - b.observedAt);
+const five = byType("five-hour");
+const week = byType("seven-day");
+if (!week.length) {
+  console.log("Aucun relevé hebdomadaire dans le fichier : demander les compteurs à l'utilisateur.");
+  process.exit(1);
+}
+
+const now = Date.now();
+const w = week.at(-1);
+const f = five.at(-1);
+const used7 = Math.round(w.usedFraction * 100);
+// A five-hour reading whose reset has passed is stale: the counter is back to 0.
+const used5 = f && f.resetAt > now ? Math.round(f.usedFraction * 100) : 0;
+
+const fmt = (ms) =>
+  new Date(ms).toLocaleString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const hours = (ms) => `${Math.max(0, ms / HOUR).toFixed(ms < 10 * HOUR ? 1 : 0).replace(".", ",")} h`;
+
+const windowStart = w.resetAt - 7 * DAY;
+const monday = new Date(windowStart);
+monday.setHours(0, 0, 0, 0);
+do monday.setDate(monday.getDate() + 1);
+while (monday.getDay() !== 1);
+const weekendEnd = monday.getTime();
+const hasWeekend = weekendEnd - windowStart <= 3 * DAY;
+
+let period;
+if (hasWeekend && now < weekendEnd) period = { name: "week-end", start: windowStart, end: weekendEnd, target: target - reserve };
+else if (hasWeekend) period = { name: "semaine", start: weekendEnd, end: w.resetAt, target };
+else period = { name: "fenêtre entière", start: windowStart, end: w.resetAt, target };
+
+// Usage when the period began: the last reading of this window taken before
+// it, else 0 at the window start, else the first reading inside the period.
+const sameWindow = week.filter((o) => Math.abs(o.resetAt - w.resetAt) < HOUR);
+const before = sameWindow.filter((o) => o.observedAt <= period.start).at(-1);
+let startUsed;
+if (before) startUsed = before.usedFraction * 100;
+else if (period.start === windowStart) startUsed = 0;
+else startUsed = (sameWindow.find((o) => o.observedAt >= period.start) ?? w).usedFraction * 100;
+
+const elapsed = Math.min(1, Math.max(0, (now - period.start) / (period.end - period.start)));
+const expected = startUsed + (period.target - startUsed) * elapsed;
+const delta = used7 - expected;
+const reset5 = f ? ` jusqu'à la remise à zéro du compteur 5h (${fmt(f.resetAt)})` : "";
+
+let advice;
+if (used7 >= target) advice = `arrêt : plus de reprise d'agent (≥ ${target} %) ; garder le reste pour les questions de fin de semaine`;
+else if (used7 >= target - AGENT_COST) advice = `aucun nouvel agent (≥ ${target - AGENT_COST} %) : finir, relire et merger ceux en cours`;
+else if (used5 >= fiveLimit + FIVE_HOUR_RESUME) advice = `plus de reprise d'agent${reset5}`;
+else if (used5 >= fiveLimit) advice = `aucun nouvel agent${reset5}`;
+else if (used7 >= period.target || delta > AHEAD) advice = "lisser : aucun nouvel agent tant que le compteur ne repasse pas sous la ligne";
+else if (delta < -BEHIND) advice = "accélérer : deux meeseeks sur des zones distinctes (un seul sur une ressource partagée)";
+else advice = "normal : un meeseeks à la fois";
+
+const age = now - Math.max(w.observedAt, f?.observedAt ?? 0);
+console.log(
+  `Compteurs : 5h ${used5} %${f && f.resetAt > now ? ` (remise à zéro ${fmt(f.resetAt)})` : ""}, semaine ${used7} % (remise à zéro ${fmt(w.resetAt)})`,
+);
+if (age > 2 * HOUR) console.log(`Attention : dernier relevé il y a ${hours(age)} (l'extension met à jour le fichier quand VS Code tourne).`);
+console.log(`Période : ${period.name} jusqu'à ${fmt(period.end)}, ${hours(period.end - now)} restantes, cible ${period.target} %`);
+console.log(
+  `Rythme : attendu ${Math.round(expected)} % à cette heure, réel ${used7} % (${delta >= 0 ? "+" : ""}${Math.round(delta)} points) ; reste ${Math.max(0, period.target - used7)} points pour la période`,
+);
+console.log(`Conseil : ${advice}`);

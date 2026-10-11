@@ -1,0 +1,46 @@
+{
+  "name": "microverse",
+  "version": "0.1.0",
+  "description": "Conduite d'un projet par chantiers délégués à des agents en arrière-plan : une tâche, une branche, un worktree.",
+  "author": {
+    "name": "Julien Robert"
+  },
+  "license": "UNLICENSED",
+  "keywords": [
+    "orchestration",
+    "agents",
+    "worktree",
+    "quota"
+  ],
+  "userConfig": {
+    "week_target": {
+      "type": "number",
+      "title": "Cible en fin de semaine (%)",
+      "description": "Consommation visée à la remise à zéro hebdomadaire ; au-delà, plus de reprise d'agent, et plus de nouvel agent 3 points avant.",
+      "default": 98,
+      "min": 0,
+      "max": 100
+    },
+    "weekday_reserve": {
+      "type": "number",
+      "title": "Réserve des jours de semaine (%)",
+      "description": "Points gardés pour les jours de semaine ; le week-end peut monter jusqu'à la cible moins cette valeur.",
+      "default": 30,
+      "min": 0,
+      "max": 100
+    },
+    "five_hour_limit": {
+      "type": "number",
+      "title": "Seuil du compteur 5h (%)",
+      "description": "Au-delà, aucun nouvel agent jusqu'à la remise à zéro du compteur 5h ; 5 points plus haut, plus de reprise.",
+      "default": 90,
+      "min": 0,
+      "max": 100
+    },
+    "quota_file": {
+      "type": "file",
+      "title": "Fichier des compteurs de quota",
+      "description": "quota-observations-v2.json de l'extension VS Code « Claude Code Usage ». Vide : emplacement par défaut de l'extension."
+    }
+  }
+}

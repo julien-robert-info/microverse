@@ -1,0 +1,123 @@
+#!/usr/bin/env node
+// Token usage of a project from the Claude Code transcripts, by model and token
+// type, priced at API rates (an equivalent, not the subscription's bill).
+//
+// orch-usage [--since <ISO date>] [--session <id>] [--project <dir>] [--context]
+//
+// --context prints the context size of the session (default: the most recent
+// one), i.e. input + cache read + cache write of its last request.
+"use strict";
+
+const { existsSync, readdirSync, readFileSync, statSync } = require("node:fs");
+const { homedir } = require("node:os");
+const { join } = require("node:path");
+const { fail, parseArgs } = require("../scripts/orch-lib.js");
+
+const CONTEXT_LIMIT = 150e3;
+// $/MTok: input, 5m cache write, 1h cache write, cache read, output.
+const PRICES = {
+  "claude-opus-5-5": [4, 5, 8, 0.2, 20],
+  "claude-sonnet-5-5": [2, 2.5, 4, 0.1, 10],
+  "claude-sonnet-5": [2, 2.5, 4, 0.2, 10],
+};
+// Haiku 5.5 is priced by request size: above 100K tokens of context, x5.
+const HAIKU = { small: [0.1, 0.125, 0.2, 0.01, 0.5], large: [0.5, 0.625, 1, 0.05, 2.5], limit: 100e3 };
+
+const opts = parseArgs(process.argv.slice(2));
+const projectDir = typeof opts.project === "string" ? opts.project : process.cwd();
+
+// Claude Code names a project's folder after its path, every character other
+// than a letter or digit replaced by "-". The drive letter's case varies.
+const root = join(homedir(), ".claude", "projects");
+const slug = projectDir.replace(/[^A-Za-z0-9]/g, "-").toLowerCase();
+const folder = existsSync(root) && readdirSync(root).find((n) => n.toLowerCase() === slug);
+if (!folder) fail(`aucune conversation pour ${projectDir} dans ${root}`);
+const dir = join(root, folder);
+
+const sessions = readdirSync(dir)
+  .filter((n) => n.endsWith(".jsonl"))
+  .map((n) => ({ id: n.slice(0, -6), path: join(dir, n), mtime: statSync(join(dir, n)).mtimeMs }))
+  .sort((a, b) => b.mtime - a.mtime);
+if (typeof opts.session === "string" && !sessions.some((s) => s.id === opts.session)) fail(`session ${opts.session} introuvable`);
+
+// Streamed replies repeat the same message id + request id on several lines
+// with partial counts: keep the maximum of each counter.
+function readRequests(file, kind, since, requests) {
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    if (!line.includes('"usage"')) continue;
+    let o;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const m = o.message;
+    if (!m?.usage || !m.model?.startsWith("claude")) continue;
+    if (since && new Date(o.timestamp) < since) continue;
+    const u = m.usage;
+    const cc = u.cache_creation ?? {};
+    let w5 = cc.ephemeral_5m_input_tokens ?? 0;
+    const w1 = cc.ephemeral_1h_input_tokens ?? 0;
+    if (!u.cache_creation && u.cache_creation_input_tokens) w5 = u.cache_creation_input_tokens;
+    const v = [u.input_tokens ?? 0, w5, w1, u.cache_read_input_tokens ?? 0, u.output_tokens ?? 0];
+    const id = `${m.id}:${o.requestId ?? ""}`;
+    const prev = requests.get(id);
+    requests.set(id, { kind, model: m.model, ts: o.timestamp, v: prev ? prev.v.map((x, i) => Math.max(x, v[i])) : v });
+  }
+}
+
+function priceOf(model, v) {
+  let p = PRICES[model];
+  if (!p && model.startsWith("claude-haiku-5-5")) p = v[0] + v[1] + v[2] + v[3] > HAIKU.limit ? HAIKU.large : HAIKU.small;
+  return p ? v.map((x, i) => (x / 1e6) * p[i]) : null;
+}
+
+const k = (n) => `${Math.round(n / 1e3)}K`;
+
+if (opts.context) {
+  const s = sessions.find((x) => x.id === opts.session) ?? sessions[0];
+  if (!s) fail("aucune conversation");
+  const requests = new Map();
+  readRequests(s.path, "conversation", null, requests);
+  const last = [...requests.values()].sort((a, b) => (a.ts < b.ts ? -1 : 1)).at(-1);
+  if (!last) fail(`aucune requête dans la session ${s.id}`);
+  const ctx = last.v[0] + last.v[1] + last.v[2] + last.v[3];
+  const verdict = ctx >= CONTEXT_LIMIT ? "au-delà du seuil : changer de conversation au prochain moment sans agent en attente" : "sous le seuil";
+  console.log(`Session ${s.id} (${last.model}) : contexte ${k(ctx)} tokens, seuil ${k(CONTEXT_LIMIT)} ; ${verdict}`);
+  process.exit(0);
+}
+
+const since = typeof opts.since === "string" ? new Date(opts.since) : new Date(Date.now() - 7 * 24 * 3600e3);
+if (Number.isNaN(since.getTime())) fail(`date invalide : ${opts.since}`);
+const requests = new Map();
+for (const s of sessions) {
+  if (typeof opts.session === "string" && s.id !== opts.session) continue;
+  readRequests(s.path, "conversation", since, requests);
+  const sub = join(dir, s.id, "subagents");
+  if (!existsSync(sub)) continue;
+  for (const n of readdirSync(sub)) if (n.endsWith(".jsonl")) readRequests(join(sub, n), "agent", since, requests);
+}
+
+const rows = new Map();
+for (const r of requests.values()) {
+  const key = `${r.kind}\t${r.model}`;
+  const row = rows.get(key) ?? { n: 0, v: [0, 0, 0, 0, 0], cost: [0, 0, 0, 0, 0], priced: true };
+  const c = priceOf(r.model, r.v);
+  row.n++;
+  row.v = row.v.map((x, i) => x + r.v[i]);
+  if (c) row.cost = row.cost.map((x, i) => x + c[i]);
+  else row.priced = false;
+  rows.set(key, row);
+}
+
+const M = (x) => (x / 1e6).toFixed(2);
+const $ = (x) => x.toFixed(2);
+console.log(`Depuis ${since.toISOString().slice(0, 16)}Z${typeof opts.session === "string" ? `, session ${opts.session}` : ""} (tokens en millions, coûts en $ équivalent API)`);
+console.log("type\tmodèle\trequêtes\tentrée\técr.5m\técr.1h\tlecture\tsortie\t$total");
+let total = 0;
+for (const [key, row] of [...rows].sort()) {
+  const cost = row.cost.reduce((s, x) => s + x, 0);
+  total += cost;
+  console.log(`${key}\t${row.n}\t${row.v.map(M).join("\t")}\t${row.priced ? $(cost) : "?"}`);
+}
+console.log(`total\t\t\t\t\t\t\t\t${$(total)}${[...rows.values()].some((r) => !r.priced) ? " (hors modèles sans tarif)" : ""}`);
