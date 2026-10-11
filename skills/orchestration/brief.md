@@ -1,4 +1,4 @@
-# A meeseeks' brief
+# A morty's brief
 
 The agent starts with no context. What holds for every task (worktree setup,
 conventions, generic traps, checks, report format) is in its definition; what

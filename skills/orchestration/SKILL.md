@@ -29,8 +29,8 @@ loss:
 |---|---|---|
 | design conversation | Opus | investigation, rules, brief |
 | execution conversation | Sonnet | launch, review a mechanical diff, merge, clean up, status, report |
-| `microverse:meeseeks` | Haiku | implements a brief in its worktree |
-| `microverse:morty` | Sonnet | reads and summarizes: one question, facts with their evidence |
+| `microverse:morty` | Sonnet | implements a brief in its worktree |
+| `microverse:meeseeks` | Haiku | reads and summarizes: one question, facts with their evidence |
 | `microverse:rick` | Opus | reviews a risky diff, fixes nothing |
 
 - The conversation's model is chosen when it opens and never changes: the cache
@@ -40,7 +40,7 @@ loss:
 - Pass the model **explicitly** at every launch (`model:` of the Agent tool):
   the agent definition alone has not always sufficed.
 - Anything mechanical goes through a script (zero model tokens); bulky raw
-  output (logs, SQL results, large files) goes through a `morty`, to stay out
+  output (logs, SQL results, large files) goes through a `meeseeks`, to stay out
   of the orchestrator's context.
 
 ## 1. Before launching
@@ -48,7 +48,7 @@ loss:
 - **Budget**: `orch-quota --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --file "${user_config.quota_file}"`.
   Follow its advice (speed up, normal, smooth out, no new agent, stop); details
   and the no-file case in `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/budget.md`.
-- **Parallelism**: two `meeseeks` at once only on the "speed up" advice, on
+- **Parallelism**: two `morty` at once only on the "speed up" advice, on
   distinct code zones, and never two on the same `shared` resource of the
   profile (schema, local database…). A task that takes a shared resource
   reserves it in the state file.
@@ -59,10 +59,10 @@ loss:
 ## 2. Launch
 
 ```
-Agent(subagent_type: "microverse:meeseeks", model: "haiku",
+Agent(subagent_type: "microverse:morty", model: "sonnet",
       isolation: "worktree", run_in_background: true,
       description: "<3-5 words>", prompt: <brief>)
-Agent(subagent_type: "microverse:morty", model: "sonnet",
+Agent(subagent_type: "microverse:meeseeks", model: "haiku",
       description: "<3-5 words>", prompt: <one question>)
 ```
 
@@ -70,7 +70,7 @@ Agent(subagent_type: "microverse:morty", model: "sonnet",
 - Launch from the main repository root: the worktree starts from the `HEAD` of
   the current directory. On Windows a lowercase drive letter (`d:`) makes the
   worktree creation fail: `cd "D:/…"`.
-- A `morty` takes one question; several questions, several `morty`. It does not
+- A `meeseeks` takes one question; several questions, several `meeseeks`. It does not
   count toward parallelism.
 
 ## 3. When the report arrives
@@ -135,7 +135,7 @@ user to open the screens.
 The state file holds **a single list** of what is asked of the user:
 
 - **verify yourself first** everything that can be (database, logs, local
-  rendering, `git`), through a `morty` if needed; ask only what requires the
+  rendering, `git`), through a `meeseeks` if needed; ask only what requires the
   user: a screen, a gesture in the application, a decision;
 - **a request counts as done once made**: it leaves the list when the report is
   delivered; only questions awaiting an answer stay;

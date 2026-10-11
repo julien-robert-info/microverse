@@ -43,7 +43,7 @@ configuration, the project's `CLAUDE.md`, the skills and agents under
 }
 ```
 
-- `setup`: commands the `meeseeks` runs in order in a fresh worktree.
+- `setup`: commands the `morty` runs in order in a fresh worktree.
 - `checks`: run by `agent-check` in the agent's worktree, and by the agent
   before its report. `paths` (optional): path prefixes; the check runs only if
   the diff touches one of them.

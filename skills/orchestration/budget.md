@@ -37,10 +37,10 @@ In order, the first that applies:
 | 5h ≥ `five_hour_limit` + 5 | no more resuming until the 5h counter resets |
 | 5h ≥ `five_hour_limit` | no new agent until the 5h counter resets |
 | more than 5 points above the line, or target reached | **smooth out**: no new agent until the counter drops back under the line |
-| more than 10 points below the line | **speed up**: two `meeseeks` on distinct zones, only one on a shared resource |
-| otherwise | **normal**: one `meeseeks` at a time |
+| more than 10 points below the line | **speed up**: two `morty` on distinct zones, only one on a shared resource |
+| otherwise | **normal**: one `morty` at a time |
 
-`morty` agents do not count. A `rick` (Opus) counts as an agent: keep it for
+`meeseeks` agents do not count. A `rick` (Opus) counts as an agent: keep it for
 risky diffs.
 
 ## Cost, to decide
