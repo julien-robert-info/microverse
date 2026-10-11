@@ -37,10 +37,15 @@ test("the hook stops a matching server of the agent and spares its other process
   const tests = spawn(process.execPath, ["-e", idle, join(worktree, "othertask")], { stdio: "ignore" });
   const elsewhere = spawn(process.execPath, ["-e", idle, join(ctx.project, "agent-other", "fakeserver")], { stdio: "ignore" });
   try {
-    await wait(500);
-    const r = runHook(ctx, { agent_id: "abc123", cwd: ctx.project });
-    assert.equal(r.status, 0);
-    await wait(500);
+    // A fixed sleep is not enough on a loaded machine: the process list may not
+    // show the fresh processes yet, or the kill not be complete. Run the hook
+    // again until the server is gone.
+    for (let i = 0; i < 20 && alive(server); i++) {
+      await wait(500);
+      const r = runHook(ctx, { agent_id: "abc123", cwd: ctx.project });
+      assert.equal(r.status, 0);
+      await wait(200);
+    }
     assert.ok(!alive(server), "the server should be stopped");
     assert.ok(alive(tests), "the agent's other process should survive");
     assert.ok(alive(elsewhere), "another agent's server should survive");

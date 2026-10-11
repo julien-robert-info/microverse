@@ -16,8 +16,11 @@ loss:
   conversation): "chantiers in progress" table, reserved shared resources
   (migration number…), what is deployed, last report, questions awaiting the
   user (§ 6);
-- **notes** (`NOTES.local.md`, read on demand): design of each chantier,
-  measurements on real data, past decisions;
+- **notes** (read on demand): design of each chantier, measurements on real
+  data, past decisions. One file per chantier, `notes/<chantier>.md`, and
+  `NOTES.local.md` is only an index (one line per file). Read the index, then one
+  section of one file, never a whole file. The state file stays short (the
+  `context-guard` hook warns past 60 lines): history goes to the notes;
 - **project profile** (`.claude/orchestration/profile.json` and `rules.md`,
   versioned): worktree setup, checks, servers, patterns to watch, shared
   resources, stack rules. Missing: run `/microverse:init` before the first
@@ -124,7 +127,8 @@ Then note the new "Last report" in the state file.
 
 ## 5. Switching conversation
 
-Past ~150K tokens of context (`orch-usage --context`): series report, state file
+Past ~150K tokens of context (`orch-usage --context`; the `context-guard` hook
+warns at 150K then at each 50K): series report, state file
 up to date, then tell the user, at a moment when no agent awaits review (an
 agent's report returns to the conversation that launched it). Once the switch is
 recommended, launch no more agents from this conversation: finish the review in

@@ -3,7 +3,7 @@
 "use strict";
 
 const { spawnSync } = require("node:child_process");
-const { existsSync, readFileSync } = require("node:fs");
+const { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync } = require("node:fs");
 const { join } = require("node:path");
 
 function run(cmd, args, opts = {}) {
@@ -107,4 +107,46 @@ function listProcesses() {
     });
 }
 
-module.exports = { run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses };
+// Context size of the last request found in transcript text (JSON lines):
+// { model, ts, tokens } with tokens = input + cache read + cache write, or null.
+// Streamed replies repeat the same message id + request id on several lines with
+// partial counts: the maximum of each counter is kept. A line cut by a tail read
+// does not parse and is skipped.
+function lastContext(text) {
+  const requests = new Map();
+  for (const line of text.split("\n")) {
+    if (!line.includes('"usage"')) continue;
+    let o;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const m = o.message;
+    if (!m?.usage || !m.model?.startsWith("claude")) continue;
+    const u = m.usage;
+    const cc = u.cache_creation;
+    const written = cc ? (cc.ephemeral_5m_input_tokens ?? 0) + (cc.ephemeral_1h_input_tokens ?? 0) : (u.cache_creation_input_tokens ?? 0);
+    const tokens = (u.input_tokens ?? 0) + written + (u.cache_read_input_tokens ?? 0);
+    const id = `${m.id}:${o.requestId ?? ""}`;
+    const prev = requests.get(id);
+    requests.set(id, { model: m.model, ts: o.timestamp, tokens: Math.max(tokens, prev?.tokens ?? 0) });
+  }
+  return [...requests.values()].sort((a, b) => (a.ts < b.ts ? -1 : 1)).at(-1) ?? null;
+}
+
+// The last `maxBytes` of a file as text.
+function readTail(file, maxBytes) {
+  const fd = openSync(file, "r");
+  try {
+    const size = fstatSync(fd).size;
+    const len = Math.min(size, maxBytes);
+    const buf = Buffer.alloc(len);
+    readSync(fd, buf, 0, len, size - len);
+    return buf.toString("utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
+module.exports = { run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses, lastContext, readTail };
