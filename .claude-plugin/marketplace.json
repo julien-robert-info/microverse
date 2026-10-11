@@ -1,6 +1,6 @@
 {
   "name": "microverse",
-  "description": "Catalogue du plugin microverse.",
+  "description": "Catalog of the microverse plugin.",
   "owner": {
     "name": "Julien Robert"
   },
@@ -8,7 +8,7 @@
     {
       "name": "microverse",
       "source": "./",
-      "description": "Conduite d'un projet par chantiers délégués à des agents en arrière-plan : une tâche, une branche, un worktree."
+      "description": "Run a project as chantiers delegated to background agents: one task, one branch, one worktree."
     }
   ]
 }

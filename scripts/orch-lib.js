@@ -42,7 +42,7 @@ function parseArgs(argv) {
 
 function repoRoot(cwd = process.cwd()) {
   const r = git(["rev-parse", "--show-toplevel"], cwd);
-  if (r.code !== 0) fail("pas dans un dépôt git");
+  if (r.code !== 0) fail("not in a git repository");
   return r.out.trim();
 }
 
@@ -60,7 +60,7 @@ function defaultBase(root) {
   for (const b of ["main", "master"]) {
     if (git(["rev-parse", "--verify", "--quiet", `refs/heads/${b}`], root).code === 0) return b;
   }
-  fail("ni main ni master : préciser --base");
+  fail("neither main nor master: pass --base");
 }
 
 // Worktree checked out on `branch`, from `git worktree list --porcelain`.

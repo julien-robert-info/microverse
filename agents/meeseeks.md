@@ -70,7 +70,9 @@ for known bad patterns, and prints only failures. Otherwise run each command of
 touched; a check that already failed before your change is reported, not
 silenced.
 
-## Final report (in French)
+## Final report
+Write it in ${user_config.language}.
+
 Useful information first, brevity second: what changed, file by file; checks
 run and their result; commit hashes; bugs fixed or found on the way; decisions
 you had to take and why; open points; answers to the questions the brief asks.

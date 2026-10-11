@@ -1,147 +1,144 @@
 ---
 name: orchestration
-description: Conduire un projet par chantiers délégués à des agents en arrière-plan, une tâche = une branche = un worktree — concevoir, écrire le brief, lancer l'agent, relire son diff, merger, nettoyer, tenir le tableau des chantiers, rédiger le rapport de série. À utiliser dès que l'utilisateur dit « démarre X », « lance », « chantier suivant », « enchaîne », « on passe à … », quand le rapport d'un agent arrive, avant de merger une branche d'agent, quand il faut savoir si un nouvel agent peut partir (quota), quand l'utilisateur demande où on en est ou un rapport, ou quand la conversation orchestratrice s'alourdit.
+description: Run a project as chantiers delegated to background agents, one task = one branch = one worktree — design, write the brief, launch the agent, review its diff, merge, clean up, keep the chantier board, write the series report. Use as soon as the user says "démarre X", "lance", "chantier suivant", "enchaîne", "on passe à …", "où en est-on", "rapport", when an agent's report arrives, before merging an agent's branch, when deciding whether a new agent may start (quota), or when the orchestrating conversation grows heavy.
 ---
 
-# Orchestration de chantiers par agents
+# Orchestrating chantiers with agents
 
-L'orchestrateur est le seul interlocuteur de l'utilisateur. Il conçoit, délègue,
-relit et merge ; le travail lourd vit dans le contexte des agents, et lui ne
-garde que les décisions. L'état vit dans des fichiers, pour qu'une nouvelle
-conversation reprenne sans perte :
+Write reports, questions and summaries for the user in ${user_config.language}.
 
-- **fichier d'état** (`CLAUDE.local.md`, non versionné, chargé à chaque
-  conversation) : tableau « Chantiers en cours », ressources partagées
-  réservées (numéro de migration…), ce qui est déployé, dernier rapport,
-  questions qui attendent l'utilisateur (§ 6) ;
-- **notes** (`NOTES.local.md`, lu à la demande) : conception de chaque
-  chantier, mesures sur les données réelles, décisions passées ;
-- **profil du projet** (`.claude/orchestration/profile.json` et `rules.md`,
-  versionnés) : installation d'un worktree, vérifications, serveurs, motifs à
-  surveiller, ressources partagées, règles de la stack. Absent : lancer
-  `/microverse:init` avant le premier chantier.
+The orchestrator is the user's only contact. It designs, delegates, reviews and
+merges; the heavy work lives in the agents' contexts and the orchestrator keeps
+only the decisions. State lives in files, so a new conversation resumes without
+loss:
 
-## Rôles et modèles
+- **state file** (`CLAUDE.local.md`, unversioned, loaded in every
+  conversation): "chantiers in progress" table, reserved shared resources
+  (migration number…), what is deployed, last report, questions awaiting the
+  user (§ 6);
+- **notes** (`NOTES.local.md`, read on demand): design of each chantier,
+  measurements on real data, past decisions;
+- **project profile** (`.claude/orchestration/profile.json` and `rules.md`,
+  versioned): worktree setup, checks, servers, patterns to watch, shared
+  resources, stack rules. Missing: run `/microverse:init` before the first
+  chantier.
 
-| Qui | Modèle | Fait |
+## Roles and models
+
+| Who | Model | Does |
 |---|---|---|
-| conversation de conception | Opus | enquête, règles, brief |
-| conversation d'exécution | Sonnet | lancer, relire un diff mécanique, merger, nettoyer, état, rapport |
-| `microverse:meeseeks` | Sonnet | implémente un brief dans son worktree |
-| `microverse:morty` | Haiku | lit et résume : une question, des faits avec leur preuve |
-| `microverse:rick` | Opus | relit un diff à risque, ne corrige rien |
+| design conversation | Opus | investigation, rules, brief |
+| execution conversation | Sonnet | launch, review a mechanical diff, merge, clean up, status, report |
+| `microverse:meeseeks` | Sonnet | implements a brief in its worktree |
+| `microverse:morty` | Haiku | reads and summarizes: one question, facts with their evidence |
+| `microverse:rick` | Opus | reviews a risky diff, fixes nothing |
 
-- Le modèle de la conversation se choisit à son ouverture et ne change pas :
-  le cache est propre à chaque modèle, un changement réécrit tout le contexte.
-- Une conversation en Sonnet ne conçoit pas : une question de conception est
-  notée dans le fichier d'état pour la prochaine conversation en Opus.
-- Passer le modèle **explicitement** à chaque lancement (`model:` de l'outil
-  Agent) : la définition de l'agent ne suffit pas toujours.
-- Ce qui est mécanique passe par un script (zéro token de modèle) ; une sortie
-  brute volumineuse (journaux, résultats SQL, gros fichiers) passe par un
-  `morty`, pour rester hors du contexte de l'orchestrateur.
+- The conversation's model is chosen when it opens and never changes: the cache
+  is per model, a switch rewrites the whole context.
+- A Sonnet conversation does not design: a design question is noted in the
+  state file for the next Opus conversation.
+- Pass the model **explicitly** at every launch (`model:` of the Agent tool):
+  the agent definition alone has not always sufficed.
+- Anything mechanical goes through a script (zero model tokens); bulky raw
+  output (logs, SQL results, large files) goes through a `morty`, to stay out
+  of the orchestrator's context.
 
-## 1. Avant de lancer
+## 1. Before launching
 
-- **Budget** : `orch-quota --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --file "${user_config.quota_file}"`.
-  Suivre son conseil (accélérer, normal, lisser, aucun nouvel agent, arrêt) ;
-  détail et cas sans fichier dans `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/budget.md`.
-- **Parallélisme** : deux `meeseeks` à la fois seulement sur le conseil
-  « accélérer », sur des zones de code distinctes, et jamais deux sur une même
-  ressource du `shared` du profil (schéma, base locale…). La tâche qui prend
-  une ressource partagée la réserve dans le fichier d'état.
-- **Concevoir d'abord** (en Opus) : mesurer sur les données réelles ce que la
-  tâche va rencontrer, trancher les règles, les écrire dans les notes. Un
-  implémenteur qui doit décider seul une règle métier la décidera mal.
+- **Budget**: `orch-quota --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --file "${user_config.quota_file}"`.
+  Follow its advice (speed up, normal, smooth out, no new agent, stop); details
+  and the no-file case in `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/budget.md`.
+- **Parallelism**: two `meeseeks` at once only on the "speed up" advice, on
+  distinct code zones, and never two on the same `shared` resource of the
+  profile (schema, local database…). A task that takes a shared resource
+  reserves it in the state file.
+- **Design first** (in Opus): measure on real data what the task will meet,
+  settle the rules, write them in the notes. An implementer who has to decide a
+  business rule alone will decide it badly.
 
-## 2. Lancer
+## 2. Launch
 
 ```
 Agent(subagent_type: "microverse:meeseeks", model: "sonnet",
       isolation: "worktree", run_in_background: true,
-      description: "<3-5 mots>", prompt: <brief>)
+      description: "<3-5 words>", prompt: <brief>)
 Agent(subagent_type: "microverse:morty", model: "haiku",
-      description: "<3-5 mots>", prompt: <une question>)
+      description: "<3-5 words>", prompt: <one question>)
 ```
 
-- Le brief suit `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/brief.md`.
-- Lancer depuis la racine du dépôt principal : le worktree part du `HEAD` du
-  répertoire courant. Sous Windows, une lettre de lecteur en minuscule (`d:`)
-  fait refuser la création du worktree : `cd "D:/…"`.
-- Un `morty` ne pose qu'une question ; plusieurs questions, plusieurs
-  `morty`. Il ne compte pas dans le parallélisme.
+- The brief follows `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/brief.md`.
+- Launch from the main repository root: the worktree starts from the `HEAD` of
+  the current directory. On Windows a lowercase drive letter (`d:`) makes the
+  worktree creation fail: `cd "D:/…"`.
+- A `morty` takes one question; several questions, several `morty`. It does not
+  count toward parallelism.
 
-## 3. À la réception du rapport
+## 3. When the report arrives
 
-1. `agent-check <branche>` : commits présents, worktree propre, `checks` du
-   profil, motifs du diff. Un échec de quelques lignes se renvoie à l'agent par
-   `SendMessage` (contexte encore chaud) plutôt que corrigé soi-même.
-2. **Relire le diff pour de vrai**, pas le rapport, avec
+1. `agent-check <branch>`: commits present, worktree clean, the profile's
+   `checks`, diff patterns. A failure of a few lines goes back to the agent with
+   `SendMessage` (context still warm) rather than being fixed by hand.
+2. **Read the diff for real**, not the report, with
    `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/review.md`.
-3. **Diff à risque** (arithmétique sur montants ou unités, clés de
-   dédoublonnage ou de stockage, migrations, suppression de données) :
-   `Agent(subagent_type: "microverse:rick", model: "opus",
-   prompt: <branche, brief, zones à risque>)`, puis trancher ses remarques.
-4. **Merger** sans attendre l'utilisateur, qui relit a posteriori :
-   `git merge --no-ff <branche>` avec le sujet `merge: …`. La vérification
-   complète de la branche principale (build compris) se fait une fois, avant un
-   déploiement.
-5. `agent-cleanup <branche>` : refuse tant qu'un processus tourne dans le
-   worktree ou que la branche n'est pas mergée.
-6. **Fichier d'état** : ligne du chantier, commit mergé, réservation libérée,
-   questions en attente.
-7. **Enchaîner** : une tâche déjà planifiée se lance dès que la précédente est
-   mergée, sans demander, après un nouvel `orch-quota`. Entre deux rapports,
-   une ligne par événement (« D1 mergé (`abc1234`), D2 lancé »).
+3. **Risky diff** (arithmetic on amounts or units, deduplication or storage
+   keys, migrations, data deletion): `Agent(subagent_type: "microverse:rick",
+   model: "opus", prompt: <branch, brief, risky zones>)`, then rule on its
+   remarks.
+4. **Merge** without waiting for the user, who reviews afterwards:
+   `git merge --no-ff <branch>` with the subject `merge: …`. The full check of
+   the main branch (build included) runs once, before a deployment.
+5. `agent-cleanup <branch>`: refuses while a process runs in the worktree or the
+   branch is not merged.
+6. **State file**: the chantier's line, merged commit, released reservation,
+   pending questions.
+7. **Chain**: a task already planned launches as soon as the previous one is
+   merged, without asking, after a fresh `orch-quota`. Between two reports, one
+   line per event ("D1 merged (`abc1234`), D2 launched").
 
-## 4. Rapport de série
+## 4. Series report
 
-Rédigé à chaque arrêt de l'enchaînement (plus de tâche planifiée, seuil de
-quota, question bloquante, changement de conversation) et à chaque demande de
-l'utilisateur. Il couvre tout depuis le précédent, dont le commit est noté dans
-le fichier d'état (`git log --oneline <commit>..main`). Il se suffit à
-lui-même, dans cet ordre :
+Written at every stop of the chain (no planned task left, quota threshold,
+blocking question, conversation switch) and at every user request. It covers
+everything since the previous one, whose commit is noted in the state file
+(`git log --oneline <commit>..main`). It stands on its own, in this order:
 
-1. **Mergé** : par tâche, ce qui change pour l'utilisateur, avec le commit.
-2. **Décisions prises seul**, à confirmer : la règle, l'alternative écartée,
-   pourquoi.
-3. **Demandes à l'utilisateur** (§ 6) : ce qui a été vérifié depuis le rapport
-   précédent, puis ce que lui seul peut faire.
-4. **Points ouverts** : défauts trouvés et non corrigés, mesures surprenantes.
-5. **Suite** : tâche en cours ou prochaine, ce qui attend une décision, et en
-   **une seule question** : déployer et pousser ce qui est mergé depuis le
-   dernier déploiement.
-6. **Quota** : la sortie résumée d'`orch-quota`.
-7. **Conversation** : contexte mesuré par `orch-usage --context`, et une
-   recommandation nette : continuer, ou changer après tel merge ; avec le
-   **modèle de la suivante** : Opus s'il reste à concevoir, Sonnet s'il ne
-   reste qu'à exécuter des chantiers conçus.
+1. **Merged**: per task, what changes for the user, with the commit.
+2. **Decisions taken alone**, to confirm: the rule, the alternative dropped,
+   why.
+3. **Requests to the user** (§ 6): what was verified since the previous
+   report, then what only they can do.
+4. **Open points**: defects found and not fixed, surprising measurements.
+5. **Next**: task in progress or next, what awaits a decision, and as **a single
+   question**: deploy and push what has been merged since the last deployment.
+6. **Quota**: the summarized output of `orch-quota`.
+7. **Conversation**: context measured by `orch-usage --context`, and a clear
+   recommendation: continue, or switch after such a merge; with the **model of
+   the next one**: Opus if design remains, Sonnet if only execution of designed
+   chantiers remains.
 
-Puis noter le nouveau « Dernier rapport » dans le fichier d'état.
+Then note the new "Last report" in the state file.
 
-## 5. Changer de conversation
+## 5. Switching conversation
 
-Au-delà de ~150K tokens de contexte (`orch-usage --context`) : rapport de série,
-fichier d'état à jour, puis le dire à l'utilisateur, à un moment où aucun agent
-n'attend de relecture (le rapport d'un agent revient à la conversation qui l'a
-lancé). Une fois le changement recommandé, ne plus lancer d'agent depuis cette
-conversation : finir la relecture en cours, merger, mettre à jour l'état,
-s'arrêter.
+Past ~150K tokens of context (`orch-usage --context`): series report, state file
+up to date, then tell the user, at a moment when no agent awaits review (an
+agent's report returns to the conversation that launched it). Once the switch is
+recommended, launch no more agents from this conversation: finish the review in
+progress, merge, update the state, stop.
 
-## 6. Ce qui reste à demander
+## 6. What remains to ask
 
-Pousser, déployer, toute écriture sur une machine de production. Build et tests
-ne prouvent pas qu'un écran s'affiche : après un déploiement qui touche
-l'interface, demander à l'utilisateur d'ouvrir les écrans.
+Pushing, deploying, any write on a production machine. Build and tests do not
+prove a screen renders: after a deployment that touches the interface, ask the
+user to open the screens.
 
-Le fichier d'état tient **une seule liste** de ce qui est demandé à
-l'utilisateur :
+The state file holds **a single list** of what is asked of the user:
 
-- **vérifier soi-même d'abord** tout ce qui peut l'être (base, journaux, rendu
-  local, `git`), au besoin par un `morty` ; ne demander que ce qui exige
-  l'utilisateur : un écran, un geste dans l'application, une décision ;
-- **une demande est tenue pour faite une fois posée** : elle sort de la liste
-  au rapport rendu ; seules restent les questions qui attendent une réponse ;
-- **vérifier ensuite l'effet** des gestes demandés quand on peut le lire, et le
-  dire au rapport suivant ; un geste dont dépend un chantier se vérifie avant
-  de le lancer.
+- **verify yourself first** everything that can be (database, logs, local
+  rendering, `git`), through a `morty` if needed; ask only what requires the
+  user: a screen, a gesture in the application, a decision;
+- **a request counts as done once made**: it leaves the list when the report is
+  delivered; only questions awaiting an answer stay;
+- **then verify the effect** of the requested gestures when it can be read, and
+  say so in the next report; a gesture a chantier depends on is verified before
+  launching it.

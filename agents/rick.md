@@ -28,7 +28,9 @@ brief the implementer received and the zones the orchestrator considers risky.
   real-data case that makes two rows collide; on migrations, think about the
   existing rows and the rollback.
 
-## Report (in French)
+## Report
+Write it in ${user_config.language}.
+
 Defects ranked by severity, most severe first. For each: `file:line`, the
 defect in one sentence, the scenario that breaks, and the fix it calls for in
 one line. Then the brief's rules you checked and found correctly applied, in

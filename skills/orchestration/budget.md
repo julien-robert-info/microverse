@@ -1,56 +1,54 @@
-# Rythme de consommation
+# Consumption pacing
 
-À lire avant de lancer un agent ou d'en reprendre un.
+Read before launching an agent or resuming one.
 
-## Les compteurs
+## The counters
 
-`orch-quota` lit le dernier relevé de l'extension VS Code « Claude Code Usage »
-(growthjack) pour les deux compteurs, `five-hour` et `seven-day`. Si l'extension
-n'est pas installée, ou si le relevé a plus de deux heures, demander à
-l'utilisateur ses deux compteurs (`5h x% | wk y%`) à la prochaine occasion,
-sans bloquer, et appliquer les mêmes règles à la main.
+`orch-quota` reads the latest reading of the VS Code extension "Claude Code
+Usage" (growthjack) for the two counters, `five-hour` and `seven-day`. If the
+extension is not installed, or the reading is more than two hours old, ask the
+user for both counters (`5h x% | wk y%`) at the next opportunity, without
+blocking, and apply the same rules by hand.
 
-## Les périodes
+## The periods
 
-La fenêtre hebdomadaire commence `resetAt` − 7 jours (en fin de semaine). Elle
-se coupe en deux périodes :
+The weekly window starts at `resetAt` − 7 days (at the end of a week). It splits
+into two periods:
 
-- **week-end** : du début de la fenêtre au dimanche 24 h, heure locale ; la
-  consommation peut monter jusqu'à C − R %, C étant la cible de fin de semaine
-  (`week_target`) et R la réserve des jours de semaine (`weekday_reserve`) ;
-- **semaine** : du lundi 0 h à la remise à zéro ; les soirs de semaine se
-  partagent les R points restants jusqu'à C. Ce qui dépasse C reste pour les
-  questions de fin de semaine.
+- **weekend**: from the window start to Sunday 24:00, local time; consumption
+  may rise to C − R %, where C is the end-of-week target (`week_target`) and R
+  the weekday reserve (`weekday_reserve`);
+- **weekdays**: from Monday 00:00 to the reset; weekday evenings share the
+  remaining R points up to C. Anything above C is kept for end-of-week
+  questions.
 
-Dans chaque période, la ligne de rythme va de la consommation au début de la
-période à sa cible, linéairement dans le temps. `orch-quota` compare le
-compteur hebdomadaire à cette ligne.
+In each period, the pacing line goes from the consumption at the start of the
+period to its target, linearly in time. `orch-quota` compares the weekly counter
+with that line.
 
-## Le conseil
+## The advice
 
-Dans l'ordre, le premier qui s'applique :
+In order, the first that applies:
 
-| Situation | Conseil |
+| Situation | Advice |
 |---|---|
-| hebdo ≥ C | **arrêt** : plus de reprise d'agent ; mettre l'état à jour, garder le reste pour les questions |
-| hebdo ≥ C − 3 | **aucun nouvel agent** : finir, relire et merger ceux en cours (un agent lancé coûte encore quelques points) |
-| 5h ≥ `five_hour_limit` + 5 | plus de reprise jusqu'à la remise à zéro du compteur 5h |
-| 5h ≥ `five_hour_limit` | aucun nouvel agent jusqu'à la remise à zéro du compteur 5h |
-| au-dessus de la ligne de plus de 5 points, ou cible atteinte | **lisser** : aucun nouvel agent tant que le compteur ne repasse pas sous la ligne |
-| en dessous de la ligne de plus de 10 points | **accélérer** : deux `meeseeks` sur des zones distinctes, un seul sur une ressource partagée |
-| sinon | **normal** : un `meeseeks` à la fois |
+| weekly ≥ C | **stop**: no more resuming agents; update the state, keep the rest for questions |
+| weekly ≥ C − 3 | **no new agent**: finish, review and merge the running ones (a launched agent still costs a few points) |
+| 5h ≥ `five_hour_limit` + 5 | no more resuming until the 5h counter resets |
+| 5h ≥ `five_hour_limit` | no new agent until the 5h counter resets |
+| more than 5 points above the line, or target reached | **smooth out**: no new agent until the counter drops back under the line |
+| more than 10 points below the line | **speed up**: two `meeseeks` on distinct zones, only one on a shared resource |
+| otherwise | **normal**: one `meeseeks` at a time |
 
-Les `morty` ne comptent pas. Un `rick` (Opus) compte comme un agent :
-le réserver aux diffs à risque.
+`morty` agents do not count. A `rick` (Opus) counts as an agent: keep it for
+risky diffs.
 
-## Le coût, pour décider
+## Cost, to decide
 
-- Le gros du coût est le contexte de la conversation principale, relu à chaque
-  requête : changer de conversation vers 150K tokens coûte moins cher que de
-  continuer.
-- Une pause de plus d'une heure (attente d'un agent, nuit) fait expirer le
-  cache : la requête suivante réécrit tout le contexte, au double du prix
-  d'entrée.
-- `orch-usage [--since <date>]` donne les tokens et le coût en équivalent API
-  par modèle, conversations et agents séparés ; rapprocher les tokens d'un
-  chantier de la variation du compteur hebdomadaire pendant ce chantier.
+- Most of the cost is the main conversation's context, re-read at every
+  request: switching conversation around 150K tokens is cheaper than continuing.
+- A pause of more than an hour (waiting for an agent, night) expires the cache:
+  the next request rewrites the whole context, at twice the input price.
+- `orch-usage [--since <date>]` gives tokens and API-equivalent cost per model,
+  conversations and agents apart; relate a chantier's tokens to the weekly
+  counter's variation during that chantier.

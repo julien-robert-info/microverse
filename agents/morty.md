@@ -26,7 +26,9 @@ message. Keep raw output in your own context and return the facts.
 - If `.claude/orchestration/rules.md` exists and the question touches the
   data or the infrastructure, read it first for how to query them safely.
 
-## Answer (in French, 30 lines at most)
+## Answer (30 lines at most)
+Write it in ${user_config.language}.
+
 1. The answer in one or two sentences.
 2. The facts, each with its evidence.
 3. What you could not establish, and why.

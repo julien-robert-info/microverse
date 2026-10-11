@@ -1,100 +1,102 @@
 # microverse
 
-Plugin Claude Code pour conduire un projet par chantiers délégués à des agents
-en arrière-plan : une tâche, une branche, un worktree. Une conversation
-orchestratrice conçoit, écrit le brief, lance l'agent, relit son diff, merge et
-nettoie ; le rythme de lancement suit le quota d'utilisation.
+Claude Code plugin to run a project as chantiers delegated to background
+agents: one task, one branch, one worktree. An orchestrating conversation
+designs, writes the brief, launches the agent, reviews its diff, merges and
+cleans up; the launch pace follows the usage quota.
 
-## Contenu
+## Contents
 
-| Composant | Rôle |
+| Component | Role |
 |---|---|
-| skill `orchestration` | procédure : rôles et modèles, budget, brief, réception, rapport de série, changement de conversation |
-| skill `init` | rédige le profil d'orchestration d'un projet |
-| agent `meeseeks` (Sonnet) | implémente un brief dans son worktree |
-| agent `morty` (Haiku, lecture seule) | répond à une question avec des faits et leurs preuves |
-| agent `rick` (Opus, lecture seule) | relit un diff à risque, rend des défauts classés |
-| `orch-quota` | lit les compteurs de quota et conseille le rythme de lancement |
-| `orch-usage` | tokens et coût en équivalent API par modèle, taille du contexte d'une session |
-| `agent-check <branche>` | commits, worktree propre, vérifications du profil, motifs suspects dans le diff |
-| `agent-cleanup <branche>` | supprime le worktree et la branche mergée d'un agent |
-| hook `SubagentStop` | arrête les serveurs laissés allumés par un agent terminé (Windows) |
-| `user/CLAUDE.md` | règles de rédaction (README, commentaires, commits), à importer dans `~/.claude/CLAUDE.md` |
+| skill `orchestration` | procedure: roles and models, budget, brief, reception, series report, conversation switch |
+| skill `init` | writes a project's orchestration profile |
+| agent `meeseeks` (Sonnet) | implements a brief in its worktree |
+| agent `morty` (Haiku, read-only) | answers one question with facts and their evidence |
+| agent `rick` (Opus, read-only) | reviews a risky diff, returns ranked defects |
+| `orch-quota` | reads the quota counters and advises the launch pace |
+| `orch-usage` | tokens and API-equivalent cost per model, context size of a session |
+| `agent-check <branch>` | commits, clean worktree, profile checks, suspicious patterns in the diff |
+| `agent-cleanup <branch>` | removes an agent's worktree and merged branch |
+| `SubagentStop` hook | stops servers left running by a finished agent (Windows) |
+| `user/CLAUDE.md` | writing rules (README, comments, commits), to import into `~/.claude/CLAUDE.md` |
 
-## Prérequis
+## Requirements
 
-- Claude Code 2.1.293 ou plus récent (alias de modèle `haiku` pour Claude Haiku 5.5).
-- Node.js 20 ou plus récent, pour les scripts de `bin/`.
+- Claude Code 2.1.293 or newer (`haiku` model alias for Claude Haiku 5.5).
+- Node.js 20 or newer, for the scripts in `bin/`.
 - Git.
-- Facultatif : l'extension VS Code « Claude Code Usage » (growthjack), dont
-  `orch-quota` lit les relevés. Sans elle, l'orchestrateur demande les
-  compteurs à l'utilisateur.
-- Le hook `SubagentStop` ne fonctionne que sous Windows (PowerShell).
+- Optional: the VS Code extension "Claude Code Usage" (growthjack), whose
+  readings `orch-quota` uses. Without it, the orchestrator asks the user for the
+  counters.
+- The `SubagentStop` hook works on Windows only (PowerShell).
 
 ## Installation
 
-Le dépôt est son propre catalogue de plugins.
+The repository is its own plugin catalog.
 
 ```bash
-claude plugin marketplace add <chemin du clone ou owner/repo>
+claude plugin marketplace add <path to the clone or owner/repo>
 claude plugin install microverse@microverse
 ```
 
-Un catalogue ajouté depuis un chemin local charge le plugin en place : une
-modification prend effet à la conversation suivante ou après `/reload-plugins`.
+A catalog added from a local path loads the plugin in place: a change takes
+effect in the next conversation or after `/reload-plugins`.
 
-Règles de rédaction, dans `~/.claude/CLAUDE.md` :
+Writing rules, in `~/.claude/CLAUDE.md`:
 
 ```markdown
-@<chemin du clone>/user/CLAUDE.md
+@<path to the clone>/user/CLAUDE.md
 ```
 
 ## Configuration
 
-Réglages du plugin (`/config`) :
+Plugin settings (`/config`):
 
-| Clé | Défaut | Sens |
+| Key | Default | Meaning |
 |---|---|---|
-| `week_target` | 98 | consommation visée en fin de semaine ; au-delà plus de reprise d'agent, 3 points avant plus de nouvel agent (%) |
-| `weekday_reserve` | 30 | points gardés pour les jours de semaine ; le week-end monte jusqu'à `week_target` moins cette valeur |
-| `five_hour_limit` | 90 | au-delà, aucun nouvel agent jusqu'à la remise à zéro du compteur 5h ; 5 points plus haut, plus de reprise (%) |
-| `quota_file` | — | fichier des relevés, si l'extension n'est pas à son emplacement par défaut |
+| `language` | `français` | language of the reports, questions and summaries written for the user |
+| `week_target` | 98 | consumption aimed at the end of the week; beyond it no more resuming, 3 points before no new agent (%) |
+| `weekday_reserve` | 30 | points kept for weekdays; the weekend rises to `week_target` minus this value |
+| `five_hour_limit` | 90 | beyond it, no new agent until the 5h counter resets; 5 points higher, no more resuming (%) |
+| `quota_file` | — | readings file, if the extension is not at its default location |
 
-Par projet, le profil `.claude/orchestration/` (versionné), rédigé par
-`/microverse:init` :
+Per project, the `.claude/orchestration/` profile (versioned), written by
+`/microverse:init`:
 
-- `profile.json` : `setup` (commandes d'un worktree neuf), `checks` (`name`,
-  `run`, `paths` facultatif), `servers` (motifs de ligne de commande),
-  `diffPatterns` (`pattern`, `why`), `shared` (ressources exclusives) ;
-- `rules.md` : règles et pièges du projet, lus en premier par les agents.
+- `profile.json`: `setup` (commands for a fresh worktree), `checks` (`name`,
+  `run`, optional `paths`), `servers` (command-line patterns), `diffPatterns`
+  (`pattern`, `why`), `shared` (exclusive resources);
+- `rules.md`: the project's rules and traps, read first by the agents.
 
-Le projet ignore `CLAUDE.local.md`, `NOTES.local.md` et `.claude/worktrees/`.
+The project ignores `CLAUDE.local.md`, `NOTES.local.md` and
+`.claude/worktrees/`.
 
 ## Usage
 
-Dans une conversation ouverte à la racine du projet : « démarre <chantier> »,
-« chantier suivant », « où en est-on ? », « rapport ». Le skill `orchestration`
-se charge sur ces demandes ; `/microverse:orchestration` le force.
+In a conversation opened at the project root: "démarre <chantier>", "chantier
+suivant", "où en est-on ?", "rapport". The `orchestration` skill loads on these
+requests; `/microverse:orchestration` forces it.
 
-Les scripts se lancent aussi à la main depuis la racine du dépôt :
+The scripts can also be run by hand from the repository root:
 
 ```bash
 orch-quota --target 98 --reserve 30
 orch-usage --since 2026-01-01
 orch-usage --context
-agent-check feat/sujet
-agent-cleanup feat/sujet
+agent-check feat/subject
+agent-cleanup feat/subject
 ```
 
 ## Architecture
 
 ```
-.claude-plugin/   plugin.json (manifeste, réglages), marketplace.json (catalogue)
+.claude-plugin/   plugin.json (manifest, settings), marketplace.json (catalog)
 skills/           orchestration (SKILL.md, budget.md, brief.md, review.md), init
 agents/           meeseeks, morty, rick
-bin/              scripts Node sans dépendance, ajoutés au PATH de l'outil Bash ;
-                  les .cmd les rendent appelables depuis PowerShell
-scripts/          orch-lib.js (partagé par bin/), hook SubagentStop
-hooks/hooks.json  déclaration du hook
-user/CLAUDE.md    règles globales de rédaction
+bin/              dependency-free Node scripts, added to the Bash tool's PATH;
+                  the .cmd files make them callable from PowerShell
+scripts/          orch-lib.js (shared by bin/), SubagentStop hook
+hooks/hooks.json  hook declaration
+user/CLAUDE.md    global writing rules
 ```

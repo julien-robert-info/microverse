@@ -1,7 +1,7 @@
 {
   "name": "microverse",
   "version": "0.1.0",
-  "description": "Conduite d'un projet par chantiers délégués à des agents en arrière-plan : une tâche, une branche, un worktree.",
+  "description": "Run a project as chantiers delegated to background agents: one task, one branch, one worktree.",
   "author": {
     "name": "Julien Robert"
   },
@@ -13,34 +13,40 @@
     "quota"
   ],
   "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Report language",
+      "description": "Language of the reports, questions and summaries written for the user.",
+      "default": "français"
+    },
     "week_target": {
       "type": "number",
-      "title": "Cible en fin de semaine (%)",
-      "description": "Consommation visée à la remise à zéro hebdomadaire ; au-delà, plus de reprise d'agent, et plus de nouvel agent 3 points avant.",
+      "title": "End-of-week target (%)",
+      "description": "Consumption aimed at the weekly reset; beyond it agents are no longer resumed, and no new agent starts 3 points before.",
       "default": 98,
       "min": 0,
       "max": 100
     },
     "weekday_reserve": {
       "type": "number",
-      "title": "Réserve des jours de semaine (%)",
-      "description": "Points gardés pour les jours de semaine ; le week-end peut monter jusqu'à la cible moins cette valeur.",
+      "title": "Weekday reserve (%)",
+      "description": "Points kept for weekdays; the weekend may rise to the target minus this value.",
       "default": 30,
       "min": 0,
       "max": 100
     },
     "five_hour_limit": {
       "type": "number",
-      "title": "Seuil du compteur 5h (%)",
-      "description": "Au-delà, aucun nouvel agent jusqu'à la remise à zéro du compteur 5h ; 5 points plus haut, plus de reprise.",
+      "title": "5h counter threshold (%)",
+      "description": "Beyond it, no new agent until the 5h counter resets; 5 points higher, no more resuming.",
       "default": 90,
       "min": 0,
       "max": 100
     },
     "quota_file": {
       "type": "file",
-      "title": "Fichier des compteurs de quota",
-      "description": "quota-observations-v2.json de l'extension VS Code « Claude Code Usage ». Vide : emplacement par défaut de l'extension."
+      "title": "Quota counters file",
+      "description": "quota-observations-v2.json of the VS Code extension \"Claude Code Usage\". Empty: the extension's default location."
     }
   }
 }

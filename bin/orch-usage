@@ -31,14 +31,14 @@ const projectDir = typeof opts.project === "string" ? opts.project : process.cwd
 const root = join(homedir(), ".claude", "projects");
 const slug = projectDir.replace(/[^A-Za-z0-9]/g, "-").toLowerCase();
 const folder = existsSync(root) && readdirSync(root).find((n) => n.toLowerCase() === slug);
-if (!folder) fail(`aucune conversation pour ${projectDir} dans ${root}`);
+if (!folder) fail(`no conversation for ${projectDir} in ${root}`);
 const dir = join(root, folder);
 
 const sessions = readdirSync(dir)
   .filter((n) => n.endsWith(".jsonl"))
   .map((n) => ({ id: n.slice(0, -6), path: join(dir, n), mtime: statSync(join(dir, n)).mtimeMs }))
   .sort((a, b) => b.mtime - a.mtime);
-if (typeof opts.session === "string" && !sessions.some((s) => s.id === opts.session)) fail(`session ${opts.session} introuvable`);
+if (typeof opts.session === "string" && !sessions.some((s) => s.id === opts.session)) fail(`session ${opts.session} not found`);
 
 // Streamed replies repeat the same message id + request id on several lines
 // with partial counts: keep the maximum of each counter.
@@ -76,19 +76,19 @@ const k = (n) => `${Math.round(n / 1e3)}K`;
 
 if (opts.context) {
   const s = sessions.find((x) => x.id === opts.session) ?? sessions[0];
-  if (!s) fail("aucune conversation");
+  if (!s) fail("no conversation");
   const requests = new Map();
   readRequests(s.path, "conversation", null, requests);
   const last = [...requests.values()].sort((a, b) => (a.ts < b.ts ? -1 : 1)).at(-1);
-  if (!last) fail(`aucune requête dans la session ${s.id}`);
+  if (!last) fail(`no request in session ${s.id}`);
   const ctx = last.v[0] + last.v[1] + last.v[2] + last.v[3];
-  const verdict = ctx >= CONTEXT_LIMIT ? "au-delà du seuil : changer de conversation au prochain moment sans agent en attente" : "sous le seuil";
-  console.log(`Session ${s.id} (${last.model}) : contexte ${k(ctx)} tokens, seuil ${k(CONTEXT_LIMIT)} ; ${verdict}`);
+  const verdict = ctx >= CONTEXT_LIMIT ? "over the threshold: switch conversation at the next moment with no agent awaiting review" : "under the threshold";
+  console.log(`Session ${s.id} (${last.model}): context ${k(ctx)} tokens, threshold ${k(CONTEXT_LIMIT)}; ${verdict}`);
   process.exit(0);
 }
 
 const since = typeof opts.since === "string" ? new Date(opts.since) : new Date(Date.now() - 7 * 24 * 3600e3);
-if (Number.isNaN(since.getTime())) fail(`date invalide : ${opts.since}`);
+if (Number.isNaN(since.getTime())) fail(`invalid date: ${opts.since}`);
 const requests = new Map();
 for (const s of sessions) {
   if (typeof opts.session === "string" && s.id !== opts.session) continue;
@@ -112,12 +112,12 @@ for (const r of requests.values()) {
 
 const M = (x) => (x / 1e6).toFixed(2);
 const $ = (x) => x.toFixed(2);
-console.log(`Depuis ${since.toISOString().slice(0, 16)}Z${typeof opts.session === "string" ? `, session ${opts.session}` : ""} (tokens en millions, coûts en $ équivalent API)`);
-console.log("type\tmodèle\trequêtes\tentrée\técr.5m\técr.1h\tlecture\tsortie\t$total");
+console.log(`Since ${since.toISOString().slice(0, 16)}Z${typeof opts.session === "string" ? `, session ${opts.session}` : ""} (tokens in millions, costs in API-equivalent $)`);
+console.log("type	model	requests	input	write5m	write1h	read	output	$total");
 let total = 0;
 for (const [key, row] of [...rows].sort()) {
   const cost = row.cost.reduce((s, x) => s + x, 0);
   total += cost;
   console.log(`${key}\t${row.n}\t${row.v.map(M).join("\t")}\t${row.priced ? $(cost) : "?"}`);
 }
-console.log(`total\t\t\t\t\t\t\t\t${$(total)}${[...rows.values()].some((r) => !r.priced) ? " (hors modèles sans tarif)" : ""}`);
+console.log(`total\t\t\t\t\t\t\t\t${$(total)}${[...rows.values()].some((r) => !r.priced) ? " (excluding models without a price)" : ""}`);

@@ -40,8 +40,8 @@ function defaultFile() {
 const given = typeof opts.file === "string" && opts.file && !opts.file.includes("${") ? opts.file : null;
 const file = given ?? defaultFile();
 if (!existsSync(file)) {
-  console.log(`Compteurs introuvables : ${file} absent.`);
-  console.log("Demander à l'utilisateur ses deux compteurs (5h et semaine, en %).");
+  console.log(`Counters not found: ${file} is missing.`);
+  console.log("Ask the user for both counters (5h and week, in %).");
   process.exit(1);
 }
 
@@ -49,7 +49,7 @@ let observations;
 try {
   observations = JSON.parse(readFileSync(file, "utf8")).observations ?? [];
 } catch (e) {
-  console.log(`Compteurs illisibles (${file}) : ${e.message}`);
+  console.log(`Counters unreadable (${file}): ${e.message}`);
   process.exit(1);
 }
 
@@ -60,7 +60,7 @@ const byType = (type) =>
 const five = byType("five-hour");
 const week = byType("seven-day");
 if (!week.length) {
-  console.log("Aucun relevé hebdomadaire dans le fichier : demander les compteurs à l'utilisateur.");
+  console.log("No weekly reading in the file: ask the user for the counters.");
   process.exit(1);
 }
 
@@ -72,8 +72,8 @@ const used7 = Math.round(w.usedFraction * 100);
 const used5 = f && f.resetAt > now ? Math.round(f.usedFraction * 100) : 0;
 
 const fmt = (ms) =>
-  new Date(ms).toLocaleString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-const hours = (ms) => `${Math.max(0, ms / HOUR).toFixed(ms < 10 * HOUR ? 1 : 0).replace(".", ",")} h`;
+  new Date(ms).toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const hours = (ms) => `${Math.max(0, ms / HOUR).toFixed(ms < 10 * HOUR ? 1 : 0)} h`;
 
 const windowStart = w.resetAt - 7 * DAY;
 const monday = new Date(windowStart);
@@ -84,9 +84,9 @@ const weekendEnd = monday.getTime();
 const hasWeekend = weekendEnd - windowStart <= 3 * DAY;
 
 let period;
-if (hasWeekend && now < weekendEnd) period = { name: "week-end", start: windowStart, end: weekendEnd, target: target - reserve };
-else if (hasWeekend) period = { name: "semaine", start: weekendEnd, end: w.resetAt, target };
-else period = { name: "fenêtre entière", start: windowStart, end: w.resetAt, target };
+if (hasWeekend && now < weekendEnd) period = { name: "weekend", start: windowStart, end: weekendEnd, target: target - reserve };
+else if (hasWeekend) period = { name: "weekdays", start: weekendEnd, end: w.resetAt, target };
+else period = { name: "whole window", start: windowStart, end: w.resetAt, target };
 
 // Usage when the period began: the last reading of this window taken before
 // it, else 0 at the window start, else the first reading inside the period.
@@ -100,24 +100,24 @@ else startUsed = (sameWindow.find((o) => o.observedAt >= period.start) ?? w).use
 const elapsed = Math.min(1, Math.max(0, (now - period.start) / (period.end - period.start)));
 const expected = startUsed + (period.target - startUsed) * elapsed;
 const delta = used7 - expected;
-const reset5 = f ? ` jusqu'à la remise à zéro du compteur 5h (${fmt(f.resetAt)})` : "";
+const reset5 = f ? ` until the 5h counter resets (${fmt(f.resetAt)})` : "";
 
 let advice;
-if (used7 >= target) advice = `arrêt : plus de reprise d'agent (≥ ${target} %) ; garder le reste pour les questions de fin de semaine`;
-else if (used7 >= target - AGENT_COST) advice = `aucun nouvel agent (≥ ${target - AGENT_COST} %) : finir, relire et merger ceux en cours`;
-else if (used5 >= fiveLimit + FIVE_HOUR_RESUME) advice = `plus de reprise d'agent${reset5}`;
-else if (used5 >= fiveLimit) advice = `aucun nouvel agent${reset5}`;
-else if (used7 >= period.target || delta > AHEAD) advice = "lisser : aucun nouvel agent tant que le compteur ne repasse pas sous la ligne";
-else if (delta < -BEHIND) advice = "accélérer : deux meeseeks sur des zones distinctes (un seul sur une ressource partagée)";
-else advice = "normal : un meeseeks à la fois";
+if (used7 >= target) advice = `stop: no more resuming agents (≥ ${target} %); keep the rest for end-of-week questions`;
+else if (used7 >= target - AGENT_COST) advice = `no new agent (≥ ${target - AGENT_COST} %): finish, review and merge the running ones`;
+else if (used5 >= fiveLimit + FIVE_HOUR_RESUME) advice = `no more resuming agents${reset5}`;
+else if (used5 >= fiveLimit) advice = `no new agent${reset5}`;
+else if (used7 >= period.target || delta > AHEAD) advice = "smooth out: no new agent until the counter drops back under the line";
+else if (delta < -BEHIND) advice = "speed up: two meeseeks on distinct zones (only one on a shared resource)";
+else advice = "normal: one meeseeks at a time";
 
 const age = now - Math.max(w.observedAt, f?.observedAt ?? 0);
 console.log(
-  `Compteurs : 5h ${used5} %${f && f.resetAt > now ? ` (remise à zéro ${fmt(f.resetAt)})` : ""}, semaine ${used7} % (remise à zéro ${fmt(w.resetAt)})`,
+  `Counters: 5h ${used5} %${f && f.resetAt > now ? ` (resets ${fmt(f.resetAt)})` : ""}, week ${used7} % (resets ${fmt(w.resetAt)})`,
 );
-if (age > 2 * HOUR) console.log(`Attention : dernier relevé il y a ${hours(age)} (l'extension met à jour le fichier quand VS Code tourne).`);
-console.log(`Période : ${period.name} jusqu'à ${fmt(period.end)}, ${hours(period.end - now)} restantes, cible ${period.target} %`);
+if (age > 2 * HOUR) console.log(`Warning: last reading ${hours(age)} ago (the extension updates the file while VS Code runs).`);
+console.log(`Period: ${period.name} until ${fmt(period.end)}, ${hours(period.end - now)} left, target ${period.target} %`);
 console.log(
-  `Rythme : attendu ${Math.round(expected)} % à cette heure, réel ${used7} % (${delta >= 0 ? "+" : ""}${Math.round(delta)} points) ; reste ${Math.max(0, period.target - used7)} points pour la période`,
+  `Pace: expected ${Math.round(expected)} % by now, actual ${used7} % (${delta >= 0 ? "+" : ""}${Math.round(delta)} points); ${Math.max(0, period.target - used7)} points left for the period`,
 );
-console.log(`Conseil : ${advice}`);
+console.log(`Advice: ${advice}`);
