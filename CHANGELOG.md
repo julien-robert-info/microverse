@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `morty` fast-forwards its worktree to `main` before working: with a remote,
+  the worktree starts from `origin/HEAD`, not the local `HEAD`.
+
 - `agent-check` reports whether the branch merges cleanly into the base and how
   many commits the base gained; `--merged` runs the checks on the merge result.
 - `agent-check`: an added line starting with `++` is no longer taken for a file

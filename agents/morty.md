@@ -17,9 +17,12 @@ yours already holds.
 
 ## Setup
 1. `git branch -m <branch from the brief>`
-2. Read `.claude/orchestration/rules.md`: the project's rules and traps, which
+2. `git merge --ff-only main` (or the base the brief names): the worktree may
+   start from the last pushed commit rather than the local one. If it cannot
+   fast-forward, stop and report.
+3. Read `.claude/orchestration/rules.md`: the project's rules and traps, which
    take precedence over the general rules below.
-3. Run each command of `setup` in `.claude/orchestration/profile.json`, in
+4. Run each command of `setup` in `.claude/orchestration/profile.json`, in
    order. No profile: say so in the report and install what the project's
    manifests call for.
 

@@ -67,9 +67,10 @@ Agent(subagent_type: "microverse:meeseeks", model: "haiku",
 ```
 
 - The brief follows `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/brief.md`.
-- Launch from the main repository root: the worktree starts from the `HEAD` of
-  the current directory. On Windows a lowercase drive letter (`d:`) makes the
-  worktree creation fail: `cd "D:/…"`.
+- Launch from the main repository root. With a remote, the worktree starts from
+  `origin/HEAD`, not the local `HEAD`: the `morty` fast-forwards to `main`
+  first; a brief based on another branch names it. On Windows a lowercase drive
+  letter (`d:`) makes the worktree creation fail: `cd "D:/…"`.
 - A `meeseeks` takes one question; several questions, several `meeseeks`. It does not
   count toward parallelism.
 
