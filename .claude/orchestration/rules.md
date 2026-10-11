@@ -1,0 +1,32 @@
+# Rules for agents working on microverse
+
+- The repository is a Claude Code plugin. The main working tree is installed
+  in place: whatever is merged on `main` loads in every new conversation of the
+  user. Work only in your worktree.
+- Scripts are CommonJS Node 20, `"use strict"`, no dependency outside the
+  standard library (`node:` modules). Shared helpers live in
+  `scripts/orch-lib.js`; reuse them rather than duplicating.
+- A new command in `bin/` gets a shebang `#!/usr/bin/env node`, a usage comment
+  at the top like its siblings, and a `bin/<name>.cmd` wrapper (CRLF, see
+  `.gitattributes`) copied from an existing one.
+- Tests: `node:test` in `tests/`, on throwaway repositories and files built by
+  `tests/helpers.js` (`makeRepo`), never on the user's real transcripts, quota
+  file or `~/.claude`. Fixtures use synthetic values.
+- Never write to `~/.claude` (settings, plugins, projects), never run
+  `claude plugin install|uninstall|configure`, never push.
+- Variables `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`,
+  `${user_config.KEY}` are substituted in skill and agent bodies only; Bash
+  commands do not see them: pass them as arguments. Hooks receive them in the
+  environment (`CLAUDE_PLUGIN_DATA`, `CLAUDE_PLUGIN_OPTION_<KEY>`).
+- Skills, agents and README are in English. A skill's body is loaded into
+  every conversation that uses it: keep `SKILL.md` short, put detail in the
+  side files it points to.
+- Any user-visible change (new command, option, profile key, hook) updates
+  `README.md` (contents table, configuration, usage) and `CHANGELOG.md`
+  (section `Unreleased`).
+- The plugin must keep working on Windows, macOS and Linux: paths with
+  `path.join`, no shell-specific syntax in spawned commands, and tests that
+  pass on both CI systems.
+- `claude plugin validate --strict .` runs in CI; when you change a manifest,
+  `hooks/hooks.json`, a frontmatter or `settings.json`, check the field names
+  against code.claude.com/docs/en/plugins-reference.
