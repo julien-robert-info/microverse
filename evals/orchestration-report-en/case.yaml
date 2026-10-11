@@ -1,0 +1,15 @@
+schema_version: "1.1"
+name: orchestration-report-en
+description: The orchestration skill fires on an English report request.
+tags: [orchestration, en]
+execution:
+  prompt: "Write the series report for the chantiers we finished."
+  max_turns: 4
+  timeout_seconds: 120
+  allowed_tools: [Skill]
+graders:
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?orchestration"'
+    arm: both

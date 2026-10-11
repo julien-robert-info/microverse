@@ -1,0 +1,15 @@
+schema_version: "1.1"
+name: orchestration-status-en
+description: The orchestration skill fires on an English status request.
+tags: [orchestration, en]
+execution:
+  prompt: "Where are we on the running chantiers?"
+  max_turns: 4
+  timeout_seconds: 120
+  allowed_tools: [Skill]
+graders:
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?orchestration"'
+    arm: both
