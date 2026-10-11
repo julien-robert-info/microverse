@@ -1,26 +1,25 @@
-# Rédaction : README, commentaires, messages de commit
+# Writing: README, comments, commit messages
 
-Ne raconter aucune histoire : ni celle de l'utilisateur, ni la mienne, ni celle
-du projet. S'en tenir aux usages des projets open source.
+Tell no story: not the user's, not mine, not the project's. Stick to the
+conventions of open source projects.
 
-- **README** : ce que fait le projet, prérequis, installation, configuration,
-  usage, déploiement, architecture en bref. Pas de journal de décisions, pas
-  d'anecdotes, pas de chiffres mesurés sur les données de l'utilisateur.
-- **Commentaires** : le *pourquoi* technique non évident, en quelques lignes.
-  Pas d'historique (« avant », « la première version », « ça a coûté »), pas de
-  date de constat, pas de mesure sur des données réelles, pas de « nous ».
-- **Messages de commit** : Conventional Commits, un sujet court et un corps bref
-  qui dit ce qui change et pourquoi. Pas de récit de l'enquête, pas de chiffres
-  tirés des données personnelles.
-- **Données personnelles** : jamais d'adresse de wallet, de montant, de nom ou
-  d'identifiant réel de l'utilisateur dans le code, les tests ou la doc ; des
-  valeurs synthétiques à la place.
+- **README**: what the project does, requirements, installation, configuration,
+  usage, deployment, architecture in brief. No decision log, no anecdotes, no
+  figures measured on the user's data.
+- **Comments**: the non-obvious technical *why*, in a few lines. No history
+  ("before", "the first version", "it cost"), no date of a finding, no
+  measurement on real data, no "we".
+- **Commit messages**: Conventional Commits, a short subject and a brief body
+  saying what changes and why. No account of the investigation, no figures
+  taken from personal data.
+- **Personal data**: never a wallet address, amount, name or real identifier of
+  the user in code, tests or docs; synthetic values instead.
 
-Tout le reste va hors du dépôt, dans deux fichiers à la racine du projet, tous
-deux ajoutés au `.gitignore`, ou dans la mémoire locale :
+Everything else goes outside the repository, in two files at the project root,
+both added to `.gitignore`, or in local memory:
 
-- **`CLAUDE.local.md`** : le contexte courant et les chantiers en cours, et rien
-  d'autre. Il est chargé dans chaque conversation, donc il reste court.
-- **`NOTES.local.md`** : l'historique des décisions, les incidents et les
-  chiffres mesurés sur les données de l'utilisateur. Lu à la demande, quand une
-  question porte sur un chiffre, une source de données ou un incident.
+- **`CLAUDE.local.md`**: the current context and the chantiers in progress,
+  nothing else. It is loaded in every conversation, so it stays short.
+- **`NOTES.local.md`**: the history of decisions, incidents and figures measured
+  on the user's data. Read on demand, when a question concerns a figure, a data
+  source or an incident.
