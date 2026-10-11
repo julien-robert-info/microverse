@@ -1,0 +1,15 @@
+schema_version: "1.1"
+name: orchestration-chantier-suivant-fr
+description: The orchestration skill fires on a French "next chantier" request.
+tags: [orchestration, fr]
+execution:
+  prompt: "Chantier suivant."
+  max_turns: 4
+  timeout_seconds: 120
+  allowed_tools: [Skill]
+graders:
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?orchestration"'
+    arm: both

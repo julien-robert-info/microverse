@@ -1,0 +1,17 @@
+schema_version: "1.1"
+name: neg-explain-function
+description: An ordinary code question fires neither plugin skill.
+tags: [negative]
+execution:
+  prompt: "Explain what this function does: function add(a, b) { return a + b; }"
+  max_turns: 4
+  timeout_seconds: 120
+  allowed_tools: [Skill]
+graders:
+  - name: no-plugin-skill
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?(?:orchestration|init)"'
+    min: 0
+    max: 0
+    arm: both

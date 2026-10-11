@@ -4,6 +4,7 @@
   "description": "Test runner entry for the microverse plugin; the plugin itself has no dependencies.",
   "engines": { "node": ">=20" },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "eval": "claude plugin eval . --ablation none --no-publish"
   }
 }

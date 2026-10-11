@@ -1,0 +1,15 @@
+schema_version: "1.1"
+name: orchestration-ou-en-est-on-fr
+description: The orchestration skill fires on a French status request.
+tags: [orchestration, fr]
+execution:
+  prompt: "Où en est-on sur les chantiers en cours ?"
+  max_turns: 4
+  timeout_seconds: 120
+  allowed_tools: [Skill]
+graders:
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?orchestration"'
+    arm: both

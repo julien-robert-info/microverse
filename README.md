@@ -94,6 +94,25 @@ agent-check feat/subject --merged
 agent-cleanup feat/subject
 ```
 
+## Evaluation
+
+`evals/` holds a `claude plugin eval` suite checking that the skills trigger on
+natural phrasing, in French and English: `orchestration` on "démarre …",
+"chantier suivant", status and report requests, `init` on "initialise
+l'orchestration", and neither on an ordinary code question. Each case is one
+`case.yaml` with a `tool_used: Skill` grader.
+
+```bash
+npm run eval                                    # 12 cases x 3 runs
+claude plugin eval . --runs 1 --ablation none   # cheaper pass, about $1
+claude plugin eval . --case "neg-*"             # one case or glob
+```
+
+It calls the API on your own credential (a few dollars at 3 runs), so it is
+not part of the CI workflow. `--ablation none` skips the no-plugin baseline arm:
+the skill graders are scored directly instead of being treated as indicators.
+Results land in `evals/results/` (ignored by git).
+
 ## Architecture
 
 ```

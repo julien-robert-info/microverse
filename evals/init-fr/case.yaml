@@ -1,0 +1,15 @@
+schema_version: "1.1"
+name: init-fr
+description: The init skill fires on a French initialisation request.
+tags: [init, fr]
+execution:
+  prompt: "Initialise l'orchestration pour ce projet."
+  max_turns: 4
+  timeout_seconds: 120
+  allowed_tools: [Skill]
+graders:
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?init"'
+    arm: both
