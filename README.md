@@ -40,6 +40,9 @@ claude plugin marketplace add <path to the clone or owner/repo>
 claude plugin install microverse@microverse
 ```
 
+In the VS Code extension without the CLI, use `/plugin` in the chat panel
+(Marketplaces, then Discover) for the same two steps.
+
 A catalog added from a local path loads the plugin in place: a change takes
 effect in the next conversation or after `/reload-plugins`.
 
