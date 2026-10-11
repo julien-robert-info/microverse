@@ -20,8 +20,9 @@ function fail(message) {
   process.exit(2);
 }
 
-// `--key value` and `--flag` pairs; everything else is positional.
-function parseArgs(argv) {
+// `--key value` and `--flag` pairs; everything else is positional. A name in
+// `flags` is boolean: it never takes the next token as its value.
+function parseArgs(argv, { flags = [] } = {}) {
   const opts = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -31,7 +32,7 @@ function parseArgs(argv) {
     }
     const key = a.slice(2);
     const next = argv[i + 1];
-    if (next === undefined || next.startsWith("--")) opts[key] = true;
+    if (flags.includes(key) || next === undefined || next.startsWith("--")) opts[key] = true;
     else {
       opts[key] = next;
       i++;

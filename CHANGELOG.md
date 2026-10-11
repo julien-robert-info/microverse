@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `agent-check` reports whether the branch merges cleanly into the base and how
+  many commits the base gained; `--merged` runs the checks on the merge result.
+- `agent-check`: an added line starting with `++` is no longer taken for a file
+  header by the pattern scan.
+
 ## 0.1.0
 
 - Skills `orchestration` and `init`.
