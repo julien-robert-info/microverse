@@ -58,6 +58,17 @@ else {
       console.log(`FAIL ${name} (code ${r.status ?? "?"}):\n${tail(`${r.stdout ?? ""}\n${r.stderr ?? ""}`)}`);
     }
   }
+
+  // Checks can rewrite tracked files (generated code); `teardown` restores
+  // them, so the worktree can still be removed afterwards.
+  if (!opts["no-checks"]) {
+    for (const cmd of profile.teardown ?? []) spawnSync(cmd, { cwd: wt, shell: true, encoding: "utf8" });
+    const left = git(["status", "--porcelain"], wt).out.trimEnd();
+    if (left) {
+      ok = false;
+      console.log(`FAIL worktree: the checks left changes (add a \`teardown\` command to the profile)\n${tail(left)}`);
+    }
+  }
 }
 
 // Patterns are matched on added lines only, reported as file:line.

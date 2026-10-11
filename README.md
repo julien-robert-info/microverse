@@ -67,7 +67,8 @@ Per project, the `.claude/orchestration/` profile (versioned), written by
 `/microverse:init`:
 
 - `profile.json`: `setup` (commands for a fresh worktree), `checks` (`name`,
-  `run`, optional `paths`), `servers` (command-line patterns), `diffPatterns`
+  `run`, optional `paths`), `teardown` (commands restoring files the checks
+  rewrite), `servers` (command-line patterns), `diffPatterns`
   (`pattern`, `why`), `shared` (exclusive resources);
 - `rules.md`: the project's rules and traps, read first by the agents.
 

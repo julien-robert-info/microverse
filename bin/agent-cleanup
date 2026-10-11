@@ -12,19 +12,19 @@ function processes() {
     const r = run("powershell.exe", [
       "-NoProfile",
       "-Command",
-      "Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress",
+      "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress",
     ]);
     if (r.code !== 0) fail(`cannot read the process list: ${r.err.trim()}`);
     const list = JSON.parse(r.out || "[]");
-    return (Array.isArray(list) ? list : [list]).map((p) => ({ pid: p.ProcessId, line: p.CommandLine ?? "" }));
+    return (Array.isArray(list) ? list : [list]).map((p) => ({ pid: p.ProcessId, ppid: p.ParentProcessId, line: p.CommandLine ?? "" }));
   }
-  const r = run("ps", ["-eo", "pid=,args="]);
+  const r = run("ps", ["-eo", "pid=,ppid=,args="]);
   return r.out
     .split("\n")
     .filter(Boolean)
     .map((l) => {
-      const m = /^\s*(\d+)\s+(.*)$/.exec(l);
-      return { pid: Number(m?.[1]), line: m?.[2] ?? "" };
+      const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l);
+      return { pid: Number(m?.[1]), ppid: Number(m?.[2]), line: m?.[3] ?? "" };
     });
 }
 
@@ -41,7 +41,12 @@ if (git(["merge-base", "--is-ancestor", branch, "HEAD"], root).code !== 0) fail(
 if (wt) {
   if (normPath(wt) === normPath(root)) fail(`${branch} is the main checkout's branch: nothing to clean up here`);
   const marker = normPath(wt);
-  const busy = processes().filter((p) => p.pid !== process.pid && normPath(p.line).includes(marker));
+  const all = processes();
+  // When the caller ran `cd <worktree> && agent-cleanup`, the shell executing this
+  // command carries the worktree path in its own command line: skip ancestors.
+  const mine = new Set([process.pid]);
+  for (let p = all.find((x) => x.pid === process.pid); p && !mine.has(p.ppid); p = all.find((x) => x.pid === p.ppid)) mine.add(p.ppid);
+  const busy = all.filter((p) => !mine.has(p.pid) && normPath(p.line).includes(marker));
   if (busy.length) {
     console.log(`REFUSED: processes still running in ${wt} (${busy.length}):`);
     for (const p of busy) console.log(`    ${p.pid} ${p.line.slice(0, 160)}`);

@@ -36,6 +36,7 @@ configuration, the project's `CLAUDE.md`, the skills and agents under
     { "name": "tests", "run": "npm test" },
     { "name": "build", "run": "npm run build", "paths": ["src/", "app/"] }
   ],
+  "teardown": ["git checkout -- next-env.d.ts"],
   "servers": ["/next/"],
   "diffPatterns": [{ "pattern": "console\\.log\\(", "why": "leftover debug trace" }],
   "shared": ["database schema (migration number reserved in CLAUDE.local.md)"]
@@ -46,6 +47,9 @@ configuration, the project's `CLAUDE.md`, the skills and agents under
 - `checks`: run by `agent-check` in the agent's worktree, and by the agent
   before its report. `paths` (optional): path prefixes; the check runs only if
   the diff touches one of them.
+- `teardown`: commands `agent-check` runs after the checks to restore tracked
+  files they rewrite (generated code); a worktree left modified cannot be
+  removed by `agent-cleanup`.
 - `servers`: command-line substrings of a server (`/` or `\` separators are
   interchangeable); the `SubagentStop` hook stops the finished agent's
   processes that contain one. Stay precise: a pattern that is too broad would
