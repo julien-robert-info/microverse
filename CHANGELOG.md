@@ -4,7 +4,13 @@
 
 - `morty` fast-forwards its worktree to `main` before working: with a remote,
   the worktree starts from `origin/HEAD`, not the local `HEAD`.
-
+- New `UserPromptSubmit` hook (`scripts/context-guard.js`), active in projects
+  with an orchestration profile: warns once per 50K step above 150K tokens of
+  context, and once per session when `CLAUDE.local.md` exceeds 60 lines. The
+  context computation moved to `orch-lib.js` (`lastContext`), shared with
+  `orch-usage --context`.
+- The orchestration skill describes `notes/<chantier>.md` with an index in
+  `NOTES.local.md`; the brief asks for a test that fails before a bug fix.
 - `agent-check` reports whether the branch merges cleanly into the base and how
   many commits the base gained; `--merged` runs the checks on the merge result.
 - `agent-check`: an added line starting with `++` is no longer taken for a file

@@ -19,7 +19,8 @@ specific to the task.
 7. **Traps specific to the task**, in addition to those of the definition and
    of `rules.md`.
 8. **Expected tests**: the list of cases, including crossed cases (two
-   different sides) and negative cases.
+   different sides) and negative cases. For a bug fix: a test that fails before
+   the fix.
 9. **Verification on real data**: how to rerun the step, expected figures,
    precise questions the report must answer.
 

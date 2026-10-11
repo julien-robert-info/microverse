@@ -14,7 +14,7 @@
 const { existsSync, readdirSync, readFileSync, statSync } = require("node:fs");
 const { homedir } = require("node:os");
 const { join } = require("node:path");
-const { fail, parseArgs } = require("../scripts/orch-lib.js");
+const { fail, parseArgs, lastContext } = require("../scripts/orch-lib.js");
 
 const CONTEXT_LIMIT = 150e3;
 // $/MTok: input, 5m cache write, 1h cache write, cache read, output.
@@ -91,11 +91,9 @@ const k = (n) => `${Math.round(n / 1e3)}K`;
 if (opts.context) {
   const s = sessions.find((x) => x.id === opts.session) ?? sessions[0];
   if (!s) fail("no conversation");
-  const requests = new Map();
-  readRequests(s.path, "conversation", null, requests);
-  const last = [...requests.values()].sort((a, b) => (a.ts < b.ts ? -1 : 1)).at(-1);
+  const last = lastContext(readFileSync(s.path, "utf8"));
   if (!last) fail(`no request in session ${s.id}`);
-  const ctx = last.v[0] + last.v[1] + last.v[2] + last.v[3];
+  const ctx = last.tokens;
   const verdict = ctx >= CONTEXT_LIMIT ? "over the threshold: switch conversation at the next moment with no agent awaiting review" : "under the threshold";
   console.log(`Session ${s.id} (${last.model}): context ${k(ctx)} tokens, threshold ${k(CONTEXT_LIMIT)}; ${verdict}`);
   process.exit(0);
