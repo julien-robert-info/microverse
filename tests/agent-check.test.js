@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { writeFileSync } = require("node:fs");
 const { join } = require("node:path");
-const { git, makeRepo, script } = require("./helpers.js");
+const { commitFile, git, hasMergeTree, makeRepo, script } = require("./helpers.js");
 
 // Appends to a tracked file, like a build rewriting generated code.
 const dirty = { name: "dirty", run: `node -e "require('fs').appendFileSync('gen.txt', 'x')"` };
@@ -50,4 +50,61 @@ test("a check with paths is skipped when the diff does not touch them", () => {
   const r = script("agent-check", ["feat/x"], dir);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /build: skipped/);
+});
+
+test("agent-check fails when the branch conflicts with the base, naming the file", { skip: !hasMergeTree }, () => {
+  const { dir, wt } = makeRepo({});
+  commitFile(wt, "gen.txt", "from branch\n");
+  commitFile(dir, "gen.txt", "from main\n");
+  const r = script("agent-check", ["feat/x"], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /FAIL merge: conflicts with main\r?\n\s+gen\.txt/);
+});
+
+test("agent-check reports an unrelated base commit without failing", { skip: !hasMergeTree }, () => {
+  const { dir } = makeRepo({});
+  commitFile(dir, "other.txt", "o\n");
+  const r = script("agent-check", ["feat/x"], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /OK {2}merge/);
+  assert.match(r.out, /-- {2}base: 1 commit\(s\) on main/);
+});
+
+// Fails only when both files exist, i.e. on the merge result.
+const both = { name: "both", run: `node -e "const f=require('fs');process.exit(f.existsSync('a.txt')&&f.existsSync('b.txt')?1:0)"` };
+
+test("--merged runs the checks on the merge result and undoes the merge", () => {
+  const { dir, wt } = makeRepo({ checks: [both] });
+  commitFile(dir, "b.txt", "b\n");
+  const head = git(wt, "rev-parse", "HEAD").out;
+  const alone = script("agent-check", ["feat/x"], dir);
+  assert.equal(alone.code, 0, alone.out);
+  const merged = script("agent-check", ["feat/x", "--merged"], dir);
+  assert.equal(merged.code, 1);
+  assert.match(merged.out, /FAIL both/);
+  assert.equal(git(wt, "rev-parse", "HEAD").out, head);
+  assert.equal(git(wt, "status", "--porcelain").out, "");
+});
+
+test("--merged is skipped when the base has not moved", () => {
+  const { dir } = makeRepo({ checks: [both] });
+  const r = script("agent-check", ["feat/x", "--merged"], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /merged: skipped/);
+  assert.match(r.out, /OK {2}both/);
+});
+
+test("--no-checks before the branch name does not swallow it", () => {
+  const { dir } = makeRepo({ checks: [{ name: "boom", run: `node -e "process.exit(3)"` }] });
+  const r = script("agent-check", ["--no-checks", "feat/x"], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /boom/);
+});
+
+test("an added line starting with ++ is scanned and reported with its line", () => {
+  const { dir, wt } = makeRepo({ diffPatterns: [{ pattern: "marker", why: "bad" }] });
+  commitFile(wt, "c.txt", "one\n++marker\n");
+  const r = script("agent-check", ["feat/x"], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /c\.txt:2 bad/);
 });

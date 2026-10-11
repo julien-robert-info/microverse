@@ -37,4 +37,14 @@ function makeRepo(profile) {
   return { dir, wt };
 }
 
-module.exports = { ROOT, bin, sh, git, script, makeRepo };
+// Writes `content` to `file` and commits it in the checkout at `cwd`.
+function commitFile(cwd, file, content, msg = `chore: ${file}`) {
+  writeFileSync(join(cwd, file), content);
+  git(cwd, "add", file);
+  git(cwd, "commit", "-qm", msg);
+}
+
+// `git merge-tree --write-tree` exists from git 2.38; the tests relying on it skip without.
+const hasMergeTree = sh("git", ["merge-tree", "--write-tree", "HEAD", "HEAD"], ROOT).code === 0;
+
+module.exports = { ROOT, bin, sh, git, script, makeRepo, commitFile, hasMergeTree };

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Mechanical checks on an agent's branch before reading its diff: commits
 // exist, worktree is clean, the profile's checks pass, no suspicious pattern in
-// the added lines. Prints OK or the tail of each failure only.
+// the added lines, and the branch merges cleanly into the base. Prints OK or the\n// tail of each failure only.
 //
-// agent-check <branch> [--base main] [--no-checks]
+// agent-check <branch> [--base main] [--no-checks] [--merged]
 //
-// Exit code: 0 when everything passes, 1 otherwise.
+// --merged runs the checks on the result of merging the base into the branch\n// (done in the branch's worktree, then undone) instead of on the branch alone.\n//\n// Exit code: 0 when everything passes, 1 otherwise.
 "use strict";
 
 const { spawnSync } = require("node:child_process");
@@ -16,9 +16,9 @@ const TAIL = 25;
 // U+2014 becomes U+00E2 U+20AC U+201D. Escaped so this file does not match itself.
 const BUILTIN = [{ pattern: "\\u00C3[\\u0080-\\u00BF\\u2018-\\u2030]|\\u00E2\\u20AC", why: "UTF-8 double encoding" }];
 
-const opts = parseArgs(process.argv.slice(2));
+const opts = parseArgs(process.argv.slice(2), { flags: ["no-checks", "merged"] });
 const branch = opts._[0];
-if (!branch) fail("usage: agent-check <branch> [--base main] [--no-checks]");
+if (!branch) fail("usage: agent-check <branch> [--base main] [--no-checks] [--merged]");
 const root = repoRoot();
 const base = typeof opts.base === "string" ? opts.base : defaultBase(root);
 const profile = loadProfile(root) ?? {};
@@ -34,6 +34,24 @@ if (!commits.length) {
 }
 console.log(`commits (${commits.length}):\n${commits.map((c) => `    ${c}`).join("\n")}`);
 
+// A merge that cannot be done is checked on a throwaway tree, so nothing is
+// touched. `--write-tree` needs git >= 2.38; older versions exit with another code.
+let conflicted = false;
+const mt = git(["merge-tree", "--write-tree", "--name-only", base, branch], root);
+if (mt.code === 0) console.log("OK  merge");
+else if (mt.code === 1) {
+  ok = false;
+  conflicted = true;
+  const files = mt.out.split(/\r?\n/).slice(1);
+  const end = files.indexOf("");
+  console.log(`FAIL merge: conflicts with ${base}\n${files.slice(0, end < 0 ? files.length : end).filter(Boolean).map((f) => `    ${f}`).join("\n")}`);
+} else console.log("--  merge: not checked (needs git >= 2.38)");
+
+const behind = Number(git(["rev-list", "--count", `${branch}..${base}`], root).out.trim()) || 0;
+if (behind > 0 && !opts.merged) {
+  console.log(`--  base: ${behind} commit(s) on ${base} since the branch point; checks ran on the branch alone (rerun with --merged)`);
+}
+
 const changed = git(["diff", "--name-only", `${base}...${branch}`], root).out.trim().split("\n").filter(Boolean);
 const wt = worktreeFor(root, branch);
 if (!wt) console.log("worktree: none for this branch, checks not run");
@@ -44,6 +62,44 @@ else {
     console.log(`FAIL worktree: uncommitted changes in ${wt}\n${tail(status)}`);
   } else console.log("OK  worktree clean");
 
+  // --merged runs the checks on the merge result, in the agent's own worktree
+  // (its dependencies are installed there). It needs a clean tree and a merge
+  // that has something to do; the merge is always aborted afterwards.
+  let merging = false;
+  let mergeFailed = false;
+  const head = git(["rev-parse", "HEAD"], wt).out.trim();
+  if (opts.merged) {
+    if (status) console.log("--  merged: skipped (worktree not clean)");
+    else if (conflicted) console.log(`--  merged: skipped (conflicts with ${base})`);
+    else if (behind === 0) console.log(`--  merged: skipped (${base} is already merged, nothing to combine)`);
+    else {
+      const m = git(["merge", "--no-ff", "--no-commit", base], wt);
+      merging = true;
+      if (m.code !== 0) {
+        ok = false;
+        mergeFailed = true;
+        console.log(`FAIL merge: conflicts with ${base}\n${tail(m.out || m.err)}`);
+      } else console.log(`--  merged: checks run on the merge of ${base}`);
+    }
+  }
+  // State the checks start from: the merge itself leaves staged changes.
+  const baseline = merging ? git(["status", "--porcelain"], wt).out.trimEnd() : "";
+
+  try {
+    if (!mergeFailed) runChecks(wt, baseline);
+  } finally {
+    if (merging) {
+      git(["merge", "--abort"], wt);
+      const left = git(["status", "--porcelain"], wt).out.trimEnd();
+      if (git(["rev-parse", "HEAD"], wt).out.trim() !== head || left) {
+        ok = false;
+        console.log(`FAIL worktree: merge not undone\n${tail(left)}`);
+      }
+    }
+  }
+}
+
+function runChecks(wt, baseline) {
   // A check with `paths` runs only when the diff touches one of these prefixes.
   for (const check of opts["no-checks"] ? [] : (profile.checks ?? [])) {
     const name = check.name ?? check.run;
@@ -64,23 +120,28 @@ else {
   if (!opts["no-checks"]) {
     for (const cmd of profile.teardown ?? []) spawnSync(cmd, { cwd: wt, shell: true, encoding: "utf8" });
     const left = git(["status", "--porcelain"], wt).out.trimEnd();
-    if (left) {
+    if (left !== baseline) {
       ok = false;
       console.log(`FAIL worktree: the checks left changes (add a \`teardown\` command to the profile)\n${tail(left)}`);
     }
   }
 }
-
 // Patterns are matched on added lines only, reported as file:line.
 const patterns = [...BUILTIN, ...(profile.diffPatterns ?? [])].map((p) => ({ re: new RegExp(p.pattern), why: p.why ?? p.pattern }));
 const diff = git(["diff", "--unified=0", "--no-color", `${base}...${branch}`], root).out;
 const hits = [];
 let file = null;
 let line = 0;
+// `+++` is a file header only before the first hunk; after it, an added line
+// whose content starts with `++` looks the same.
+let header = false;
 for (const l of diff.split("\n")) {
-  if (l.startsWith("+++ ")) file = l.slice(4).replace(/^b\//, "");
-  else if (l.startsWith("@@")) line = Number(/\+(\d+)/.exec(l)?.[1] ?? 0);
-  else if (l.startsWith("+")) {
+  if (l.startsWith("diff --git ")) header = true;
+  else if (header && l.startsWith("+++ ")) file = l.slice(4).replace(/^b\//, "");
+  else if (l.startsWith("@@")) {
+    header = false;
+    line = Number(/\+(\d+)/.exec(l)?.[1] ?? 0);
+  } else if (!header && l.startsWith("+")) {
     for (const p of patterns) if (p.re.test(l.slice(1))) hits.push(`    ${file}:${line} ${p.why} : ${l.slice(1).trim().slice(0, 120)}`);
     line++;
   }
