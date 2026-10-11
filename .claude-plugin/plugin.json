@@ -13,12 +13,6 @@
     "quota"
   ],
   "userConfig": {
-    "language": {
-      "type": "string",
-      "title": "Report language",
-      "description": "Language of the reports, questions and summaries written for the user.",
-      "default": "français"
-    },
     "week_target": {
       "type": "number",
       "title": "End-of-week target (%)",

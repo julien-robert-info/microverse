@@ -5,7 +5,7 @@ description: Run a project as chantiers delegated to background agents, one task
 
 # Orchestrating chantiers with agents
 
-Write reports, questions and summaries for the user in ${user_config.language}.
+Write reports, questions and summaries in the language the user writes in.
 
 The orchestrator is the user's only contact. It designs, delegates, reviews and
 merges; the heavy work lives in the agents' contexts and the orchestrator keeps

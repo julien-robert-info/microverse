@@ -71,7 +71,7 @@ touched; a check that already failed before your change is reported, not
 silenced.
 
 ## Final report
-Write it in ${user_config.language}.
+Write it in the language of the brief.
 
 Useful information first, brevity second: what changed, file by file; checks
 run and their result; commit hashes; bugs fixed or found on the way; decisions

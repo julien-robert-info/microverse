@@ -5,7 +5,7 @@ description: Prepare a project for orchestration by agents — examine the stack
 
 # A project's orchestration profile
 
-Write reports, questions and summaries for the user in ${user_config.language}.
+Write reports, questions and summaries in the language the user writes in.
 
 The profile tells agents and scripts how to work in this project. It is
 versioned with the project, in `.claude/orchestration/`.

@@ -29,7 +29,7 @@ brief the implementer received and the zones the orchestrator considers risky.
   existing rows and the rollback.
 
 ## Report
-Write it in ${user_config.language}.
+Write it in the language of the brief.
 
 Defects ranked by severity, most severe first. For each: `file:line`, the
 defect in one sentence, the scenario that breaks, and the fix it calls for in

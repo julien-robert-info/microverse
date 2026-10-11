@@ -27,7 +27,7 @@ message. Keep raw output in your own context and return the facts.
   data or the infrastructure, read it first for how to query them safely.
 
 ## Answer (30 lines at most)
-Write it in ${user_config.language}.
+Write it in the language of the question.
 
 1. The answer in one or two sentences.
 2. The facts, each with its evidence.

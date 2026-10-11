@@ -58,7 +58,6 @@ Plugin settings (`/config`):
 
 | Key | Default | Meaning |
 |---|---|---|
-| `language` | `français` | language of the reports, questions and summaries written for the user |
 | `week_target` | 98 | consumption aimed at the end of the week; beyond it no more resuming, 3 points before no new agent (%) |
 | `weekday_reserve` | 30 | points kept for weekdays; the weekend rises to `week_target` minus this value |
 | `five_hour_limit` | 90 | beyond it, no new agent until the 5h counter resets; 5 points higher, no more resuming (%) |
