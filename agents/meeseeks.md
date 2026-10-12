@@ -24,8 +24,9 @@ message. Keep raw output in your own context and return the facts.
 - Read line ranges and grep rather than whole files; filter command output.
   Keep your own context small: past 100K tokens each request costs five times
   more.
-- If `.claude/orchestration/rules.md` exists and the question touches the
-  data or the infrastructure, read it first for how to query them safely.
+- If the question names a project skill, follow it. If
+  `.claude/orchestration/rules.md` exists and the question touches the data or
+  the infrastructure, read it first for how to query them safely.
 
 ## Answer (30 lines at most)
 Write it in the language of the question.

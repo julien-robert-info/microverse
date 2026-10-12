@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The orchestration skill lists what the orchestrator reads itself (state
+  file, notes section, diff under review, code for a brief) and sends the rest
+  to a `meeseeks`: database queries, logs, remote commands, searches through
+  notes or large files, one `meeseeks` per measurement during design. A project
+  skill holding the query recipe is named in the question; `meeseeks` follows
+  it.
+
 - The orchestrating conversation runs on Sonnet with Opus as advisor, so no
   model is chosen when opening it: `/microverse:init` offers to write
   `"model": "sonnet"` and `"advisorModel": "opus"` in

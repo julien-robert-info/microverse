@@ -44,9 +44,14 @@ loss:
   steps (launch, `agent-check`, merge, cleanup, state file).
 - Pass the model **explicitly** at every launch (`model:` of the Agent tool):
   the agent definition alone has not always sufficed.
-- Anything mechanical goes through a script (zero model tokens); bulky raw
-  output (logs, SQL results, large files) goes through a `meeseeks`, to stay out
-  of the orchestrator's context.
+- Anything mechanical goes through a script (zero model tokens).
+- **What the orchestrator reads itself**: the state file, the notes section at
+  hand, the diff under review, the code a brief needs. **Everything else goes
+  to a `meeseeks`**: database queries, logs, commands on another machine,
+  searches through the notes or a large file. Every token kept in the context
+  is paid again at each request, and in full at each advisor call. When a
+  project skill holds the recipe (how to query the database, read the logs),
+  name that skill in the question instead of running the recipe.
 
 ## 1. Before launching
 
@@ -57,9 +62,12 @@ loss:
   distinct code zones, and never two on the same `shared` resource of the
   profile (schema, local database…). A task that takes a shared resource
   reserves it in the state file.
-- **Design first**: measure on real data what the task will meet, settle the
-  rules (consult the advisor on them), write them in the notes. An implementer who has to decide a
-  business rule alone will decide it badly.
+- **Design first**: measure on real data what the task will meet, one
+  `meeseeks` per measurement (launched together when independent), settle the
+  rules (consult the advisor on them), write them in the notes. An implementer
+  who has to decide a business rule alone will decide it badly. An open
+  investigation, with no single question to ask, goes to a `general-purpose`
+  agent with `model: "opus"`.
 
 ## 2. Launch
 
