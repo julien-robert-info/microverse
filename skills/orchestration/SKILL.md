@@ -136,7 +136,8 @@ The conversation is not switched: Claude Code compacts it automatically at
 - After a compaction, the `after-compact` hook lists the agent worktrees and
   whether each is merged. Re-read the state file rather than trusting the
   summary.
-- If the guard says `autoCompactWindow` seems unset, run `/compact` by hand.
+- If the guard says `autoCompactWindow` seems unset, ask the user to run
+  `/compact` (a slash command the model cannot run) and `/microverse:init`.
 
 ## 6. What remains to ask
 
