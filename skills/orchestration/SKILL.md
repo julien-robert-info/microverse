@@ -80,7 +80,9 @@ Agent(subagent_type: "microverse:meeseeks", model: "haiku",
 ## 3. When the report arrives
 
 1. `agent-check <branch>`: commits present, worktree clean, the profile's
-   `checks`, diff patterns; it also reports conflicts with main and how far main\n   moved: when it moved since the launch, rerun with `--merged` before merging.\n   A failure of a few lines goes back to the agent with
+   `checks`, diff patterns; it also reports conflicts with main and how far main
+   moved: when it moved since the launch, rerun with `--merged` before merging.
+   A failure of a few lines goes back to the agent with
    `SendMessage` (context still warm) rather than being fixed by hand.
 2. **Read the diff for real**, not the report, with
    `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/review.md`.
