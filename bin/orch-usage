@@ -122,7 +122,7 @@ if (opts.context) {
   const last = lastContext(readFileSync(s.path, "utf8"));
   if (!last) fail(`no request in session ${s.id}`);
   const ctx = last.tokens;
-  const verdict = ctx >= CONTEXT_LIMIT ? "over the threshold: switch conversation at the next moment with no agent awaiting review" : "under the threshold";
+  const verdict = ctx >= CONTEXT_LIMIT ? "over the threshold: auto-compaction should have run (autoCompactWindow), else ask the user for /compact" : "under the threshold";
   console.log(`Session ${s.id} (${last.model}): context ${k(ctx)} tokens, threshold ${k(CONTEXT_LIMIT)}; ${verdict}`);
   process.exit(0);
 }
