@@ -73,6 +73,15 @@ Also check:
 
 - `.gitignore` contains `CLAUDE.local.md`, `NOTES.local.md` and
   `.claude/worktrees/`; offer to add what is missing;
+- offer to merge `"autoCompactWindow": ${user_config.compact_window}` into
+  `.claude/settings.local.json` (create it if missing, keep every existing
+  key), so Claude Code compacts the orchestrating conversation at that size;
+  check that file is ignored by git;
+- offer to append to the state file `CLAUDE.local.md` a `# Compact instructions`
+  section of three or four lines, in the user's language: the summary keeps the
+  chantiers in progress with their branches, the agents launched and not yet
+  returned, the decisions not yet written to the notes, the questions awaiting
+  the user;
 - offer a `.worktreeinclude` for unversioned files a worktree needs (`.env`…);
 - run each `checks` command once on the current branch, to verify it passes
   before making it a criterion.

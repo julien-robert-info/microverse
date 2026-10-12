@@ -20,6 +20,8 @@ cleans up; the launch pace follows the usage quota.
 | `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (`--merged`: on the merge result), suspicious patterns in the diff |
 | `agent-cleanup <branch>` | removes an agent's worktree and merged branch |
 | `SubagentStop` hook | stops servers left running by a finished agent |
+| `UserPromptSubmit` hook (`context-guard`) | once, when the context nears the auto-compaction window: update the state file; once, when it is past it (`autoCompactWindow` probably unset); once, when `CLAUDE.local.md` exceeds 60 lines |
+| `SessionStart` hook (matcher `compact`) | after a compaction, restates that `CLAUDE.local.md` is the state of reference and lists the agent worktrees, merged or not |
 | `user/CLAUDE.md` | writing rules (README, comments, commits), to import into `~/.claude/CLAUDE.md` |
 
 ## Requirements
@@ -61,6 +63,7 @@ Plugin settings (`/config`):
 | `week_target` | 98 | consumption aimed at the end of the week; beyond it no more resuming, 3 points before no new agent (%) |
 | `weekday_reserve` | 30 | points kept for weekdays; the weekend rises to `week_target` minus this value |
 | `five_hour_limit` | 90 | beyond it, no new agent until the 5h counter resets; 5 points higher, no more resuming (%) |
+| `compact_window` | 150000 | context size (tokens, 100000 to 1000000) at which Claude Code compacts the orchestrating conversation; `/microverse:init` writes it as `autoCompactWindow` in `.claude/settings.local.json` |
 | `quota_file` | — | readings file, if the extension is not at its default location |
 
 Per project, the `.claude/orchestration/` profile (versioned), written by
@@ -121,7 +124,8 @@ skills/           orchestration (SKILL.md, budget.md, brief.md, review.md), init
 agents/           morty, meeseeks, rick
 bin/              dependency-free Node scripts, added to the Bash tool's PATH;
                   the .cmd files make them callable from PowerShell
-scripts/          orch-lib.js (shared by bin/ and the hook), SubagentStop hook
+scripts/          orch-lib.js (shared by bin/ and the hooks), hooks (SubagentStop,
+                  UserPromptSubmit, SessionStart after a compaction)
 tests/            node:test suite, run with `npm test`
 hooks/hooks.json  hook declaration
 user/CLAUDE.md    global writing rules

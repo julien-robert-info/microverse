@@ -104,7 +104,7 @@ Agent(subagent_type: "microverse:meeseeks", model: "haiku",
 ## 4. Series report
 
 Written at every stop of the chain (no planned task left, quota threshold,
-blocking question, conversation switch) and at every user request. It covers
+blocking question) and at every user request. It covers
 everything since the previous one, whose commit is noted in the state file.
 Start from `orch-report --since <last report commit>` (same quota options as
 § 1): it prints the merges, the agent runs and their cost, the quota and the
@@ -120,21 +120,23 @@ steps. The report stands on its own, in this order:
 5. **Next**: task in progress or next, what awaits a decision, and as **a single
    question**: deploy and push what has been merged since the last deployment.
 6. **Quota**: the summarized output of `orch-quota`.
-7. **Conversation**: context measured by `orch-usage --context`, and a clear
-   recommendation: continue, or switch after such a merge; with the **model of
-   the next one**: Opus if design remains, Sonnet if only execution of designed
-   chantiers remains.
+7. **Context**: `orch-usage --context`, for information.
 
 Then note the new "Last report" in the state file.
 
-## 5. Switching conversation
+## 5. Compaction
 
-Past ~150K tokens of context (`orch-usage --context`; the `context-guard` hook
-warns at 150K then at each 50K): series report, state file
-up to date, then tell the user, at a moment when no agent awaits review (an
-agent's report returns to the conversation that launched it). Once the switch is
-recommended, launch no more agents from this conversation: finish the review in
-progress, merge, update the state, stop.
+The conversation is not switched: Claude Code compacts it automatically at
+`${user_config.compact_window}` tokens (`autoCompactWindow`, written by
+`/microverse:init`). Agents keep running and their reports still arrive.
+
+- When the `context-guard` hook warns that compaction is near, update the state
+  file before going on: chantier table, decisions not yet in the notes, pending
+  questions. No report is required.
+- After a compaction, the `after-compact` hook lists the agent worktrees and
+  whether each is merged. Re-read the state file rather than trusting the
+  summary.
+- If the guard says `autoCompactWindow` seems unset, run `/compact` by hand.
 
 ## 6. What remains to ask
 
