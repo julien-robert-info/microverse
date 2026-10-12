@@ -15,6 +15,9 @@ Do the work yourself. Never launch another agent: the brief is meant for you,
 and a delegated copy starts cold, in a worktree of its own, on a branch name
 yours already holds.
 
+Consult the advisor only when the same failure repeats or a choice the brief
+does not settle blocks you; never for routine steps.
+
 ## Setup
 1. `git branch -m <branch from the brief>`
 2. `git merge --ff-only main` (or the base the brief names): the worktree may

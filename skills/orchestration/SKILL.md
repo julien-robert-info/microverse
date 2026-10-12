@@ -30,16 +30,18 @@ loss:
 
 | Who | Model | Does |
 |---|---|---|
-| design conversation | Opus | investigation, rules, brief |
-| execution conversation | Sonnet | launch, review a mechanical diff, merge, clean up, status, report |
+| orchestrating conversation | Sonnet, Opus as advisor | design, launch, review, merge, report |
 | `microverse:morty` | Sonnet | implements a brief in its worktree |
 | `microverse:meeseeks` | Haiku | reads and summarizes: one question, facts with their evidence |
 | `microverse:rick` | Opus | reviews a risky diff, fixes nothing |
 
-- The conversation's model is chosen when it opens and never changes: the cache
-  is per model, a switch rewrites the whole context.
-- A Sonnet conversation does not design: a design question is noted in the
-  state file for the next Opus conversation.
+- The model comes from the project's settings (`/microverse:init`). Changing it
+  inside a conversation rewrites the whole cache: don't. A long design session
+  the user wants on Opus is their choice at opening.
+- **Consult the advisor** (say "consult the advisor") before writing a brief,
+  before ruling on a `rick` review, before a design decision recorded as "to
+  confirm", and when an agent fails twice on the same thing. Not for routine
+  steps (launch, `agent-check`, merge, cleanup, state file).
 - Pass the model **explicitly** at every launch (`model:` of the Agent tool):
   the agent definition alone has not always sufficed.
 - Anything mechanical goes through a script (zero model tokens); bulky raw
@@ -55,8 +57,8 @@ loss:
   distinct code zones, and never two on the same `shared` resource of the
   profile (schema, local database…). A task that takes a shared resource
   reserves it in the state file.
-- **Design first** (in Opus): measure on real data what the task will meet,
-  settle the rules, write them in the notes. An implementer who has to decide a
+- **Design first**: measure on real data what the task will meet, settle the
+  rules (consult the advisor on them), write them in the notes. An implementer who has to decide a
   business rule alone will decide it badly.
 
 ## 2. Launch

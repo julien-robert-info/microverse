@@ -76,7 +76,10 @@ Also check:
 - offer to merge `"autoCompactWindow": ${user_config.compact_window}` into
   `.claude/settings.local.json` (create it if missing, keep every existing
   key), so Claude Code compacts the orchestrating conversation at that size;
-  check that file is ignored by git;
+  merge `"model": "sonnet"` and `"advisorModel": "opus"` in the same file: the
+  orchestrating conversation runs on Sonnet and consults Opus at decision
+  points, so no model has to be chosen when opening a conversation; check that
+  file is ignored by git;
 - offer to append to the state file `CLAUDE.local.md` a `# Compact instructions`
   section of three or four lines, in the user's language: the summary keeps the
   chantiers in progress with their branches, the agents launched and not yet

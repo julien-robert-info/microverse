@@ -47,3 +47,55 @@ test("orch-usage --context reports the size of the last request", () => {
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /context 1000K tokens/);
 });
+
+const step = (type, input, extra = {}) => ({ type, input_tokens: input, output_tokens: 0, ...extra });
+
+// A conversation with one request that consulted the advisor and one that did
+// not, and a Haiku agent run whose two steps straddle the price tier, plus one
+// advisor call.
+function advisedFixture() {
+  const { env, project } = fixture();
+  const slug = project.replace(/[^A-Za-z0-9]/g, "-").toLowerCase();
+  const sessions = join(env.HOME, ".claude", "projects", slug);
+  const subagents = join(sessions, "sess1", "subagents");
+  const opus = { model: "claude-opus-5-5" };
+  writeFileSync(
+    join(sessions, "sess1.jsonl"),
+    request("c1", "claude-sonnet-5-5", { input_tokens: 1e6, output_tokens: 0, iterations: [step("message", 1e6)] }) +
+      request("c2", "claude-sonnet-5-5", {
+        input_tokens: 1e6,
+        output_tokens: 0,
+        iterations: [step("message", 5e5), step("advisor_message", 46108, { ...opus, output_tokens: 875 }), step("message", 5e5)],
+      }),
+  );
+  const haiku = request("h1", "claude-haiku-5-5", {
+    input_tokens: 180000,
+    output_tokens: 0,
+    iterations: [step("message", 60000), step("message", 120000), step("advisor_message", 4000, opus)],
+  });
+  writeFileSync(join(subagents, "agent-a1.jsonl"), request("m2", "claude-sonnet-5-5", { input_tokens: 1e6, output_tokens: 0 }));
+  // Streamed: the same request twice.
+  writeFileSync(join(subagents, "agent-a2.jsonl"), haiku + haiku);
+  writeFileSync(join(subagents, "agent-a2.meta.json"), JSON.stringify({ agentType: "microverse:meeseeks", description: "Look it up" }));
+  return { env, project };
+}
+
+test("orch-usage counts advisor calls under their own model, once per streamed request", () => {
+  const { env, project } = advisedFixture();
+  const r = script("orch-usage", ["--project", project, "--since", "2026-10-01"], process.cwd(), env);
+  assert.equal(r.code, 0, r.out);
+  // 46108 x $4 + 875 x $20 per MTok = 0.2019.
+  assert.match(r.out, /conversation\tclaude-opus-5-5 \(advisor\)\t1\t0\.05\t0\.00\t0\.00\t0\.00\t0\.00\t0\.20/);
+  // The executor row keeps the top-level sums: 2 x 1M input at $2.
+  assert.match(r.out, /conversation\tclaude-sonnet-5-5\t2\t2\.00.*\t4\.00/);
+  assert.match(r.out, /agent\tclaude-opus-5-5 \(advisor\)\t1\t0\.00.*\t0\.02/);
+  // 60K at the small tier and 120K at the large tier: 0.006 + 0.06.
+  assert.match(r.out, /agent\tclaude-haiku-5-5\t1\t0\.18.*\t0\.07/);
+});
+
+test("orch-usage --agents includes the advisor cost in the run", () => {
+  const { env, project } = advisedFixture();
+  const r = script("orch-usage", ["--project", project, "--since", "2026-10-01", "--agents"], process.cwd(), env);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /microverse:meeseeks\tclaude-haiku-5-5\t1\t0\.08\tLook it up/);
+});

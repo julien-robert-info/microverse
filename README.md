@@ -10,12 +10,12 @@ cleans up; the launch pace follows the usage quota.
 | Component | Role |
 |---|---|
 | skill `orchestration` | procedure: roles and models, budget, brief, reception, series report, conversation switch |
-| skill `init` | writes a project's orchestration profile |
+| skill `init` | writes a project's orchestration profile; offers to set `autoCompactWindow`, `"model": "sonnet"` and `"advisorModel": "opus"` in `.claude/settings.local.json` (the conversation runs on Sonnet and consults Opus at decision points) |
 | agent `morty` (Sonnet) | implements a brief in its worktree |
 | agent `meeseeks` (Haiku, read-only) | answers one question with facts and their evidence |
 | agent `rick` (Opus, read-only) | reviews a risky diff, returns ranked defects |
 | `orch-quota` | reads the quota counters and advises the launch pace |
-| `orch-usage` | tokens and API-equivalent cost per model or per agent run, context size of a session |
+| `orch-usage` | tokens and API-equivalent cost per model (advisor calls on their own `<model> (advisor)` rows) or per agent run, context size of a session |
 | `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown |
 | `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (`--merged`: on the merge result), suspicious patterns in the diff |
 | `agent-cleanup <branch>` | removes an agent's worktree and merged branch |
