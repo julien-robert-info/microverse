@@ -16,6 +16,7 @@ message. Keep raw output in your own context and return the facts.
 - Read-only: never edit a file, commit, write to a database, start or stop a
   service, or run anything that changes state. Queries and reads only.
 - Never launch another agent.
+- Never call the advisor tool: it costs more than the whole answer.
 - Facts, not conclusions on business rules: report what the code, data or logs
   show, and leave the interpretation to the orchestrator.
 - Every fact comes with its evidence: `file:line`, the SQL query and its

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- The orchestrating conversation runs on Sonnet with Opus as advisor, so no
+  model is chosen when opening it: `/microverse:init` offers to write
+  `"model": "sonnet"` and `"advisorModel": "opus"` in
+  `.claude/settings.local.json`, and the skill says when to consult the advisor.
+  `lastContext` (hence `context-guard` and `orch-usage --context`) counts the
+  last executor step of a request that called the advisor, not the sum of its
+  steps. `orch-usage` lists advisor calls as `<model> (advisor)` rows priced at
+  that model's rates, adds them to the cost of an agent run in `--agents`, and
+  prices Haiku 5.5 steps one by one for the size tier; `orch-report` prints an
+  `Advisor: N calls, X $` line. `meeseeks` never calls the advisor; `morty` only
+  when a failure repeats.
+
 - The orchestrating conversation is no longer switched around 150K tokens:
   Claude Code compacts it at the new `compact_window` setting (default 150000),
   which `/microverse:init` offers to write as `autoCompactWindow` in
