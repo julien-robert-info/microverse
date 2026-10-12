@@ -56,6 +56,17 @@ if (agents.ok) {
     if (Number.isFinite(cost)) total += cost;
   }
   out.push("", `Total: $${total.toFixed(2)} (API-equivalent)`);
+
+  // Advisor rows of the per-model table (conversations and agents together).
+  let calls = 0;
+  let advisorCost = 0;
+  for (const l of sibling("orch-usage", ["--since", date]).text.split(/\r?\n/)) {
+    const c = l.split("\t");
+    if (!c[1]?.endsWith(" (advisor)")) continue;
+    calls += Number(c[2]) || 0;
+    advisorCost += Number(c[8]) || 0;
+  }
+  if (calls) out.push(`Advisor: ${calls} call${calls > 1 ? "s" : ""}, ${advisorCost.toFixed(2)} $`);
 }
 
 const quotaArgs = [];

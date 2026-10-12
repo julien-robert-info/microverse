@@ -100,6 +100,41 @@ test("an agent run of the fake home appears under Agents with the total", () => 
   const agents = r.out.split("## Agents")[1].split("## Quota")[0];
   assert.match(agents, /microverse:morty\tclaude-sonnet-5-5\t1\t3\.00\tAdd the thing/);
   assert.match(agents, /Total: \$3\.00/);
+  assert.doesNotMatch(agents, /Advisor:/);
+});
+
+test("advisor calls of conversations and agents are summed under Agents", () => {
+  const { dir, since } = series();
+  const home = mkdtempSync(join(tmpdir(), "microverse-home-"));
+  const slug = dir.replace(/[^A-Za-z0-9]/g, "-").toLowerCase();
+  const sessions = join(home, ".claude", "projects", slug);
+  const subagents = join(sessions, "sess1", "subagents");
+  mkdirSync(subagents, { recursive: true });
+  const ts = new Date(Date.now() + 60e3).toISOString();
+  const line = (id, advisorInput) =>
+    JSON.stringify({
+      timestamp: ts,
+      requestId: `r-${id}`,
+      message: {
+        id,
+        model: "claude-sonnet-5-5",
+        usage: {
+          input_tokens: 1e6,
+          output_tokens: 0,
+          iterations: [
+            { type: "message", input_tokens: 1e6, output_tokens: 0 },
+            { type: "advisor_message", model: "claude-opus-5-5", input_tokens: advisorInput, output_tokens: 0 },
+          ],
+        },
+      },
+    }) + "\n";
+  // 0.25M + 0.5M + 0.25M advisor input tokens at $4 per MTok: 4 dollars.
+  writeFileSync(join(sessions, "sess1.jsonl"), line("m1", 250000));
+  writeFileSync(join(subagents, "agent-a1.jsonl"), line("m2", 500000) + line("m3", 250000));
+  writeFileSync(join(subagents, "agent-a1.meta.json"), JSON.stringify({ agentType: "microverse:morty", description: "Add the thing" }));
+  const r = script("orch-report", ["--since", since, "--file", quotaFile(0.1, 0.1)], dir, { HOME: home, USERPROFILE: home });
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out.split("## Agents")[1].split("## Quota")[0], /Advisor: 3 calls, 4\.00 \$/);
 });
 
 test("without transcripts the error of orch-usage is printed and the report goes on", () => {

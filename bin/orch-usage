@@ -57,17 +57,45 @@ function readRequests(file, kind, since, requests, agent = null) {
     const m = o.message;
     if (!m?.usage || !m.model?.startsWith("claude")) continue;
     if (since && new Date(o.timestamp) < since) continue;
-    const u = m.usage;
-    const cc = u.cache_creation ?? {};
-    let w5 = cc.ephemeral_5m_input_tokens ?? 0;
-    const w1 = cc.ephemeral_1h_input_tokens ?? 0;
-    if (!u.cache_creation && u.cache_creation_input_tokens) w5 = u.cache_creation_input_tokens;
-    const v = [u.input_tokens ?? 0, w5, w1, u.cache_read_input_tokens ?? 0, u.output_tokens ?? 0];
+    const v = counters(m.usage);
+    // Per-step usage when an advisor may have run: "message" steps are the
+    // executor (their sum is the top-level usage), "advisor_message" steps are
+    // billed to the advisor's own model. Kept by index so that a streamed
+    // repeat takes the maximum of each counter step by step.
+    const iters = (m.usage.iterations ?? []).map((it) => ({ advisor: it.type === "advisor_message", model: it.model ?? null, v: counters(it) }));
     const id = `${m.id}:${o.requestId ?? ""}`;
     const prev = requests.get(id);
-    requests.set(id, { kind, agent, model: m.model, ts: o.timestamp, v: prev ? prev.v.map((x, i) => Math.max(x, v[i])) : v });
+    if (prev) {
+      for (let i = 0; i < v.length; i++) v[i] = Math.max(v[i], prev.v[i]);
+      for (let j = 0; j < Math.max(iters.length, prev.iters.length); j++) {
+        const a = iters[j], b = prev.iters[j];
+        if (!a) iters[j] = b;
+        else if (b) a.v = a.v.map((x, i) => Math.max(x, b.v[i]));
+      }
+    }
+    requests.set(id, { kind, agent, model: m.model, ts: o.timestamp, v, iters });
   }
 }
+
+// [input, 5m write, 1h write, read, output] of a usage object.
+function counters(u) {
+  const cc = u.cache_creation ?? {};
+  let w5 = cc.ephemeral_5m_input_tokens ?? 0;
+  const w1 = cc.ephemeral_1h_input_tokens ?? 0;
+  if (!u.cache_creation && u.cache_creation_input_tokens) w5 = u.cache_creation_input_tokens;
+  return [u.input_tokens ?? 0, w5, w1, u.cache_read_input_tokens ?? 0, u.output_tokens ?? 0];
+}
+
+// Cost vector of the executor part of a request, or null without a price. The
+// Haiku tier depends on each call's size, so its steps are priced one by one.
+function executorCost(r) {
+  const steps = r.iters.filter((it) => !it.advisor);
+  if (!r.model.startsWith("claude-haiku-5-5") || !steps.length) return priceOf(r.model, r.v);
+  const parts = steps.map((it) => priceOf(r.model, it.v));
+  return parts.reduce((a, c) => a.map((x, i) => x + c[i]), [0, 0, 0, 0, 0]);
+}
+
+const advisorSteps = (r) => r.iters.filter((it) => it.advisor && it.model);
 
 function priceOf(model, v) {
   let p = PRICES[model];
@@ -115,10 +143,16 @@ if (opts.agents) {
   for (const r of requests.values()) {
     if (r.kind !== "agent") continue;
     const run = runs.get(r.agent.id) ?? { agent: r.agent, model: r.model, n: 0, cost: 0, priced: true, ts: r.ts };
-    const c = priceOf(r.model, r.v);
+    const c = executorCost(r);
     run.n++;
     if (c) run.cost += c.reduce((a, x) => a + x, 0);
     else run.priced = false;
+    // The advisor's cost belongs to the run that consulted it.
+    for (const it of advisorSteps(r)) {
+      const ac = priceOf(it.model, it.v);
+      if (ac) run.cost += ac.reduce((a, x) => a + x, 0);
+      else run.priced = false;
+    }
     if (r.ts < run.ts) run.ts = r.ts;
     runs.set(r.agent.id, run);
   }
@@ -131,11 +165,14 @@ if (opts.agents) {
 
 const rows = new Map();
 for (const r of requests.values()) {
-  const key = `${r.kind}\t${r.model}`;
+  add(`${r.kind}\t${r.model}`, r.v, executorCost(r));
+  for (const it of advisorSteps(r)) add(`${r.kind}\t${it.model} (advisor)`, it.v, priceOf(it.model, it.v));
+}
+
+function add(key, v, c) {
   const row = rows.get(key) ?? { n: 0, v: [0, 0, 0, 0, 0], cost: [0, 0, 0, 0, 0], priced: true };
-  const c = priceOf(r.model, r.v);
   row.n++;
-  row.v = row.v.map((x, i) => x + r.v[i]);
+  row.v = row.v.map((x, i) => x + v[i]);
   if (c) row.cost = row.cost.map((x, i) => x + c[i]);
   else row.priced = false;
   rows.set(key, row);

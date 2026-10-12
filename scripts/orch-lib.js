@@ -109,6 +109,7 @@ function listProcesses() {
 
 // Context size of the last request found in transcript text (JSON lines):
 // { model, ts, tokens } with tokens = input + cache read + cache write, or null.
+// A request with an advisor call counts its last executor step only.
 // Streamed replies repeat the same message id + request id on several lines with
 // partial counts: the maximum of each counter is kept. A line cut by a tail read
 // does not parse and is skipped.
@@ -124,7 +125,10 @@ function lastContext(text) {
     }
     const m = o.message;
     if (!m?.usage || !m.model?.startsWith("claude")) continue;
-    const u = m.usage;
+    // With an advisor call the top-level usage sums the executor's steps: the
+    // context is that of the last "message" step, not the sum.
+    const steps = Array.isArray(m.usage.iterations) ? m.usage.iterations.filter((it) => it.type === "message") : [];
+    const u = steps.length ? steps.at(-1) : m.usage;
     const cc = u.cache_creation;
     const written = cc ? (cc.ephemeral_5m_input_tokens ?? 0) + (cc.ephemeral_1h_input_tokens ?? 0) : (u.cache_creation_input_tokens ?? 0);
     const tokens = (u.input_tokens ?? 0) + written + (u.cache_read_input_tokens ?? 0);
