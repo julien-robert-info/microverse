@@ -46,7 +46,7 @@ risky diffs.
 ## Cost, to decide
 
 - Most of the cost is the main conversation's context, re-read at every
-  request: switching conversation around 150K tokens is cheaper than continuing.
+  request: automatic compaction at the configured window keeps it bounded.
 - A pause of more than an hour (waiting for an agent, night) expires the cache:
   the next request rewrites the whole context, at twice the input price.
 - `orch-usage [--since <date>]` gives tokens and API-equivalent cost per model,

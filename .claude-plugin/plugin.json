@@ -37,6 +37,14 @@
       "min": 0,
       "max": 100
     },
+    "compact_window": {
+      "type": "number",
+      "title": "Auto-compact window (tokens)",
+      "description": "Context size at which Claude Code compacts the orchestrating conversation; written by /microverse:init as autoCompactWindow in .claude/settings.local.json.",
+      "default": 150000,
+      "min": 100000,
+      "max": 1000000
+    },
     "quota_file": {
       "type": "file",
       "title": "Quota counters file",

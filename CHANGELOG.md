@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The orchestrating conversation is no longer switched around 150K tokens:
+  Claude Code compacts it at the new `compact_window` setting (default 150000),
+  which `/microverse:init` offers to write as `autoCompactWindow` in
+  `.claude/settings.local.json`, along with a `# Compact instructions` section
+  in `CLAUDE.local.md`. `context-guard` now warns once when the context nears
+  the window (update the state file), re-armed after a compaction, and once when
+  it is past the window (`autoCompactWindow` probably unset). New `SessionStart`
+  hook (`scripts/after-compact.js`, matcher `compact`): lists the agent
+  worktrees and whether they are merged. The skill's "Switching conversation"
+  section became "Compaction".
 - `morty` fast-forwards its worktree to `main` before working: with a remote,
   the worktree starts from `origin/HEAD`, not the local `HEAD`.
 - New `UserPromptSubmit` hook (`scripts/context-guard.js`), active in projects

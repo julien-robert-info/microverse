@@ -31,35 +31,75 @@ const run = (ctx, input, session = "s1") =>
   spawnSync(process.execPath, [HOOK], {
     input: typeof input === "string" ? input : JSON.stringify({ session_id: session, transcript_path: ctx.transcript, cwd: ctx.project, ...input }),
     encoding: "utf8",
-    env: { ...process.env, CLAUDE_PROJECT_DIR: ctx.project, CLAUDE_PLUGIN_DATA: ctx.data },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: ctx.project, CLAUDE_PLUGIN_DATA: ctx.data, CLAUDE_PLUGIN_OPTION_COMPACT_WINDOW: "", ...ctx.env },
   });
 
 const message = (r) => (r.stdout ? JSON.parse(r.stdout).hookSpecificOutput.additionalContext : "");
 
-test("below the threshold the hook is silent", () => {
-  const ctx = setup();
-  transcript(ctx, 149000);
-  const r = run(ctx, {});
-  assert.equal(r.status, 0);
-  assert.equal(r.stdout, "");
-});
+const APPROACH = (n, w) => `context ${n}K, auto-compaction at ${w}K: update the state file now (chantiers, decisions not yet in the notes, pending questions); no conversation switch`;
 
-test("above the threshold the hook speaks once, then again at the next 50K step only", () => {
+test("the approach warning is given once, and re-armed after a compaction", () => {
   const ctx = setup();
-  transcript(ctx, 160000);
+  transcript(ctx, 129000);
+  const quiet = run(ctx, {});
+  assert.equal(quiet.status, 0);
+  assert.equal(quiet.stdout, "");
+
+  transcript(ctx, 131000, "m2");
   const first = run(ctx, {});
-  assert.equal(first.status, 0);
-  assert.match(message(first), /context 160K: series report, then switch conversation once no agent awaits review/);
+  assert.equal(message(first), APPROACH(131, 150));
   assert.equal(JSON.parse(first.stdout).hookSpecificOutput.hookEventName, "UserPromptSubmit");
 
-  transcript(ctx, 190000);
-  assert.equal(run(ctx, {}).stdout, "", "same step, no second message");
-
-  transcript(ctx, 205000, "m2");
-  assert.match(message(run(ctx, {})), /context 205K/);
+  transcript(ctx, 140000, "m3");
   assert.equal(run(ctx, {}).stdout, "");
 
-  assert.match(message(run(ctx, {}, "other")), /context 205K/, "another session has its own state");
+  transcript(ctx, 60000, "m4");
+  assert.equal(run(ctx, {}).stdout, "", "context after a compaction");
+
+  transcript(ctx, 135000, "m5");
+  assert.equal(message(run(ctx, {})), APPROACH(135, 150));
+
+  transcript(ctx, 131000, "m6");
+  assert.equal(message(run(ctx, {}, "other")), APPROACH(131, 150), "another session has its own state");
+});
+
+test("the window comes from the plugin option", () => {
+  const ctx = setup();
+  ctx.env = { CLAUDE_PLUGIN_OPTION_COMPACT_WINDOW: "300000" };
+  transcript(ctx, 270000);
+  assert.equal(run(ctx, {}).stdout, "");
+  transcript(ctx, 285000, "m2");
+  assert.equal(message(run(ctx, {})), APPROACH(285, 300));
+});
+
+test("an invalid window falls back to 150K", () => {
+  for (const value of ["abc", "50000", "5000000"]) {
+    const ctx = setup();
+    ctx.env = { CLAUDE_PLUGIN_OPTION_COMPACT_WINDOW: value };
+    transcript(ctx, 129000);
+    assert.equal(run(ctx, {}).stdout, "", value);
+    transcript(ctx, 131000, "m2");
+    assert.equal(message(run(ctx, {})), APPROACH(131, 150), value);
+  }
+});
+
+test("a context past the window reports the missing configuration, once per session", () => {
+  const ctx = setup();
+  transcript(ctx, 175000);
+  assert.equal(
+    message(run(ctx, {})),
+    "context 175K is past the auto-compaction window 150K: autoCompactWindow is probably not set in .claude/settings.local.json (run /microverse:init), or run /compact",
+  );
+  transcript(ctx, 180000, "m2");
+  assert.equal(run(ctx, {}).stdout, "");
+});
+
+test("an old state file with contextStep does not prevent the approach warning", () => {
+  const ctx = setup();
+  mkdirSync(join(ctx.data, "context-guard"), { recursive: true });
+  writeFileSync(join(ctx.data, "context-guard", "s1.json"), JSON.stringify({ contextStep: 3 }));
+  transcript(ctx, 135000);
+  assert.equal(message(run(ctx, {})), APPROACH(135, 150));
 });
 
 test("without a profile the hook is silent", () => {
@@ -87,7 +127,7 @@ test("the context is read from the tail of a large transcript", () => {
   const filler = `${JSON.stringify({ type: "user", text: "x".repeat(1000) })}\n`.repeat(1500);
   const last = JSON.stringify({ timestamp: "2026-10-10T10:00:00.000Z", requestId: "r", message: { id: "m", model: "claude-opus-5-5", usage: { input_tokens: 170000 } } });
   writeFileSync(ctx.transcript, `${filler}${last}\n`);
-  assert.match(message(run(ctx, {})), /context 170K/);
+  assert.match(message(run(ctx, {})), /context 170K is past/);
 });
 
 test("CLAUDE.local.md warns above 60 lines, once per session", () => {
