@@ -18,10 +18,12 @@
   (lock file in the worktree's git dir, taken over when its process is gone):
   two `--merged` runs undid each other's merge and collided on the build
   tools' output lock.
-- The series report is capped at 15 to 20 lines: business decisions only under
-  "to confirm", at most 3 open points, deployment steps once the user agrees to
-  deploy, quota and context on one line, with an example. Between reports, one
-  line per event, under 150 characters.
+- The series report aims at 15 to 20 lines through its wording, without
+  dropping items: business decisions in full under "to confirm", technical
+  choices and minor open points counted with their notes section, a new
+  "incidents" section, the `council` verdict per merge, deployment steps once
+  the user agrees to deploy, quota, agent cost and context on one line, with an
+  example. Between reports, one line per event, under 150 characters.
 
 - The orchestration skill lists what the orchestrator reads itself (state
   file, notes section, diff under review, code for a brief) and sends the rest
