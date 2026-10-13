@@ -1,14 +1,21 @@
 #!/usr/bin/env node
 // Mechanical checks on an agent's branch before reading its diff: commits
 // exist, worktree is clean, the profile's checks pass, no suspicious pattern in
-// the added lines, and the branch merges cleanly into the base. Prints OK or the\n// tail of each failure only.
+// the added lines, and the branch merges cleanly into the base. Prints OK or the
+// tail of each failure only.
 //
 // agent-check <branch> [--base main] [--no-checks] [--merged]
 //
-// --merged runs the checks on the result of merging the base into the branch\n// (done in the branch's worktree, then undone) instead of on the branch alone.\n//\n// Exit code: 0 when everything passes, 1 otherwise.
+// --merged runs the checks on the result of merging the base into the branch
+// (done in the branch's worktree, then undone) instead of on the branch alone.
+// A second run on the same worktree is refused while the first is alive.
+//
+// Exit code: 0 when everything passes, 1 otherwise.
 "use strict";
 
 const { spawnSync } = require("node:child_process");
+const { readFileSync, rmSync, writeFileSync } = require("node:fs");
+const { join } = require("node:path");
 const { defaultBase, fail, git, loadProfile, parseArgs, repoRoot, worktreeFor } = require("../scripts/orch-lib.js");
 
 const TAIL = 25;
@@ -56,6 +63,7 @@ const changed = git(["diff", "--name-only", `${base}...${branch}`], root).out.tr
 const wt = worktreeFor(root, branch);
 if (!wt) console.log("worktree: none for this branch, checks not run");
 else {
+  lockWorktree(wt);
   const status = git(["status", "--porcelain"], wt).out.trimEnd();
   if (status) {
     ok = false;
@@ -96,6 +104,39 @@ else {
         console.log(`FAIL worktree: merge not undone\n${tail(left)}`);
       }
     }
+  }
+}
+
+// Two runs on one worktree collide: one's `merge --abort` undoes the other's
+// merge mid-checks, and the build tools lock their output folder. The lock
+// lives in the worktree's git dir, holds the pid, and is taken over when that
+// process is gone.
+function lockWorktree(wt) {
+  const lock = join(git(["rev-parse", "--absolute-git-dir"], wt).out.trim(), "microverse-agent-check.lock");
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      writeFileSync(lock, String(process.pid), { flag: "wx" });
+      process.on("exit", () => rmSync(lock, { force: true }));
+      return;
+    } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+    }
+    const pid = Number(readFileSync(lock, "utf8").trim());
+    if (pid && alive(pid)) {
+      console.log(`FAIL another agent-check is running on ${branch} (pid ${pid}): wait for its result`);
+      process.exit(1);
+    }
+    rmSync(lock, { force: true });
+  }
+  fail(`cannot take the lock ${lock}`);
+}
+
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
   }
 }
 
