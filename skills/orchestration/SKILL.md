@@ -71,7 +71,9 @@ loss:
   independent), then write the rules in the notes. A chantier with open rules
   or an investigation to run goes to a `rick`: it measures, writes the rules
   and a draft brief in `notes/<chantier>.md`, and returns the questions for
-  the user. Add its notes file to the `NOTES.local.md` index yourself, put its
+  the user. It has no worktree, so the `after-compact` hook does not list it:
+  the chantier gets a line "design in progress (rick)" in the state file at
+  launch. Add its notes file to the `NOTES.local.md` index yourself, put its
   questions in the state file's list, and launch its briefs once the questions
   they depend on are answered.
 
