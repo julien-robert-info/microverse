@@ -37,11 +37,14 @@ In order, the first that applies:
 | 5h ≥ `five_hour_limit` + 5 | no more resuming until the 5h counter resets |
 | 5h ≥ `five_hour_limit` | no new agent until the 5h counter resets |
 | more than 5 points above the line, or target reached | **smooth out**: no new agent until the counter drops back under the line |
-| more than 10 points below the line | **speed up**: two `morty` on distinct zones, only one on a shared resource |
-| otherwise | **normal**: one `morty` at a time |
+| more than 10 points below the line | **speed up**: up to 3 agents at once, 2 when the 5h counter is at 60 % or more |
+| otherwise, 5h under 60 % | **normal**: up to 2 agents at once |
+| otherwise | **normal**: one agent at a time |
 
-`meeseeks` agents do not count. A `rick` (Opus) counts as an agent: keep it for
-risky diffs.
+An agent here is a `morty` or a `rick`. Two `morty` work on distinct code
+zones, never two on the same `shared` resource; a `rick` touches no code and
+runs beside them. A `council` review takes the slot of the agent whose branch
+it reviews; `meeseeks` agents do not count.
 
 ## Cost, to decide
 

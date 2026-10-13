@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { lastContext, normPath, parseArgs } = require("../scripts/orch-lib.js");
+const { lastContext, normPath, paceAdvice, parseArgs } = require("../scripts/orch-lib.js");
 
 test("parseArgs splits options, flags and positionals", () => {
   const o = parseArgs(["feat/x", "--base", "dev", "--no-checks", "--since", "2026-01-01"]);
@@ -60,4 +60,29 @@ test("lastContext counts the last executor step of a request with an advisor cal
 test("lastContext without iterations uses the top-level usage", () => {
   const line = { timestamp: "t", requestId: "r", message: { id: "m", model: "claude-sonnet-5-5", usage: { input_tokens: 3, cache_read_input_tokens: 10, cache_creation_input_tokens: 5 } } };
   assert.equal(lastContext(JSON.stringify(line)).tokens, 18);
+});
+
+// On the line, mid-week, 5h counter low: the base case each test shifts.
+const pace = (o) => paceAdvice({ used7: 40, used5: 10, delta: 0, target: 98, period: 98, fiveLimit: 90, ...o });
+
+test("paceAdvice: on the line, two agents while the 5h counter is under 60 %, else one", () => {
+  assert.match(pace({}), /^normal: up to 2 agents/);
+  assert.match(pace({ used5: 60 }), /^normal: one agent at a time/);
+});
+
+test("paceAdvice: behind the line, three agents under 60 % on the 5h counter, else two", () => {
+  assert.match(pace({ delta: -11 }), /^speed up: up to 3 agents/);
+  assert.match(pace({ delta: -11, used5: 75 }), /^speed up: up to 2 agents/);
+});
+
+test("paceAdvice: ahead of the line or at the period target, no new agent", () => {
+  assert.match(pace({ delta: 6 }), /^smooth out/);
+  assert.match(pace({ used7: 70, period: 68 }), /^smooth out/);
+});
+
+test("paceAdvice: the weekly and 5h limits come before the pace", () => {
+  assert.match(pace({ used7: 98, delta: -20 }), /^stop/);
+  assert.match(pace({ used7: 95, delta: -20 }), /^no new agent \(≥ 95 %\)/);
+  assert.match(pace({ used5: 90, delta: -20, reset5: " until X" }), /^no new agent until X/);
+  assert.match(pace({ used5: 95, delta: -20 }), /^no more resuming/);
 });
