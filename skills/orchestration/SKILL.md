@@ -147,12 +147,14 @@ longer series takes more lines rather than losing an item. In this order:
 2. **Incidents**: agent failures and retries, rejected reviews, anything
    reverted or abandoned, one line each with its consequence. Left out when
    there is none.
-3. **To confirm**: business decisions taken alone, one line each with its why.
-   Technical choices taken alone (tolerances, tests, `agent-check` false
-   positives) are written in the notes and take one line here: how many, where.
+3. **To confirm**: business decisions taken alone, each with the rule, the
+   alternative dropped and why. Technical choices taken alone (tolerances,
+   tests, `agent-check` false positives) are written in the notes and take one
+   line here: how many, where.
 4. **Requests to the user** (§ 6): what was verified since the previous
    report, then what only they can do.
-5. **Open points**: in full, the ones that change a decision; the others
+5. **Open points**: defects found and not fixed, surprising measurements. In
+   full, the ones that change a decision or that the user will meet; the others
    counted, with their notes section.
 6. **Next**: task in progress or next, what awaits a decision, and as **a single
    question**: deploy and push what has been merged since the last deployment.
@@ -173,8 +175,8 @@ Incidents
 - D2: first run failed on the migration number, relaunched on 0042.
 
 To confirm
-- Positions opened before the import start at zero, not at their last value:
-  the source gives no earlier balance.
+- Positions opened before the import start at zero, not at their last known
+  value: the source gives no earlier balance.
 - Technical choices: 2 in notes/import.md § Decided rules.
 
 Open points
