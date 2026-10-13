@@ -1,6 +1,6 @@
 ---
-name: rick
-description: Reviews the diff of an agent's branch against its brief and the project's rules, and returns ranked defects with file:line and the scenario that breaks. Read-only, fixes nothing. Use before merging a risky diff (arithmetic on amounts or units, storage or deduplication keys, migrations, data deletion, concurrency).
+name: council
+description: Reviews an agent's branch before it is merged, against its brief and the project's rules, and returns ranked defects with file:line and the scenario that breaks, then a verdict (approved or not). Read-only, fixes nothing. Use before merging a risky diff (arithmetic on amounts or units, storage or deduplication keys, migrations, data deletion, concurrency).
 model: opus
 effort: high
 omitClaudeMd: true
@@ -31,7 +31,11 @@ brief the implementer received and the zones the orchestrator considers risky.
 ## Report
 Write it in the language of the brief.
 
-Defects ranked by severity, most severe first. For each: `file:line`, the
-defect in one sentence, the scenario that breaks, and the fix it calls for in
-one line. Then the brief's rules you checked and found correctly applied, in
+First line: the verdict, **approved**, **approved with fixes** (defects that
+do not block the merge) or **rejected** (a defect that loses or corrupts data,
+or a brief rule not applied).
+
+Then the defects ranked by severity, most severe first. For each: `file:line`,
+the defect in one sentence, the scenario that breaks, and the fix it calls for
+in one line. Then the brief's rules you checked and found correctly applied, in
 one line each. If nothing survives, say so plainly.

@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- `rick` now designs chantiers instead of reviewing diffs: it measures on real
+  data, settles the rules and writes them with a draft brief, the risky zones
+  and the questions for the user in `notes/<chantier>.md`, the only file it
+  writes. It runs in the background beside the `morty` agents. The diff
+  review moves to the new `council` agent (Opus, read-only), which opens its
+  report with a verdict. The orchestration skill no longer sends open
+  investigations to a `general-purpose` Opus agent nor suggests opening the
+  conversation on Opus for design.
+- `orch-quota` allows agents side by side while the 5h counter is under 60 %:
+  up to 2 on the normal advice, 3 on speed up (one and two above it). An agent
+  is a `morty` or a `rick`; the advice moved to `paceAdvice` in
+  `orch-lib.js`.
+- `agent-check` refuses a second run on a worktree while the first is alive
+  (lock file in the worktree's git dir, taken over when its process is gone):
+  two `--merged` runs undid each other's merge and collided on the build
+  tools' output lock.
+- The series report is capped at 15 to 20 lines: business decisions only under
+  "to confirm", at most 3 open points, deployment steps once the user agrees to
+  deploy, quota and context on one line, with an example. Between reports, one
+  line per event, under 150 characters.
+
 - The orchestration skill lists what the orchestrator reads itself (state
   file, notes section, diff under review, code for a brief) and sends the rest
   to a `meeseeks`: database queries, logs, remote commands, searches through
