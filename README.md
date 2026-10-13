@@ -13,11 +13,12 @@ cleans up; the launch pace follows the usage quota.
 | skill `init` | writes a project's orchestration profile; offers to set `autoCompactWindow`, `"model": "sonnet"` and `"advisorModel": "opus"` in `.claude/settings.local.json` (the conversation runs on Sonnet and consults Opus at decision points) |
 | agent `morty` (Sonnet) | implements a brief in its worktree |
 | agent `meeseeks` (Haiku, read-only) | answers one question with facts and their evidence |
-| agent `rick` (Opus, read-only) | reviews a risky diff, returns ranked defects |
+| agent `rick` (Opus, writes only its notes file) | designs a chantier: measurements, rules, draft brief, questions for the user |
+| agent `council` (Opus, read-only) | reviews a risky diff, returns a verdict and ranked defects |
 | `orch-quota` | reads the quota counters and advises the launch pace |
 | `orch-usage` | tokens and API-equivalent cost per model (advisor calls on their own `<model> (advisor)` rows) or per agent run, context size of a session |
 | `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown |
-| `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (`--merged`: on the merge result), suspicious patterns in the diff |
+| `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (`--merged`: on the merge result), suspicious patterns in the diff; one run per worktree at a time |
 | `agent-cleanup <branch>` | removes an agent's worktree and merged branch |
 | `SubagentStop` hook | stops servers left running by a finished agent |
 | `UserPromptSubmit` hook (`context-guard`) | once, when the context nears the auto-compaction window: update the state file; once, when it is past it (`autoCompactWindow` probably unset); once, when `CLAUDE.local.md` exceeds 60 lines |
@@ -121,7 +122,7 @@ Results land in `evals/results/` (ignored by git).
 ```
 .claude-plugin/   plugin.json (manifest, settings), marketplace.json (catalog)
 skills/           orchestration (SKILL.md, budget.md, brief.md, review.md), init
-agents/           morty, meeseeks, rick
+agents/           rick, morty, council, meeseeks
 bin/              dependency-free Node scripts, added to the Bash tool's PATH;
                   the .cmd files make them callable from PowerShell
 scripts/          orch-lib.js (shared by bin/ and the hooks), hooks (SubagentStop,

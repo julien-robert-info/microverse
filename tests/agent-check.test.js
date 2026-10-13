@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { writeFileSync } = require("node:fs");
+const { existsSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { commitFile, git, hasMergeTree, makeRepo, script } = require("./helpers.js");
 
@@ -107,4 +107,24 @@ test("an added line starting with ++ is scanned and reported with its line", () 
   const r = script("agent-check", ["feat/x"], dir);
   assert.equal(r.code, 1);
   assert.match(r.out, /c\.txt:2 bad/);
+});
+
+const lockOf = (wt) => join(git(wt, "rev-parse", "--absolute-git-dir").out.trim(), "microverse-agent-check.lock");
+
+test("agent-check refuses to run while another run holds the worktree", () => {
+  const { dir, wt } = makeRepo({});
+  writeFileSync(lockOf(wt), String(process.pid));
+  const r = script("agent-check", ["feat/x"], dir);
+  assert.equal(r.code, 1);
+  assert.ok(r.out.includes(`another agent-check is running on feat/x (pid ${process.pid})`), r.out);
+  assert.ok(existsSync(lockOf(wt)), "the other run's lock is left in place");
+});
+
+test("agent-check takes over the lock of a run that is gone, and releases it", () => {
+  const { dir, wt } = makeRepo({});
+  const gone = require("node:child_process").spawnSync(process.execPath, ["-e", "0"]).pid;
+  writeFileSync(lockOf(wt), String(gone));
+  const r = script("agent-check", ["feat/x"], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(!existsSync(lockOf(wt)));
 });

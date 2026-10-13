@@ -28,10 +28,11 @@ agent's report says what it believes it did; the diff says what it did.
 - **Scope**: a brief rule half applied, an excluded case handled anyway, an
   expected case without a test.
 
-## When to hand over to rick
+## When to hand over to council
 
 Arithmetic on amounts or units, deduplication or storage keys, migrations, data
-deletion or rewriting, concurrency: the diff goes to `rick` (Opus) with the
-branch, the brief and the risky zones. It returns ranked defects with file:line
+deletion or rewriting, concurrency: the diff goes to `council` (Opus) with the
+branch, the brief and the risky zones (from the `rick`'s notes when a `rick`
+designed the chantier). It returns a verdict and ranked defects with file:line
 and the scenario that breaks; rule on each (fix through the agent, accept, note)
 before merging.

@@ -30,18 +30,20 @@ loss:
 
 | Who | Model | Does |
 |---|---|---|
-| orchestrating conversation | Sonnet, Opus as advisor | design, launch, review, merge, report |
+| orchestrating conversation | Sonnet, Opus as advisor | briefs, launch, review, merge, report |
+| `microverse:rick` | Opus | designs a chantier: measures, settles the rules, drafts the brief in its notes file |
 | `microverse:morty` | Sonnet | implements a brief in its worktree |
+| `microverse:council` | Opus | reviews a risky diff and approves it or not, fixes nothing |
 | `microverse:meeseeks` | Haiku | reads and summarizes: one question, facts with their evidence |
-| `microverse:rick` | Opus | reviews a risky diff, fixes nothing |
 
 - The model comes from the project's settings (`/microverse:init`). Changing it
-  inside a conversation rewrites the whole cache: don't. A long design session
-  the user wants on Opus is their choice at opening.
-- **Consult the advisor** (say "consult the advisor") before writing a brief,
-  before ruling on a `rick` review, before a design decision recorded as "to
-  confirm", and when an agent fails twice on the same thing. Not for routine
-  steps (launch, `agent-check`, merge, cleanup, state file).
+  inside a conversation rewrites the whole cache: don't. Design that needs
+  Opus goes to a `rick`, not to a model switch.
+- **Consult the advisor** (say "consult the advisor") before writing a brief a
+  `rick` did not draft, before ruling on a `council` review, before a design
+  decision recorded as "to confirm", and when an agent fails twice on the same
+  thing. Not for routine steps (launch, `agent-check`, merge, cleanup, state
+  file), nor on a brief taken from a `rick`'s notes.
 - Pass the model **explicitly** at every launch (`model:` of the Agent tool):
   the agent definition alone has not always sufficed.
 - Anything mechanical goes through a script (zero model tokens).
@@ -58,16 +60,20 @@ loss:
 - **Budget**: `orch-quota --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --file "${user_config.quota_file}"`.
   Follow its advice (speed up, normal, smooth out, no new agent, stop); details
   and the no-file case in `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/budget.md`.
-- **Parallelism**: two `morty` at once only on the "speed up" advice, on
-  distinct code zones, and never two on the same `shared` resource of the
-  profile (schema, local database…). A task that takes a shared resource
-  reserves it in the state file.
-- **Design first**: measure on real data what the task will meet, one
-  `meeseeks` per measurement (launched together when independent), settle the
-  rules (consult the advisor on them), write them in the notes. An implementer
-  who has to decide a business rule alone will decide it badly. An open
-  investigation, with no single question to ask, goes to a `general-purpose`
-  agent with `model: "opus"`.
+- **Parallelism**: as many agents (`morty` or `rick`) as the advice allows,
+  `morty` on distinct code zones and never two on the same `shared` resource
+  of the profile (schema, local database…). A task that takes a shared resource
+  reserves it in the state file. A `rick` touches no code: it runs beside a
+  `morty`, preparing the next chantier.
+- **Design first**: an implementer who has to decide a business rule alone will
+  decide it badly. A chantier whose rules are settled and need one or two
+  measurements: one `meeseeks` per measurement (launched together when
+  independent), then write the rules in the notes. A chantier with open rules
+  or an investigation to run goes to a `rick`: it measures, writes the rules
+  and a draft brief in `notes/<chantier>.md`, and returns the questions for
+  the user. Add its notes file to the `NOTES.local.md` index yourself, put its
+  questions in the state file's list, and launch its briefs once the questions
+  they depend on are answered.
 
 ## 2. Launch
 
@@ -75,6 +81,9 @@ loss:
 Agent(subagent_type: "microverse:morty", model: "sonnet",
       isolation: "worktree", run_in_background: true,
       description: "<3-5 words>", prompt: <brief>)
+Agent(subagent_type: "microverse:rick", model: "opus", run_in_background: true,
+      description: "<3-5 words>",
+      prompt: <chantier, user's question, what is decided, notes file>)
 Agent(subagent_type: "microverse:meeseeks", model: "haiku",
       description: "<3-5 words>", prompt: <one question>)
 ```
@@ -92,14 +101,17 @@ Agent(subagent_type: "microverse:meeseeks", model: "haiku",
 1. `agent-check <branch>`: commits present, worktree clean, the profile's
    `checks`, diff patterns; it also reports conflicts with main and how far main
    moved: when it moved since the launch, rerun with `--merged` before merging.
-   A failure of a few lines goes back to the agent with
-   `SendMessage` (context still warm) rather than being fixed by hand.
+   One run per branch at a time: wait for its result, never start a second
+   (it refuses while the first holds the worktree), never pair
+   `run_in_background` with a trailing `&`. A failure of a few lines goes back
+   to the agent with `SendMessage` (context still warm) rather than being fixed
+   by hand.
 2. **Read the diff for real**, not the report, with
    `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/review.md`.
 3. **Risky diff** (arithmetic on amounts or units, deduplication or storage
-   keys, migrations, data deletion): `Agent(subagent_type: "microverse:rick",
+   keys, migrations, data deletion): `Agent(subagent_type: "microverse:council",
    model: "opus", prompt: <branch, brief, risky zones>)`, then rule on its
-   remarks.
+   remarks. The risky zones come from the `rick`'s notes when there are some.
 4. **Merge** without waiting for the user, who reviews afterwards:
    `git merge --no-ff <branch>` with the subject `merge: …`. The full check of
    the main branch (build included) runs once, before a deployment.
@@ -109,7 +121,8 @@ Agent(subagent_type: "microverse:meeseeks", model: "haiku",
    pending questions.
 7. **Chain**: a task already planned launches as soon as the previous one is
    merged, without asking, after a fresh `orch-quota`. Between two reports, one
-   line per event ("D1 merged (`abc1234`), D2 launched").
+   line per event, under 150 characters ("D1 merged (`abc1234`), D2
+   launched"). What an agent found goes to the notes, not to the chat.
 
 ## 4. Series report
 
@@ -119,18 +132,42 @@ everything since the previous one, whose commit is noted in the state file.
 Start from `orch-report --since <last report commit>` (same quota options as
 § 1): it prints the merges, the agent runs and their cost, the quota and the
 context size. Write on top of it the decisions, requests, open points and next
-steps. The report stands on its own, in this order:
+steps. The report stands on its own, in 15 to 20 lines, in this order:
 
-1. **Merged**: per task, what changes for the user, with the commit.
-2. **Decisions taken alone**, to confirm: the rule, the alternative dropped,
-   why.
+1. **Merged**: one line per task, what changes for the user, with the commit.
+2. **To confirm**: business decisions taken alone only, one line each with
+   its why. Technical choices (tolerances, tests, `agent-check` false
+   positives) go to the notes, not here.
 3. **Requests to the user** (§ 6): what was verified since the previous
    report, then what only they can do.
-4. **Open points**: defects found and not fixed, surprising measurements.
+4. **Open points**: at most 3, the ones that change a decision; the rest goes
+   to the notes.
 5. **Next**: task in progress or next, what awaits a decision, and as **a single
    question**: deploy and push what has been merged since the last deployment.
-6. **Quota**: the summarized output of `orch-quota`.
-7. **Context**: `orch-usage --context`, for information.
+   The deployment steps (migrations, restarts) come once the user says yes.
+6. **Quota and context**, on one line: `orch-quota` and
+   `orch-usage --context` summarized.
+
+An explanation stays when the user needs it to decide; everything else is in
+the notes, which the report may point to. For example:
+
+```
+Merged
+- D1 fees per position (abc1234): the screen shows fees net of rebates.
+- D2 CSV import (def5678): duplicates are skipped, counted in the summary.
+
+To confirm
+- Positions opened before the import start at zero, not at their last value:
+  the source gives no earlier balance.
+
+Open points
+- 3 rows of the sample have no date: left out, listed in notes/import.md.
+
+Next
+- D3 launched (alerts). Deploy and push D1 and D2?
+
+Quota 5h 40 %, week 52 % (normal) · context 90K
+```
 
 Then note the new "Last report" in the state file.
 
