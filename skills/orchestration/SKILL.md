@@ -5,7 +5,9 @@ description: Run a project as chantiers delegated to background agents, one task
 
 # Orchestrating chantiers with agents
 
-Write reports, questions and summaries in the language the user writes in.
+Write reports, questions, summaries and the notes in the language the user
+writes in, even when the project's code and commits use another, and give
+that language to every `rick`.
 
 The orchestrator is the user's only contact. It designs, delegates, reviews and
 merges; the heavy work lives in the agents' contexts and the orchestrator keeps
@@ -85,7 +87,8 @@ Agent(subagent_type: "microverse:morty", model: "sonnet",
       description: "<3-5 words>", prompt: <brief>)
 Agent(subagent_type: "microverse:rick", model: "opus", run_in_background: true,
       description: "<3-5 words>",
-      prompt: <chantier, user's question, what is decided, notes file>)
+      prompt: <chantier, user's question, what is decided, notes file,
+               user's language>)
 Agent(subagent_type: "microverse:meeseeks", model: "haiku",
       description: "<3-5 words>", prompt: <one question>)
 ```
