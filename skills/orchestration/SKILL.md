@@ -122,9 +122,8 @@ Agent(subagent_type: "microverse:meeseeks", model: "haiku",
 6. **State file**: the chantier's line, merged commit, released reservation,
    pending questions.
 7. **Chain**: a task already planned launches as soon as the previous one is
-   merged, without asking, after a fresh `orch-quota`. Between two reports, one
-   line per event, under 150 characters ("D1 merged (`abc1234`), D2
-   launched"). What an agent found goes to the notes, not to the chat.
+   merged, without asking, after a fresh `orch-quota`. Between two reports,
+   trace lines only (§ 6).
 
 ## 4. Series report
 
@@ -140,7 +139,8 @@ The report is short by its wording, not by leaving things out: one line per
 item, no restating of the brief or the diff. Nothing is dropped: an item that
 does not appear in full is written in the chantier's notes before the report,
 and the report counts it and points to its section. Aim at 15 to 20 lines; a
-longer series takes more lines rather than losing an item. In this order:
+longer series takes more lines rather than losing an item. It opens with the
+`▶` marker (§ 6). In this order:
 
 1. **Merged**: one line per task, what changes for the user, with the commit,
    and the `council` verdict with the fixes it led to when there was a review.
@@ -152,7 +152,7 @@ longer series takes more lines rather than losing an item. In this order:
    tests, `agent-check` false positives) are written in the notes and take one
    line here: how many, where.
 4. **Requests to the user** (§ 6): what was verified since the previous
-   report, then what only they can do.
+   report, then what only they can do, questions in the § 6 form.
 5. **Open points**: defects found and not fixed, surprising measurements. In
    full, the ones that change a decision or that the user will meet; the others
    counted, with their notes section.
@@ -166,6 +166,7 @@ An explanation stays when the user needs it to decide or to understand what
 changed for them. For example:
 
 ```
+▶ Report
 Merged
 - D1 fees per position (abc1234): the screen shows fees net of rebates.
 - D2 CSV import (def5678): duplicates are skipped, counted in the summary.
@@ -206,13 +207,44 @@ The conversation is not switched: Claude Code compacts it automatically at
 - If the guard says `autoCompactWindow` seems unset, ask the user to run
   `/compact` (a slash command the model cannot run) and `/microverse:init`.
 
-## 6. What remains to ask
+## 6. Talking to the user
+
+The user reads every message the conversation shows. Nothing exists only in
+the chat: what an agent found, a review's detail, the reason for a choice are
+in the notes; questions are in the state file; decisions taken alone are in
+the next report. A new conversation, which loads the state file, takes over
+without the user rereading this one.
+
+Two kinds of message, nothing else:
+
+- **Trace**, between reports: one line per event, under 150 characters, no
+  reasoning ("D1 merged (`abc1234`), D2 launched", "D2: council rejects,
+  3 fixes sent back"). Write the detail in the chantier's notes first. The
+  user can skip every trace line without losing anything.
+- **For the user**: the series report (§ 4) and questions. They open with `▶`
+  and a title in the user's language, so the user finds them by scrolling.
+
+Each question is answered without having read the conversation:
+
+- a number (Q1, Q2…), kept in the state file and the notes;
+- the context in one or two lines: what it is about, why it comes up now;
+- the options, and what each changes for the user;
+- the recommendation and its reason;
+- what waits on the answer (a brief, a deployment).
+
+The user can then answer "Q1 as recommended, Q2 b". Ask first the questions
+that block a launch; the others wait in the state file for the next report. A
+`rick`'s questions are rewritten in this form, not relayed as it wrote them.
+
+### What remains to ask
 
 Pushing, deploying, any write on a production machine. Build and tests do not
 prove a screen renders: after a deployment that touches the interface, ask the
 user to open the screens.
 
-The state file holds **a single list** of what is asked of the user:
+The state file holds **a single list** of what is asked of the user, one line
+per question (number, the question in a few words, the notes section with its
+options):
 
 - **verify yourself first** everything that can be (database, logs, local
   rendering, `git`), through a `meeseeks` if needed; ask only what requires the

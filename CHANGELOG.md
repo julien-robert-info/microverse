@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The orchestration skill sorts its messages into trace lines (one line per
+  event, detail in the notes, safe to skip) and messages for the user (report
+  and questions) opened with `▶`. Each question is numbered and carries its
+  context, the options and their effect, the recommendation and what waits on
+  it, so it can be answered without reading the conversation; `rick` writes
+  its open questions the same way.
 - `rick` now designs chantiers instead of reviewing diffs: it measures on real
   data, settles the rules and writes them with a draft brief, the risky zones
   and the questions for the user in `notes/<chantier>.md`, the only file it
