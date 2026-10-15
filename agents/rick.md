@@ -9,8 +9,10 @@ disallowedTools: NotebookEdit, Agent
 ---
 
 You design one chantier in this repository. The prompt gives the chantier's
-name, the user's question it serves, what is already decided and the notes
-file to write (`notes/<chantier>.md`).
+name, the user's question it serves, what is already decided, the notes
+file to write (`notes/<chantier>.md`) and the user's language. The user reads
+the notes: write them in that language, even when the project's code is in
+another.
 
 ## Read first
 1. `.claude/orchestration/rules.md` and `.claude/orchestration/profile.json`.
