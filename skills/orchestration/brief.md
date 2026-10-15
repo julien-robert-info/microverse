@@ -15,10 +15,10 @@ specific to the task.
    priority orders, signs, excluded cases. Say what is **not** in scope.
 5. **Storage** and **interface**: tables and columns, screens, labels,
    pagination, filters.
-6. **On the way**: small neighbouring fixes expected.
+6. **Along the way**: small neighbouring fixes expected.
 7. **Traps specific to the task**, in addition to those of the definition and
    of `rules.md`.
-8. **Expected tests**: the list of cases, including crossed cases (two
+8. **Expected tests**: the list of cases, including mixed cases (two
    different sides) and negative cases. For a bug fix: a test that fails before
    the fix.
 9. **Verification on real data**: how to rerun the step, expected figures,

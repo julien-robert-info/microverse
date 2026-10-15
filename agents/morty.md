@@ -80,5 +80,5 @@ silenced.
 Write it in the language of the brief.
 
 Useful information first, brevity second: what changed, file by file; checks
-run and their result; commit hashes; bugs fixed or found on the way; decisions
+run and their result; commit hashes; bugs fixed or found along the way; decisions
 you had to take and why; open points; answers to the questions the brief asks.

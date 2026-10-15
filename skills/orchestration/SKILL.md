@@ -251,9 +251,9 @@ options):
 
 - **verify yourself first** everything that can be (database, logs, local
   rendering, `git`), through a `meeseeks` if needed; ask only what requires the
-  user: a screen, a gesture in the application, a decision;
+  user: a screen, an action in the application, a decision;
 - **a request counts as done once made**: it leaves the list when the report is
   delivered; only questions awaiting an answer stay;
-- **then verify the effect** of the requested gestures when it can be read, and
-  say so in the next report; a gesture a mission depends on is verified before
+- **then verify the effect** of the requested actions when it can be read, and
+  say so in the next report; an action a mission depends on is verified before
   launching it.

@@ -9,7 +9,7 @@ cleans up; the launch pace follows the usage quota.
 
 | Component | Role |
 |---|---|
-| skill `orchestration` | procedure: roles and models, budget, brief, reception, series report, conversation switch |
+| skill `orchestration` | procedure: roles and models, budget, brief, review of an agent's branch, series report, compaction, talking to the user |
 | skill `init` | writes a project's orchestration profile; offers to set `autoCompactWindow`, `"model": "sonnet"` and `"advisorModel": "opus"` in `.claude/settings.local.json` (the conversation runs on Sonnet and consults Opus at decision points) |
 | agent `morty` (Sonnet) | implements a brief in its worktree |
 | agent `meeseeks` (Haiku, read-only) | answers one question with facts and their evidence |
