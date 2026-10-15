@@ -43,7 +43,9 @@ Sections in this order:
    data. Split into several briefs when two zones can be worked in parallel.
 4. **Risky zones** for the review (`council`): arithmetic on amounts or units,
    keys, migrations, deletions, concurrency, with the file or function.
-5. **To confirm with the user**: open business rules, with the options.
+5. **To confirm with the user**: open business rules, each understood without
+   the rest of the file: what it is about, the options and what each changes,
+   the one you recommend and why, what waits on the answer.
 
 ## Report
 Write it in the language of the prompt, at most 30 lines: the notes file
