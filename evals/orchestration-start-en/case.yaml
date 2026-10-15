@@ -3,7 +3,7 @@ name: orchestration-start-en
 description: The orchestration skill fires on an English "start" request.
 tags: [orchestration, en]
 execution:
-  prompt: "Start the export-csv chantier for the Zeta project."
+  prompt: "Start the export-csv mission for the Zeta project."
   max_turns: 4
   timeout_seconds: 120
   allowed_tools: [Skill]

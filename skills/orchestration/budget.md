@@ -53,5 +53,5 @@ it reviews; `meeseeks` agents do not count.
 - A pause of more than an hour (waiting for an agent, night) expires the cache:
   the next request rewrites the whole context, at twice the input price.
 - `orch-usage [--since <date>]` gives tokens and API-equivalent cost per model,
-  conversations and agents apart; relate a chantier's tokens to the weekly
-  counter's variation during that chantier.
+  conversations and agents apart; relate a mission's tokens to the weekly
+  counter's variation during that mission.

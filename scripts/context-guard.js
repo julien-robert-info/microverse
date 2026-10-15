@@ -57,7 +57,7 @@ function main() {
     } else if (last.tokens >= window - MARGIN) {
       if (!state.compactWarned) {
         state.compactWarned = true;
-        messages.push(`context ${k}K, auto-compaction at ${window / 1e3}K: update the state file now (chantiers, decisions not yet in the notes, pending questions); no conversation switch`);
+        messages.push(`context ${k}K, auto-compaction at ${window / 1e3}K: update the state file now (missions, decisions not yet in the notes, pending questions); no conversation switch`);
       }
     } else state.compactWarned = false;
   }

@@ -3,7 +3,7 @@ name: orchestration-rapport-fr
 description: The orchestration skill fires on a French report request.
 tags: [orchestration, fr]
 execution:
-  prompt: "Fais-moi le rapport de la série de chantiers."
+  prompt: "Fais-moi le rapport de la série de missions."
   max_turns: 4
   timeout_seconds: 120
   allowed_tools: [Skill]

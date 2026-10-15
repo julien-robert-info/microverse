@@ -36,7 +36,7 @@ const run = (ctx, input, session = "s1") =>
 
 const message = (r) => (r.stdout ? JSON.parse(r.stdout).hookSpecificOutput.additionalContext : "");
 
-const APPROACH = (n, w) => `context ${n}K, auto-compaction at ${w}K: update the state file now (chantiers, decisions not yet in the notes, pending questions); no conversation switch`;
+const APPROACH = (n, w) => `context ${n}K, auto-compaction at ${w}K: update the state file now (missions, decisions not yet in the notes, pending questions); no conversation switch`;
 
 test("the approach warning is given once, and re-armed after a compaction", () => {
   const ctx = setup();

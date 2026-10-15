@@ -1,9 +1,9 @@
 schema_version: "1.1"
 name: orchestration-next-en
-description: The orchestration skill fires on an English "next chantier" request.
+description: The orchestration skill fires on an English "next mission" request.
 tags: [orchestration, en]
 execution:
-  prompt: "Next chantier, please."
+  prompt: "Next mission, please."
   max_turns: 4
   timeout_seconds: 120
   allowed_tools: [Skill]

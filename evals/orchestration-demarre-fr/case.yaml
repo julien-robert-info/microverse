@@ -3,7 +3,7 @@ name: orchestration-demarre-fr
 description: The orchestration skill fires on a French "start" request.
 tags: [orchestration, fr]
 execution:
-  prompt: "Démarre le chantier « export-csv » pour le projet Zeta."
+  prompt: "Démarre la mission « export-csv » pour le projet Zeta."
   max_turns: 4
   timeout_seconds: 120
   allowed_tools: [Skill]

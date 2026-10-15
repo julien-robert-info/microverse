@@ -5,7 +5,7 @@
 // orch-usage [--since <ISO date>] [--session <id>] [--project <dir>] [--context | --agents]
 //
 // --agents lists each agent run (type, description, model) with its cost, to
-// compare a chantier's tokens with the weekly counter.
+// compare a mission's tokens with the weekly counter.
 //
 // --context prints the context size of the session (default: the most recent
 // one), i.e. input + cache read + cache write of its last request.

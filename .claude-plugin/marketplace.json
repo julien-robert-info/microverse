@@ -8,7 +8,7 @@
     {
       "name": "microverse",
       "source": "./",
-      "description": "Run a project as chantiers delegated to background agents: one task, one branch, one worktree."
+      "description": "Run a project as missions delegated to background agents: one task, one branch, one worktree."
     }
   ]
 }

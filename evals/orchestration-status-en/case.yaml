@@ -3,7 +3,7 @@ name: orchestration-status-en
 description: The orchestration skill fires on an English status request.
 tags: [orchestration, en]
 execution:
-  prompt: "Where are we on the running chantiers?"
+  prompt: "Where are we on the running missions?"
   max_turns: 4
   timeout_seconds: 120
   allowed_tools: [Skill]

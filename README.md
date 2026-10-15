@@ -1,6 +1,6 @@
 # microverse
 
-Claude Code plugin to run a project as chantiers delegated to background
+Claude Code plugin to run a project as missions delegated to background
 agents: one task, one branch, one worktree. An orchestrating conversation
 designs, writes the brief, launches the agent, reviews its diff, merges and
 cleans up; the launch pace follows the usage quota.
@@ -13,7 +13,7 @@ cleans up; the launch pace follows the usage quota.
 | skill `init` | writes a project's orchestration profile; offers to set `autoCompactWindow`, `"model": "sonnet"` and `"advisorModel": "opus"` in `.claude/settings.local.json` (the conversation runs on Sonnet and consults Opus at decision points) |
 | agent `morty` (Sonnet) | implements a brief in its worktree |
 | agent `meeseeks` (Haiku, read-only) | answers one question with facts and their evidence |
-| agent `rick` (Opus, writes only its notes file) | designs a chantier: measurements, rules, draft brief, questions for the user |
+| agent `rick` (Opus, writes only its notes file) | designs a mission: measurements, rules, draft brief, questions for the user |
 | agent `council` (Opus, read-only) | reviews a risky diff, returns a verdict and ranked defects |
 | `orch-quota` | reads the quota counters and advises the launch pace |
 | `orch-usage` | tokens and API-equivalent cost per model (advisor calls on their own `<model> (advisor)` rows) or per agent run, context size of a session |
@@ -81,8 +81,8 @@ The project ignores `CLAUDE.local.md`, `NOTES.local.md` and
 
 ## Usage
 
-In a conversation opened at the project root: "démarre <chantier>", "chantier
-suivant", "où en est-on ?", "rapport". The `orchestration` skill loads on these
+In a conversation opened at the project root: "démarre <mission>", "mission
+suivante", "où en est-on ?", "rapport". The `orchestration` skill loads on these
 requests; `/microverse:orchestration` forces it.
 
 The scripts can also be run by hand from the repository root:
@@ -102,7 +102,7 @@ agent-cleanup feat/subject
 
 `evals/` holds a `claude plugin eval` suite checking that the skills trigger on
 natural phrasing, in French and English: `orchestration` on "démarre …",
-"chantier suivant", status and report requests, `init` on "initialise
+"mission suivante", status and report requests, `init` on "initialise
 l'orchestration", and neither on an ordinary code question. Each case is one
 `case.yaml` with a `tool_used: Skill` grader.
 

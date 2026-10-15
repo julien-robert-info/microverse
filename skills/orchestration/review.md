@@ -33,6 +33,6 @@ agent's report says what it believes it did; the diff says what it did.
 Arithmetic on amounts or units, deduplication or storage keys, migrations, data
 deletion or rewriting, concurrency: the diff goes to `council` (Opus) with the
 branch, the brief and the risky zones (from the `rick`'s notes when a `rick`
-designed the chantier). It returns a verdict and ranked defects with file:line
+designed the mission). It returns a verdict and ranked defects with file:line
 and the scenario that breaks; rule on each (fix through the agent, accept, note)
 before merging.
