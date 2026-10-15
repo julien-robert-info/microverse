@@ -3,7 +3,7 @@ name: orchestration-ou-en-est-on-fr
 description: The orchestration skill fires on a French status request.
 tags: [orchestration, fr]
 execution:
-  prompt: "Où en est-on sur les chantiers en cours ?"
+  prompt: "Où en est-on sur les missions en cours ?"
   max_turns: 4
   timeout_seconds: 120
   allowed_tools: [Skill]

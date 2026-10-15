@@ -1,9 +1,9 @@
 schema_version: "1.1"
-name: orchestration-chantier-suivant-fr
-description: The orchestration skill fires on a French "next chantier" request.
+name: orchestration-mission-suivante-fr
+description: The orchestration skill fires on a French "next mission" request.
 tags: [orchestration, fr]
 execution:
-  prompt: "Chantier suivant."
+  prompt: "Mission suivante."
   max_turns: 4
   timeout_seconds: 120
   allowed_tools: [Skill]

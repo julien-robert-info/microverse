@@ -82,7 +82,7 @@ Also check:
   file is ignored by git;
 - offer to append to the state file `CLAUDE.local.md` a `# Compact instructions`
   section of three or four lines, in the user's language: the summary keeps the
-  chantiers in progress with their branches, the agents launched and not yet
+  missions in progress with their branches, the agents launched and not yet
   returned, the decisions not yet written to the notes, the questions awaiting
   the user;
 - offer a `.worktreeinclude` for unversioned files a worktree needs (`.env`…);

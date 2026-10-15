@@ -25,5 +25,5 @@ specific to the task.
    precise questions the report must answer.
 
 A brief that leaves a business rule open is not ready: settle it first, or hand
-the chantier to a `rick`. A brief drafted by a `rick` is taken from its notes
+the mission to a `rick`. A brief drafted by a `rick` is taken from its notes
 file as it stands, once the user has answered its questions.

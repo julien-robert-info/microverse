@@ -1,9 +1,9 @@
 ---
 name: orchestration
-description: Run a project as chantiers delegated to background agents, one task = one branch = one worktree — design, write the brief, launch the agent, review its diff, merge, clean up, keep the chantier board, write the series report. Use as soon as the user says "démarre X", "lance", "chantier suivant", "enchaîne", "on passe à …", "où en est-on", "rapport", when an agent's report arrives, before merging an agent's branch, when deciding whether a new agent may start (quota), or when the orchestrating conversation grows heavy.
+description: Run a project as missions delegated to background agents, one task = one branch = one worktree — design, write the brief, launch the agent, review its diff, merge, clean up, keep the mission board, write the series report. Use as soon as the user says "démarre X", "lance", "mission suivante", "enchaîne", "on passe à …", "où en est-on", "rapport", when an agent's report arrives, before merging an agent's branch, when deciding whether a new agent may start (quota), or when the orchestrating conversation grows heavy.
 ---
 
-# Orchestrating chantiers with agents
+# Orchestrating missions with agents
 
 Write reports, questions, summaries and the notes in the language the user
 writes in, even when the project's code and commits use another, and give
@@ -15,25 +15,25 @@ only the decisions. State lives in files, so a new conversation resumes without
 loss:
 
 - **state file** (`CLAUDE.local.md`, unversioned, loaded in every
-  conversation): "chantiers in progress" table, reserved shared resources
+  conversation): "missions in progress" table, reserved shared resources
   (migration number…), what is deployed, last report, questions awaiting the
   user (§ 6);
-- **notes** (read on demand): design of each chantier, measurements on real
-  data, past decisions. One file per chantier, `notes/<chantier>.md`, and
+- **notes** (read on demand): design of each mission, measurements on real
+  data, past decisions. One file per mission, `notes/<mission>.md`, and
   `NOTES.local.md` is only an index (one line per file). Read the index, then one
   section of one file, never a whole file. The state file stays short (the
   `context-guard` hook warns past 60 lines): history goes to the notes;
 - **project profile** (`.claude/orchestration/profile.json` and `rules.md`,
   versioned): worktree setup, checks, servers, patterns to watch, shared
   resources, stack rules. Missing: run `/microverse:init` before the first
-  chantier.
+  mission.
 
 ## Roles and models
 
 | Who | Model | Does |
 |---|---|---|
 | orchestrating conversation | Sonnet, Opus as advisor | briefs, launch, review, merge, report |
-| `microverse:rick` | Opus | designs a chantier: measures, settles the rules, drafts the brief in its notes file |
+| `microverse:rick` | Opus | designs a mission: measures, settles the rules, drafts the brief in its notes file |
 | `microverse:morty` | Sonnet | implements a brief in its worktree |
 | `microverse:council` | Opus | reviews a risky diff and approves it or not, fixes nothing |
 | `microverse:meeseeks` | Haiku | reads and summarizes: one question, facts with their evidence |
@@ -66,15 +66,15 @@ loss:
   `morty` on distinct code zones and never two on the same `shared` resource
   of the profile (schema, local database…). A task that takes a shared resource
   reserves it in the state file. A `rick` touches no code: it runs beside a
-  `morty`, preparing the next chantier.
+  `morty`, preparing the next mission.
 - **Design first**: an implementer who has to decide a business rule alone will
-  decide it badly. A chantier whose rules are settled and need one or two
+  decide it badly. A mission whose rules are settled and need one or two
   measurements: one `meeseeks` per measurement (launched together when
-  independent), then write the rules in the notes. A chantier with open rules
+  independent), then write the rules in the notes. A mission with open rules
   or an investigation to run goes to a `rick`: it measures, writes the rules
-  and a draft brief in `notes/<chantier>.md`, and returns the questions for
+  and a draft brief in `notes/<mission>.md`, and returns the questions for
   the user. It has no worktree, so the `after-compact` hook does not list it:
-  the chantier gets a line "design in progress (rick)" in the state file at
+  the mission gets a line "design in progress (rick)" in the state file at
   launch. Add its notes file to the `NOTES.local.md` index yourself, put its
   questions in the state file's list, and launch its briefs once the questions
   they depend on are answered.
@@ -87,7 +87,7 @@ Agent(subagent_type: "microverse:morty", model: "sonnet",
       description: "<3-5 words>", prompt: <brief>)
 Agent(subagent_type: "microverse:rick", model: "opus", run_in_background: true,
       description: "<3-5 words>",
-      prompt: <chantier, user's question, what is decided, notes file,
+      prompt: <mission, user's question, what is decided, notes file,
                user's language>)
 Agent(subagent_type: "microverse:meeseeks", model: "haiku",
       description: "<3-5 words>", prompt: <one question>)
@@ -122,7 +122,7 @@ Agent(subagent_type: "microverse:meeseeks", model: "haiku",
    the main branch (build included) runs once, before a deployment.
 5. `agent-cleanup <branch>`: refuses while a process runs in the worktree or the
    branch is not merged.
-6. **State file**: the chantier's line, merged commit, released reservation,
+6. **State file**: the mission's line, merged commit, released reservation,
    pending questions.
 7. **Chain**: a task already planned launches as soon as the previous one is
    merged, without asking, after a fresh `orch-quota`. Between two reports,
@@ -140,7 +140,7 @@ steps.
 
 The report is short by its wording, not by leaving things out: one line per
 item, no restating of the brief or the diff. Nothing is dropped: an item that
-does not appear in full is written in the chantier's notes before the report,
+does not appear in full is written in the mission's notes before the report,
 and the report counts it and points to its section. Aim at 15 to 20 lines; a
 longer series takes more lines rather than losing an item. It opens with the
 `▶` marker (§ 6). In this order:
@@ -202,7 +202,7 @@ The conversation is not switched: Claude Code compacts it automatically at
 `/microverse:init`). Agents keep running and their reports still arrive.
 
 - When the `context-guard` hook warns that compaction is near, update the state
-  file before going on: chantier table, decisions not yet in the notes, pending
+  file before going on: mission table, decisions not yet in the notes, pending
   questions. No report is required.
 - After a compaction, the `after-compact` hook lists the agent worktrees and
   whether each is merged. Re-read the state file rather than trusting the
@@ -222,7 +222,7 @@ Two kinds of message, nothing else:
 
 - **Trace**, between reports: one line per event, under 150 characters, no
   reasoning ("D1 merged (`abc1234`), D2 launched", "D2: council rejects,
-  3 fixes sent back"). Write the detail in the chantier's notes first. The
+  3 fixes sent back"). Write the detail in the mission's notes first. The
   user can skip every trace line without losing anything.
 - **For the user**: the series report (§ 4) and questions. They open with `▶`
   and a title in the user's language, so the user finds them by scrolling.
@@ -255,5 +255,5 @@ options):
 - **a request counts as done once made**: it leaves the list when the report is
   delivered; only questions awaiting an answer stay;
 - **then verify the effect** of the requested gestures when it can be read, and
-  say so in the next report; a gesture a chantier depends on is verified before
+  say so in the next report; a gesture a mission depends on is verified before
   launching it.

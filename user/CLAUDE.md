@@ -18,7 +18,7 @@ conventions of open source projects.
 Everything else goes outside the repository, in two files at the project root,
 both added to `.gitignore`, or in local memory:
 
-- **`CLAUDE.local.md`**: the current context and the chantiers in progress,
+- **`CLAUDE.local.md`**: the current context and the missions in progress,
   nothing else. It is loaded in every conversation, so it stays short.
 - **`NOTES.local.md`**: the history of decisions, incidents and figures measured
   on the user's data. Read on demand, when a question concerns a figure, a data

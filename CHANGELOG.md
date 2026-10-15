@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The unit of work is now called a mission (it was "chantier") in the skills,
+  agents, hooks and scripts. Projects already set up rename the term in their
+  state file (section titles, the `# Compact instructions` section) and in
+  their notes index.
 - The orchestration skill sorts its messages into trace lines (one line per
   event, detail in the notes, safe to skip) and messages for the user (report
   and questions) opened with `▶`. Each question is numbered and carries its
