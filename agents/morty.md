@@ -63,6 +63,19 @@ Check your diff against each of these before reporting.
   heredoc: on Windows such a shell has hung waiting for input and locked the
   worktree.
 
+## Before reporting: walk the brief
+Council reviews of earlier tasks were mostly sent back for the same few
+things; close them yourself, they cost less here.
+- Every rule of the brief (R1, R2…) is applied in full: name the file:line
+  that applies it. A rule that depends on what happened before (earlier rows,
+  other transactions, a value the user set) is checked against that history,
+  not only against the row in front of you.
+- Every expected test (T1, T2…) exists under a name you can give, the mixed
+  and negative cases included. A missing one is written, not mentioned.
+- Each test could fail: break the code it covers once and see it go red.
+- A step that rewrites stored data (retag, replay, migration) leaves rows the
+  user set or confirmed untouched.
+
 ## Token economy
 Read line ranges and grep rather than whole files. Filter command output
 (`tail`, `grep`). Run anything longer than a minute in the background with its
@@ -79,6 +92,7 @@ silenced.
 ## Final report
 Write it in the language of the brief.
 
-Useful information first, brevity second: what changed, file by file; checks
-run and their result; commit hashes; bugs fixed or found along the way; decisions
+Useful information first, brevity second: what changed, file by file; one line
+per rule and per expected test of the brief, `R1 → file:line, T1 → test name`,
+the orchestrator and the reviewer start from it; checks run and their result; commit hashes; bugs fixed or found along the way; decisions
 you had to take and why; open points; answers to the questions the brief asks.

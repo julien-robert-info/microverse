@@ -2,7 +2,12 @@
 // Reads the quota counters recorded by the VS Code extension "Claude Code
 // Usage" (growthjack) and turns them into a pacing advice for launching agents.
 //
-// orch-quota [--target 98] [--reserve 30] [--five-hour 90] [--file <path>]
+// orch-quota [--target 98] [--reserve 30] [--five-hour 90] [--running 0]
+//             [--agent-cost 15] [--file <path>]
+//
+// --running is the number of agents working now; with --agent-cost (points of
+// the 5h counter one agent may use) it bounds new launches by the room left
+// under the 5h limit.
 //
 // The weekly window is split in two periods: the weekend (window start to
 // Sunday 24:00 local time) may use up to target - reserve %, the weekdays
@@ -23,6 +28,8 @@ const num = (v, d) => (v === undefined || v === true || Number.isNaN(Number(v)) 
 const target = num(opts.target, 98);
 const reserve = num(opts.reserve, 30);
 const fiveLimit = num(opts["five-hour"], 90);
+const running = num(opts.running, 0);
+const agentCost = num(opts["agent-cost"], 15);
 
 function defaultFile() {
   const rel = ["Code", "User", "globalStorage", "growthjack.claude-code-usage", "quota-observations-v2.json"];
@@ -98,7 +105,7 @@ const expected = startUsed + (period.target - startUsed) * elapsed;
 const delta = used7 - expected;
 const reset5 = f ? ` until the 5h counter resets (${fmt(f.resetAt)})` : "";
 
-const advice = paceAdvice({ used7, used5, delta, target, period: period.target, fiveLimit, reset5 });
+const advice = paceAdvice({ used7, used5, delta, target, period: period.target, fiveLimit, reset5, running, agentCost });
 
 const age = now - Math.max(w.observedAt, f?.observedAt ?? 0);
 console.log(

@@ -88,7 +88,7 @@ requests; `/microverse:orchestration` forces it.
 The scripts can also be run by hand from the repository root:
 
 ```bash
-orch-quota --target 98 --reserve 30
+orch-quota --target 98 --reserve 30 --running 1
 orch-usage --since 2026-01-01
 orch-usage --context
 orch-usage --agents

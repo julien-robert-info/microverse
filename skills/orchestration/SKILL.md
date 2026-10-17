@@ -59,9 +59,11 @@ loss:
 
 ## 1. Before launching
 
-- **Budget**: `orch-quota --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --file "${user_config.quota_file}"`.
-  Follow its advice (speed up, normal, smooth out, no new agent, stop); details
-  and the no-file case in `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/budget.md`.
+- **Budget**: `orch-quota --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --running <agents working now> --file '${user_config.quota_file}'`
+  (single quotes: an unset option stays literal and double quotes would make
+  bash fail on it). Follow its advice (speed up, normal, smooth out, no new
+  agent, stop); details and the no-file case in
+  `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/budget.md`.
 - **Parallelism**: as many agents (`morty` or `rick`) as the advice allows,
   `morty` on distinct code zones and never two on the same `shared` resource
   of the profile (schema, local database…). A task that takes a shared resource
@@ -115,8 +117,10 @@ Agent(subagent_type: "microverse:meeseeks", model: "haiku",
    `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/review.md`.
 3. **Risky diff** (arithmetic on amounts or units, deduplication or storage
    keys, migrations, data deletion): `Agent(subagent_type: "microverse:council",
-   model: "opus", prompt: <branch, brief, risky zones>)`, then rule on its
-   remarks. The risky zones come from the `rick`'s notes when there are some.
+   model: "opus", prompt: <branch, brief, the morty's rule and test table,
+   risky zones>)`, then rule on its remarks. The risky zones come from the
+   `rick`'s notes when there are some. The fixes go back to the `morty`;
+   `review.md` says how they are checked.
 4. **Merge** without waiting for the user, who reviews afterwards:
    `git merge --no-ff <branch>` with the subject `merge: …`. The full check of
    the main branch (build included) runs once, before a deployment.

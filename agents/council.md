@@ -16,6 +16,11 @@ brief the implementer received and the zones the orchestrator considers risky.
 3. The diff: `git diff main...<branch>` (or the base the prompt names), then
    the surrounding code each hunk depends on, with `git show <branch>:<path>`
    for files as they stand on the branch.
+4. The implementer's rule and test table, when the prompt carries it: check
+   its claims instead of rediscovering where each rule lives.
+
+A prompt that names a previous report and a commit range is a second look:
+review that range only, and say for each earlier defect whether it is closed.
 
 ## Rules
 - Read-only: never edit, commit, check out or merge. You fix nothing.

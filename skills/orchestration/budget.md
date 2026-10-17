@@ -37,9 +37,14 @@ In order, the first that applies:
 | 5h ≥ `five_hour_limit` + 5 | no more resuming until the 5h counter resets |
 | 5h ≥ `five_hour_limit` | no new agent until the 5h counter resets |
 | more than 5 points above the line, or target reached | **smooth out**: no new agent until the counter drops back under the line |
-| more than 10 points below the line | **speed up**: up to 3 agents at once, 2 when the 5h counter is at 60 % or more |
-| otherwise, 5h under 60 % | **normal**: up to 2 agents at once |
-| otherwise | **normal**: one agent at a time |
+| the room left under `five_hour_limit`, minus 15 points per running agent, is under 15 | no new agent until the 5h counter resets |
+| more than 10 points below the line | **speed up**: up to 3 agents at once |
+| otherwise | **normal**: up to 2 agents at once |
+
+Both counts shrink to what the 5h room can pay for: one agent (a `morty` with
+its `council` review, or a `rick`) may use about 15 points of the 5h counter,
+and the agents already running keep their share. `--running` gives their
+number, `--agent-cost` replaces the 15.
 
 An agent here is a `morty` or a `rick`. Two `morty` work on distinct code
 zones, never two on the same `shared` resource; a `rick` touches no code and
