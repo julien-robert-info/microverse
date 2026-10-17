@@ -155,22 +155,28 @@ function readTail(file, maxBytes) {
 
 // Pacing advice for launching agents: the first rule that applies. `delta`
 // is the weekly counter minus the pacing line, in points; `period` is the
-// current period's target. An agent here is a morty or a rick.
+// current period's target. An agent here is a morty (with its council review)
+// or a rick; `running` of them are already working.
 const AHEAD = 5; // points above the pacing line before advising to slow down
 const BEHIND = 10; // points below it before advising to speed up
 const AGENT_COST = 3; // weekly points an agent may still use once launched
 const FIVE_HOUR_RESUME = 5; // points above the five-hour limit where resuming stops too
-const FIVE_HOUR_PARALLEL = 60; // five-hour counter under which agents may run side by side
+const FIVE_HOUR_COST = 15; // points of the five-hour counter one agent may use
 
-function paceAdvice({ used7, used5, delta, target, period, fiveLimit, reset5 = "" }) {
-  const roomy = used5 < FIVE_HOUR_PARALLEL;
+function paceAdvice({ used7, used5, delta, target, period, fiveLimit, reset5 = "", running = 0, agentCost = FIVE_HOUR_COST }) {
   if (used7 >= target) return `stop: no more resuming agents (≥ ${target} %); keep the rest for end-of-week questions`;
   if (used7 >= target - AGENT_COST) return `no new agent (≥ ${target - AGENT_COST} %): finish, review and merge the running ones`;
   if (used5 >= fiveLimit + FIVE_HOUR_RESUME) return `no more resuming agents${reset5}`;
   if (used5 >= fiveLimit) return `no new agent${reset5}`;
   if (used7 >= period || delta > AHEAD) return "smooth out: no new agent until the counter drops back under the line";
-  if (delta < -BEHIND) return `speed up: up to ${roomy ? 3 : 2} agents at once (morty on distinct zones, one per shared resource)`;
-  if (roomy) return `normal: up to 2 agents at once while the 5h counter is under ${FIVE_HOUR_PARALLEL} % (morty on distinct zones, one per shared resource)`;
+  // Each running agent keeps its share of the room left under the five-hour
+  // limit: a launch that does not fit would hit the limit and stop them all.
+  const fits = Math.floor((fiveLimit - used5 - running * agentCost) / agentCost);
+  if (fits < 1) return `no new agent: ${fiveLimit - used5} points left before the 5h limit, ${running ? `${running} running and ` : ""}about ${agentCost} per agent${reset5}`;
+  const total = Math.min(delta < -BEHIND ? 3 : 2, running + fits);
+  const where = "(morty on distinct zones, one per shared resource)";
+  if (delta < -BEHIND) return `speed up: up to ${total} agents at once ${where}`;
+  if (total >= 2) return `normal: up to ${total} agents at once ${where}`;
   return "normal: one agent at a time";
 }
 

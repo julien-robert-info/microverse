@@ -28,6 +28,14 @@ agent's report says what it believes it did; the diff says what it did.
 - **Scope**: a brief rule half applied, an excluded case handled anyway, an
   expected case without a test.
 
+## Before council
+
+The `morty`'s report lists each rule and test of the brief with its file:line
+or test name. Check it against the brief first: a rule without a line or a
+test without a name goes back to the `morty` (`SendMessage`) before the
+review, which costs a fraction of a `council` round. Pass the table to the
+`council` with the branch.
+
 ## When to hand over to council
 
 Arithmetic on amounts or units, deduplication or storage keys, migrations, data
@@ -36,3 +44,11 @@ branch, the brief and the risky zones (from the `rick`'s notes when a `rick`
 designed the mission). It returns a verdict and ranked defects with file:line
 and the scenario that breaks; rule on each (fix through the agent, accept, note)
 before merging.
+
+## After the fixes
+
+The fixes go back to the `morty`. Then read the fix commits yourself
+(`git diff <reviewed commit>..<branch>`): each defect of the report, its fix,
+its test. Relaunch `council` only for a fix that touches the risky zones again
+(arithmetic, keys, migrations, deletion); then give it the previous report and
+that range only, and ask whether each defect is closed.

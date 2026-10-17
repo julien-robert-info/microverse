@@ -42,7 +42,13 @@ test("launches no new agent three points under the target", () => {
 test("the 5h counter blocks new agents at the limit and resuming five points above", () => {
   assert.match(advice(0.1, 0.91), /Advice: no new agent/);
   assert.match(advice(0.1, 0.96), /Advice: no more resuming/);
-  assert.match(advice(0.1, 0.91, ["--five-hour", "95"]), /Advice: (speed up|normal|smooth out)/);
+  assert.match(advice(0.1, 0.91, ["--five-hour", "95", "--agent-cost", "2"]), /Advice: (speed up|normal|smooth out)/);
+});
+
+test("the 5h room bounds new agents by their cost and the running ones", () => {
+  assert.match(advice(0.1, 0.8), /Advice: no new agent: 10 points left before the 5h limit/);
+  assert.match(advice(0.1, 0.5, ["--running", "3"]), /Advice: no new agent: 40 points left.*3 running/);
+  assert.match(advice(0.1, 0.8, ["--agent-cost", "5"]), /Advice: (speed up|normal)/);
 });
 
 test("a missing counters file is reported with exit code 1", () => {

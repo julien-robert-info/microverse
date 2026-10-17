@@ -20,10 +20,23 @@
   report with a verdict. The orchestration skill no longer sends open
   investigations to a `general-purpose` Opus agent nor suggests opening the
   conversation on Opus for design.
-- `orch-quota` allows agents side by side while the 5h counter is under 60 %:
-  up to 2 on the normal advice, 3 on speed up (one and two above it). An agent
-  is a `morty` or a `rick`; the advice moved to `paceAdvice` in
-  `orch-lib.js`.
+- `orch-quota` allows agents side by side: up to 2 on the normal advice, 3 on
+  speed up, bounded by the room left under the 5h limit. An agent is a
+  `morty` or a `rick`; the advice moved to `paceAdvice` in `orch-lib.js`.
+- `orch-quota --running <n> [--agent-cost 15]` launches no agent when the room
+  left under `five_hour_limit`, minus the share of the running agents, is
+  under what one agent uses (about 15 points of the 5h counter: a `morty` with
+  its review, or a `rick`). It replaces the rule that only looked at the 5h
+  counter being under 60 %; a series that started two missions at 80 % hit
+  the limit.
+- The orchestration skill passes the `quota_file` option in single quotes: an
+  unset option stays literal and made the command fail in bash.
+- Briefs number their rules (R1…) and expected tests (T1…); the `morty`
+  checks its diff against them before reporting, with a line per rule and
+  test in its report; the orchestrator checks that table before calling
+  `council` and passes it along. After a review, the fixes go back to the
+  `morty` and are checked on the fix commits; `council` is relaunched only on
+  what touches the risky zones again, on that range.
 - `agent-check` refuses a second run on a worktree while the first is alive
   (lock file in the worktree's git dir, taken over when its process is gone):
   two `--merged` runs undid each other's merge and collided on the build

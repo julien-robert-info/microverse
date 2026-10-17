@@ -65,14 +65,30 @@ test("lastContext without iterations uses the top-level usage", () => {
 // On the line, mid-week, 5h counter low: the base case each test shifts.
 const pace = (o) => paceAdvice({ used7: 40, used5: 10, delta: 0, target: 98, period: 98, fiveLimit: 90, ...o });
 
-test("paceAdvice: on the line, two agents while the 5h counter is under 60 %, else one", () => {
+test("paceAdvice: on the line, two agents, fewer when the 5h room cannot pay for them", () => {
   assert.match(pace({}), /^normal: up to 2 agents/);
-  assert.match(pace({ used5: 60 }), /^normal: one agent at a time/);
+  assert.match(pace({ used5: 60 }), /^normal: up to 2 agents/);
+  assert.match(pace({ used5: 70 }), /^normal: one agent at a time/);
 });
 
-test("paceAdvice: behind the line, three agents under 60 % on the 5h counter, else two", () => {
+test("paceAdvice: behind the line, three agents, fewer when the 5h room cannot pay for them", () => {
   assert.match(pace({ delta: -11 }), /^speed up: up to 3 agents/);
-  assert.match(pace({ delta: -11, used5: 75 }), /^speed up: up to 2 agents/);
+  assert.match(pace({ delta: -11, used5: 45 }), /^speed up: up to 3 agents/);
+  assert.match(pace({ delta: -11, used5: 60 }), /^speed up: up to 2 agents/);
+});
+
+test("paceAdvice: no new agent when the 5h room is under the cost of one", () => {
+  assert.match(pace({ used5: 76, reset5: " until X" }), /^no new agent: 14 points left before the 5h limit, about 15 per agent until X/);
+  assert.match(pace({ used5: 75 }), /^normal: one agent at a time/);
+});
+
+test("paceAdvice: running agents keep their share of the 5h room", () => {
+  assert.match(pace({ used5: 40, running: 2 }), /^normal: up to 2 agents/);
+  assert.match(pace({ used5: 50, running: 3 }), /^no new agent: 40 points left before the 5h limit, 3 running and about 15 per agent/);
+  assert.match(pace({ used5: 60, running: 1 }), /^normal: up to 2 agents/);
+  assert.match(pace({ used5: 70, running: 1 }), /^no new agent/);
+  assert.match(pace({ used5: 40, agentCost: 25 }), /^normal: up to 2 agents/);
+  assert.match(pace({ used5: 70, agentCost: 25 }), /^no new agent/);
 });
 
 test("paceAdvice: ahead of the line or at the period target, no new agent", () => {
