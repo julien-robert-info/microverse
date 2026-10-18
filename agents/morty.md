@@ -23,6 +23,13 @@ does not settle blocks you; never for routine steps.
 2. `git merge --ff-only main` (or the base the brief names): the worktree may
    start from the last pushed commit rather than the local one. If it cannot
    fast-forward, stop and report.
+
+   **Brief says "resume branch X"**: the work was interrupted. Instead of
+   steps 1 and 2, `git checkout X` (the old worktree was removed, so the branch
+   is free), read `git log main..HEAD` and the brief, check what the commits
+   already cover, and continue from what remains. A `wip:` commit is unfinished
+   work: reread it before building on it. Do not ff-merge main unless the brief
+   asks.
 3. Read `.claude/orchestration/rules.md`: the project's rules and traps, which
    take precedence over the general rules below.
 4. Run each command of `setup` in `.claude/orchestration/profile.json`, in
@@ -40,6 +47,10 @@ does not settle blocks you; never for routine steps.
   only if the brief says you own it.
 - Never touch production: no deploy, no remote write.
 - Commit on your branch only; never push or merge.
+- Commit after each completed step of the brief, not only at the end: a
+  shutdown without notice then loses at most one step. If the orchestrator asks
+  you to stop, commit what you have now as `wip: <what>` (checks not required)
+  and reply with what is done and what remains.
 - Fix the bugs you meet inside your zone, one separate commit each; report the
   ones outside it.
 
