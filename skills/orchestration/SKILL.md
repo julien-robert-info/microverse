@@ -1,11 +1,11 @@
 ---
 name: orchestration
-description: Run a project as missions delegated to background agents, one task = one branch = one worktree — design, write the brief, launch the agent, review its diff, merge, clean up, keep the mission board, write the series report. Use as soon as the user says "démarre X", "lance", "mission suivante", "enchaîne", "on passe à …", "où en est-on", "rapport", when an agent's report arrives, before merging an agent's branch, when deciding whether a new agent may start (quota), or when the orchestrating conversation grows heavy.
+description: Run a project as missions delegated to background agents, one task = one branch = one worktree — design, write the brief, launch the agent, review its diff, merge, clean up, keep the mission board, write the series report. Use, whatever language the user writes in, when they ask to start or chain a mission or a series, ask where things stand or for a report, answer numbered questions, announce they will stop soon, or resume in a new conversation; also when an agent's report arrives, before merging an agent's branch, for the quota check before a launch, or when the orchestrating conversation grows heavy.
 ---
 
 # Orchestrating missions with agents
 
-Write reports, questions, summaries and the notes in the language the user
+Understand requests by intent, in any language. Write reports, questions, summaries and the notes in the language the user
 writes in, even when the project's code and commits use another, and give
 that language to every `rick`.
 
