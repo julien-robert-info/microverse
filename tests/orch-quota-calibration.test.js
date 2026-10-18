@@ -176,6 +176,19 @@ const withStored = (fx, cal) => {
   writeFileSync(join(fx.acc.data, "calibration.json"), JSON.stringify({ at: 0, n5: 8, n7: 8, since: null, change: null, roles: {}, ...cal }));
 };
 
+test("a plan change seen on only three recent intervals stores the recent ratio", () => {
+  // Fewer than five intervals since the change: the narrowed window alone gives
+  // no ratio, so only the change itself can put the recent 6 in place of the 2.
+  const intervals = plans().filter((iv, i) => i < 6 || i >= 9);
+  const fx = accountWith(intervals, 0);
+  withStored(fx, { ratio5: 2, ratio7: null });
+  const r = run(fx, ["--calibrate"]);
+  assert.match(r.out, /Calibration changed \(subscription\?\): 5h 2→6 points\/\$/);
+  assert.ok(Math.abs(stored(fx.acc).ratio5 - 6) < 1e-9);
+  assert.equal(stored(fx.acc).n5, 3);
+  assert.ok(stored(fx.acc).since > Date.now() - 49 * HOUR);
+});
+
 test("a plan change narrows both counters to the same window", () => {
   const fx = accountWith(plans(), 0, true);
   // The week ratio is within x2 of the recent 6: only the 5h counter changed.
