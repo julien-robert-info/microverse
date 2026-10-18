@@ -33,7 +33,8 @@ cleans up; the launch pace follows the usage quota.
 - Git.
 - Optional, for the quota counters: the VS Code extension "Claude Code Usage"
   (growthjack), or the microverse status line in a terminal session (set up by
-  `/microverse:init`). `orch-quota` merges the readings of both. With neither,
+  `/microverse:init`; the VS Code panel runs no status line). `orch-quota`
+  merges the readings of both. With neither,
   the orchestrator asks the user for the counters.
 
 ## Installation

@@ -9,6 +9,9 @@
   reading whose reset has passed is no longer used ("No current weekly
   reading"). The calibration still uses the extension readings only, and each
   run refreshes the installed copy of the status line script.
+- `/microverse:init` offers the status line in `.claude/settings.local.json`;
+  it replaces an earlier microverse status line once confirmed and leaves any
+  other one untouched.
 
 - In a project set up with `/microverse:init`, every conversation (new,
   resumed, cleared or compacted) is told by the `SessionStart` hook to load the

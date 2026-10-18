@@ -82,6 +82,18 @@ Also check:
   orchestrating conversation runs on Sonnet and consults Opus at decision
   points, so no model has to be chosen when opening a conversation; check that
   file is ignored by git;
+- offer the microverse status line, which records the quota counters for
+  `orch-quota` in terminal sessions (the VS Code panel runs no status line):
+  run `node "${CLAUDE_PLUGIN_ROOT}/scripts/statusline.js" --install`, which
+  copies the script to `~/.claude/microverse/` and prints the `statusLine`
+  setting, then look at `statusLine` in `.claude/settings.local.json`:
+  - absent, or already the printed command: merge the printed setting (nothing
+    to do when it is already there);
+  - a command that points into `.claude/microverse/` (an earlier microverse
+    script): replace it once the user confirms, and give them the old command;
+  - any other command: write nothing; show the printed setting and say that
+    their own script can pass its stdin on to that command, or that they can
+    replace it by hand;
 - offer to append to the state file `CLAUDE.local.md` a `# Compact instructions`
   section of three or four lines, in the user's language: the summary keeps the
   missions in progress with their branches, the agents launched and not yet
