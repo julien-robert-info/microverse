@@ -27,8 +27,11 @@ const OPTIONS = [
 ];
 
 function clean(text) {
-  let s = text.replace(/\r/g, "").replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, "").trim();
-  if (s.length > MAX) s = `${s.slice(0, s.lastIndexOf("\n", MAX - 60))}\n… output truncated`;
+  let s = text.replace(/\r/g, "").replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, "").trim();
+  if (s.length > MAX) {
+    const cut = s.lastIndexOf("\n", MAX - 60);
+    s = `${s.slice(0, cut > 0 ? cut : MAX - 60)}\n… output truncated`;
+  }
   return s;
 }
 

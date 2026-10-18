@@ -2,10 +2,11 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } = require("node:fs");
+const { spawnSync } = require("node:child_process");
+const { existsSync, mkdirSync, mkdtempSync, realpathSync, statSync, utimesSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
-const { join } = require("node:path");
-const { commitFile, git, makeAccount, makeRepo, script: runScript } = require("./helpers.js");
+const { join, resolve } = require("node:path");
+const { ROOT, commitFile, git, makeAccount, makeRepo, script: runScript } = require("./helpers.js");
 
 // APPDATA (Windows) is where orch-quota looks for the extension's readings: an
 // empty one keeps the real quota out of the tests.
@@ -218,7 +219,7 @@ test("T11: seven agent runs: count, total, five rows and the earlier ones", () =
   const t0 = Date.now();
   acc.conversation("proj", t0, 0.5);
   for (let i = 0; i < 7; i++) acc.agent("proj", `a${i}`, "microverse:morty", [{ ts: t0 + i * 1000, dollars: 1 + i }], i * 1000);
-  const r = script("orch-status", ["HEAD"], dir, acc.env);
+  const r = script("orch-status", ["HEAD", "--file", quotaFile(0.2, 0.1)], dir, acc.env);
   assert.equal(r.code, 0, r.out);
   const agents = sectionOf(r.out, "Agents since");
   assert.match(r.out, /^Agents since \S+: 7 runs, \$28\.00 \(API-equivalent\)$/m);
@@ -231,12 +232,18 @@ test("T11: seven agent runs: count, total, five rows and the earlier ones", () =
 test("T12: plain text, bounded", () => {
   const { dir } = makeRepo(PROFILE);
   const rows = Array.from({ length: 600 }, (_, i) => `| M${i} | feat/x${i} | state ${i} |`);
-  const state = `## Missions\n\n${rows.join("\n")}\n\nLast report: ${head(dir).slice(0, 7)}\n\n\`\`\`\n## fenced\n\`\`\`\n\u001b[31mred\u001b[0m \u009b\u0007 end\n`;
+  // The risky lines come first so they fall in the shown part of the file.
+  const risky = `\`\`\`\n## fenced\n\`\`\`\n### sub heading\n▶ trace line\n\u001b[31mred\u001b[0m \u009b\u0007 end\n`;
+  const state = `## Missions\n\n${risky}\n${rows.join("\n")}\n\nLast report: ${head(dir).slice(0, 7)}\n`;
   assert.ok(state.length > 10000);
   writeFileSync(join(dir, "CLAUDE.local.md"), state);
   const r = script("orch-status", [], dir);
   assert.equal(r.code, 0, r.out);
-  assert.doesNotMatch(r.out, /## |```|▶|\t|[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/);
+  assert.match(r.out, /^ {2}fenced$/m);
+  assert.match(r.out, /^ {2}sub heading$/m);
+  assert.match(r.out, /trace line/);
+  assert.match(r.out, /\[31mred\[0m/);
+  assert.doesNotMatch(r.out, /## |### |```|▶|\t|[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/);
   assert.match(r.out, /^ {2}… \d+ more lines in CLAUDE\.local\.md$/m);
   assert.ok(r.out.length <= 9000, String(r.out.length));
   const state_part = r.out.slice(r.out.indexOf("Missions"), r.out.indexOf("  … "));
@@ -262,4 +269,68 @@ test("orch-status leaves the calibration and the readings alone", () => {
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /Advice:/);
   assert.equal(existsSync(join(acc.data, "calibration.json")), false, "no calibration saved");
+});
+
+test("a UTF-8 BOM before the first heading does not hide the sections", () => {
+  const { dir } = makeRepo(PROFILE);
+  writeFileSync(join(dir, "CLAUDE.local.md"), "﻿## Missions\n\n| E1 | feat/a | doing |\n\n## Other\n\nsecret other text\n");
+  const r = script("orch-status", [], dir);
+  assert.match(r.out, /^ {2}E1 · feat\/a · doing$/m);
+  assert.doesNotMatch(r.out, /secret other text/);
+});
+
+test("bidi and zero-width characters are stripped", () => {
+  const { dir } = makeRepo(PROFILE);
+  writeFileSync(join(dir, "CLAUDE.local.md"), "## Missions\n\nfdp.‮txt ​zero⁦x\n");
+  const r = script("orch-status", [], dir);
+  assert.match(r.out, /^ {2}fdp\.txt zerox$/m);
+  assert.doesNotMatch(r.out, /[​-‏‪-‮⁦-⁩﻿]/);
+});
+
+test("a huge single line is still cut to the bound", () => {
+  const { dir } = makeRepo(PROFILE);
+  commitFile(dir, "big.txt", "x\n", `feat: ${"y".repeat(12000)}`);
+  const r = script("orch-status", ["HEAD~1"], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(r.out.length <= 9100, String(r.out.length));
+  assert.match(r.out, /… output truncated\n?$/);
+});
+
+test("no base branch: a given commit keeps the Agents section and says Merged is skipped", () => {
+  const acc = makeAccount();
+  const dir = acc.project("proj3");
+  git(dir, "init", "-q", "-b", "trunk", ".");
+  git(dir, "config", "user.name", "Test");
+  git(dir, "config", "user.email", "test@example.com");
+  mkdirSync(join(dir, ".claude", "orchestration"), { recursive: true });
+  writeFileSync(join(dir, ".claude", "orchestration", "profile.json"), "{}");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-qm", "chore: init");
+  const t0 = Date.now() + 60000;
+  acc.conversation("proj3", t0, 0.5);
+  acc.agent("proj3", "a0", "microverse:morty", [{ ts: t0, dollars: 3 }], 1000);
+  const r = script("orch-status", ["HEAD", "--file", quotaFile(0.2, 0.1)], dir, acc.env);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /^Merged since \w+: not listed, no base branch/m);
+  assert.match(r.out, /^Agents since \S+: 1 runs, \$3\.00 \(API-equivalent\)$/m);
+  assert.match(r.out, /microverse:morty/);
+});
+
+test("the index of an agent worktree is not rewritten", () => {
+  const { dir, wt } = makeRepo(PROFILE);
+  const index = resolve(wt, git(wt, "rev-parse", "--git-path", "index").out.trim());
+  // A tracked file with a fresh mtime makes a plain `git status` refresh the index.
+  const later = new Date(Date.now() + 5000);
+  utimesSync(join(wt, "a.txt"), later, later);
+  const before = statSync(index).mtimeMs;
+  const r = script("orch-status", [], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(statSync(index).mtimeMs, before);
+});
+
+test("the scripts are executable in git", { skip: !existsSync(join(ROOT, ".git")) }, () => {
+  for (const f of ["bin/orch-status", "bin/orch-report"]) {
+    const r = spawnSync("git", ["ls-files", "-s", f], { cwd: ROOT, encoding: "utf8" });
+    assert.match(r.stdout, /^100755 /, f);
+  }
 });

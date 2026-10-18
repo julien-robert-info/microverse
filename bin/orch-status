@@ -19,6 +19,10 @@ const { existsSync, readFileSync } = require("node:fs");
 const { basename, join } = require("node:path");
 const { agentWorktrees, fail, git, listWorktrees, parseArgs, run } = require("../scripts/orch-lib.js");
 
+// git status in the agents' worktrees would refresh and rewrite their index,
+// racing with the agents' own git commands.
+process.env.GIT_OPTIONAL_LOCKS = "0";
+
 const STATE_MAX = 4000;
 const TOTAL_MAX = 9000;
 const MERGED_MAX = 20;
@@ -81,7 +85,8 @@ function stateSections(text) {
       if (h[1].length === 2 && SECTION_TITLE.test(key)) found.push((current = { title: h[2], body: [] }));
       continue;
     }
-    if (current) current.body.push(row(raw));
+    // Sub-headings and "##" lines inside code blocks lose their marker.
+    if (current) current.body.push(row(raw.replace(/^(\s*)#{1,6}\s+/, "$1")));
   }
   return found;
 }
@@ -184,7 +189,7 @@ function main() {
   const stateFile = join(dir, "CLAUDE.local.md");
   let state = null;
   try {
-    state = readFileSync(stateFile, "utf8");
+    state = readFileSync(stateFile, "utf8").replace(/^\ufeff/, "");
   } catch {}
   if (state === null) out.push("", "No CLAUDE.local.md (state file).");
   else stateSection(state);
@@ -215,6 +220,18 @@ function main() {
   if (!commit) {
     if (base) {
       out.push("", 'Last report: no commit found (a "Last report"/"Dernier rapport" line with a commit in CLAUDE.local.md, or /microverse:status <commit>)');
+    } else if (given_) {
+      // Merges cannot be listed without a base, but the runs since the commit can.
+      const short = git(["rev-parse", "--short", given_], dir).out.trim();
+      out.push("", `Merged since ${short}: not listed, no base branch to compare with (pass --base)`);
+      const date = git(["log", "-1", "--format=%cI", given_], dir).out.trim();
+      const u = sibling("orch-usage", ["--agents", "--since", date], dir);
+      const ls = lines(u.text).filter((l) => l.trim());
+      if (u.ok) {
+        const sum = ls.slice(2).reduce((t, l) => t + (Number(l.split("\t")[4]) || 0), 0);
+        ls.push(`Total: $${sum.toFixed(2)} (API-equivalent)`);
+      }
+      agentsSection(ls);
     }
     quotaSection(dir);
     contextSection(dir);
@@ -231,31 +248,40 @@ function main() {
   const merged = sec.Merged ?? [];
   section(`Merged since ${short} (last report)`, more(merged.length ? merged : ["nothing"], MERGED_MAX, "more"));
 
-  const agents = sec.Agents ?? [];
+  agentsSection(sec.Agents ?? []);
+  section("Quota", sec.Quota ?? ["no output"]);
+  section("Context", sec.Context ?? ["no output"]);
+}
+
+// `agents`: orch-usage --agents lines (title, columns, runs), then the Total
+// and Advisor lines; without a Total line they are an error message.
+function agentsSection(agents) {
   const total = agents.find((l) => l.startsWith("Total:"));
   const advisor = agents.find((l) => l.startsWith("Advisor:"));
   const header = /^Agents since (\S+)/.exec(agents[0] ?? "");
-  if (!total || !header) section("Agents", agents.length ? agents : ["no output"]);
-  else {
-    const runs = agents.slice(2, agents.indexOf(total)).map((l) => l.replace(/\t/g, "  "));
-    const cost = /\$([\d.]+)/.exec(total)?.[1] ?? "?";
-    const shown = runs.slice(-AGENT_ROWS);
-    section(`Agents since ${header[1]}: ${runs.length} runs, $${cost} (API-equivalent)`, [
-      ...(runs.length > shown.length ? [`… ${runs.length - shown.length} earlier runs`] : []),
-      ...shown,
-      ...(advisor ? [advisor] : []),
-    ]);
-  }
-  section("Quota", sec.Quota ?? ["no output"]);
-  section("Context", sec.Context ?? ["no output"]);
+  if (!total || !header) return section("Agents", agents.length ? agents : ["no output"]);
+  const runs = agents.slice(2, agents.indexOf(total)).map((l) => l.replace(/\t/g, "  "));
+  const cost = /\$([\d.]+)/.exec(total)?.[1] ?? "?";
+  const shown = runs.slice(-AGENT_ROWS);
+  section(`Agents since ${header[1]}: ${runs.length} runs, $${cost} (API-equivalent)`, [
+    ...(runs.length > shown.length ? [`… ${runs.length - shown.length} earlier runs`] : []),
+    ...shown,
+    ...(advisor ? [advisor] : []),
+  ]);
 }
 
 main();
 
 // Control characters (ESC and the rest of C0 and C1, except newline) in what
 // was copied from files, commit subjects and branch names could drive the
-// terminal; tabs become spaces.
+// terminal; tabs become spaces. Bidi and zero-width characters could make a
+// line read differently from what it says, and ▶ is the marker of the
+// orchestration skill's own trace lines.
 let text = out.join("\n").replace(/\r/g, "").replace(/\t/g, "  ");
-text = text.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, "");
-if (text.length > TOTAL_MAX) text = `${text.slice(0, text.lastIndexOf("\n", TOTAL_MAX - 60))}\n… output truncated`;
+text = text.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff▶]/g, "");
+// No newline before the limit (one huge first line): cut in the line.
+if (text.length > TOTAL_MAX) {
+  const cut = text.lastIndexOf("\n", TOTAL_MAX - 60);
+  text = `${text.slice(0, cut > 0 ? cut : TOTAL_MAX - 60)}\n… output truncated`;
+}
 console.log(text);

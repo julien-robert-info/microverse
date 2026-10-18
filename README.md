@@ -172,7 +172,7 @@ Results land in `evals/results/` (ignored by git).
 
 ```
 .claude-plugin/   plugin.json (manifest, settings), marketplace.json (catalog)
-skills/           orchestration (SKILL.md, budget.md, brief.md, review.md, stop-resume.md), init
+skills/           orchestration (SKILL.md, budget.md, brief.md, review.md, stop-resume.md), init, status
 agents/           rick, morty, council, meeseeks
 bin/              dependency-free Node scripts, added to the Bash tool's PATH;
                   the .cmd files make them callable from PowerShell

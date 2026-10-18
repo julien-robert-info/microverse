@@ -97,6 +97,14 @@ test("T17: an argument that looks like an option is refused before anything runs
   assert.match(bad.reason, /not a commit/);
 });
 
+test("a huge one-line message is bounded and bidi characters are stripped", () => {
+  const { dir } = makeRepo({});
+  const r = JSON.parse(hook(payload(dir, { command_args: `-a‮b​c${"z".repeat(12000)}` })).stdout);
+  assert.ok(r.reason.length <= 9000, String(r.reason.length));
+  assert.match(r.reason, /^not a commit: -abcz+/);
+  assert.match(r.reason, /… output truncated$/);
+});
+
 test("T18: other commands, invalid JSON and empty input print nothing", () => {
   const { dir } = makeRepo({});
   for (const input of [payload(dir, { command_name: "microverse:init" }), payload(dir, { command_name: "status" }), "{not json", "", "[]", "null", {}]) {
