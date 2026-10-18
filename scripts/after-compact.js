@@ -26,7 +26,7 @@ const OPENING = {
     "Conversation resumed: CLAUDE.local.md holds the state of the orchestration. Agents launched before the interruption may have finished or been cut off; check each worktree below before relaunching anything (orchestration skill, Stopping and resuming).",
 };
 
-const norm =(p) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+const norm = (p) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
 // Worktrees of `cwd`'s repository as { path, head, branch }, main one first.
 function listWorktrees(cwd) {
@@ -54,6 +54,9 @@ function main() {
   const projectDir = process.env.CLAUDE_PROJECT_DIR || payload.cwd;
   if (!projectDir || !existsSync(join(projectDir, ".claude", "orchestration", "profile.json"))) return;
 
+  // The orchestrator cannot otherwise know its own transcript, which the next
+  // conversation searches when the user refers to something said here.
+  const transcript = typeof payload.transcript_path === "string" && payload.transcript_path ? `Transcript of this conversation: ${payload.transcript_path}` : null;
   const lines = [detailed ? OPENING[source] : HEADER];
   try {
     const all = listWorktrees(projectDir);
@@ -73,10 +76,12 @@ function main() {
       rows.push(row);
     }
     if (rows.length) lines.push("Agent worktrees:", ...rows);
-    else if (detailed) return;
+    else if (detailed) lines.length = 0;
   } catch {
-    if (detailed) return;
+    if (detailed) lines.length = 0;
   }
+  if (transcript) lines.push(transcript);
+  if (!lines.length) return;
 
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: lines.join("\n") } }));
 }

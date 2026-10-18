@@ -162,3 +162,34 @@ test("on startup a repository with a profile but no agent worktree gives no outp
   assert.equal(r.status, 0);
   assert.equal(r.stdout, "");
 });
+
+test("the transcript path is given on every source, alone when nothing else is to say", () => {
+  const dir = tmp();
+  repoWith(dir);
+  const transcript_path = join(tmp(), "session-1.jsonl");
+  const line = `Transcript of this conversation: ${transcript_path}`;
+  // No agent worktree: startup and resume give only the transcript line.
+  for (const source of ["startup", "resume"]) assert.equal(message(run(dir, { source, transcript_path })), line);
+  assert.equal(message(run(dir, { transcript_path })), [HEADER, line].join("\n"));
+
+  const open = join(dir, ".claude", "worktrees", "agent-open");
+  git(dir, "worktree", "add", "-q", "-b", "feat/open", open);
+  commitFile(open, "open.txt", "open\n");
+  for (const source of ["startup", "resume", "compact"]) {
+    const lines = message(run(dir, { source, transcript_path })).split("\n");
+    assert.equal(lines.at(-1), line);
+    assert.ok(lines.some((l) => l.startsWith("- feat/open")));
+  }
+});
+
+test("without a transcript_path in the payload no transcript line is given", () => {
+  const dir = tmp();
+  repoWith(dir);
+  const open = join(dir, ".claude", "worktrees", "agent-open");
+  git(dir, "worktree", "add", "-q", "-b", "feat/open", open);
+  commitFile(open, "open.txt", "open\n");
+  for (const source of ["startup", "resume", "compact"]) {
+    assert.ok(!message(run(dir, { source })).includes("Transcript"));
+  }
+  assert.ok(!message(run(dir, { source: "compact", transcript_path: "" })).includes("Transcript"));
+});
