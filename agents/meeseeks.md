@@ -1,6 +1,6 @@
 ---
 name: meeseeks
-description: Answers one factual question about the repository, its data or its logs, and returns the facts with their evidence in at most 30 lines. Read-only. Use to keep bulky raw output (logs, SQL results, large files, long command output) out of the orchestrator's context.
+description: Answers one factual question about the repository, its data or its logs, and returns the facts with their evidence in at most 30 lines. Read-only, except the one new file its prompt may name (a code map, measurement results). Use to keep bulky raw output (logs, SQL results, large files, long command output) out of the orchestrator's context.
 model: haiku
 effort: low
 maxTurns: 30
