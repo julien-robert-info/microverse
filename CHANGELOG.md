@@ -61,6 +61,14 @@
   its review, or a `rick`). It replaces the rule that only looked at the 5h
   counter being under 60 %; a series that started two missions at 80 % hit
   the limit.
+- `orch-quota` counts the agents running on the whole account (subagent
+  transcripts of all projects written in the last 10 minutes, `meeseeks` left
+  out) when `--running` is not given, and learns the agent cost from the past
+  runs: the 5h points per API-equivalent dollar, calibrated against the
+  transcripts of all projects, times the median cost of a `rick` or of a
+  `morty` plus its `council`. `--calibrate` recomputes and prints it; a ratio
+  that moves by more than x2 in 48 hours is reported as a subscription change.
+  The pricing code moved from `orch-usage` to `orch-lib.js`.
 - The orchestration skill passes the `quota_file` option in single quotes: an
   unset option stays literal and made the command fail in bash.
 - Briefs number their rules (R1…) and expected tests (T1…); the `morty`

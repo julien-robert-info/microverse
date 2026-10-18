@@ -3,7 +3,8 @@
 "use strict";
 
 const { spawnSync } = require("node:child_process");
-const { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync } = require("node:fs");
+const { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } = require("node:fs");
+const { homedir } = require("node:os");
 const { join } = require("node:path");
 
 function run(cmd, args, opts = {}) {
@@ -153,6 +154,327 @@ function readTail(file, maxBytes) {
   }
 }
 
+const HOUR = 3600e3;
+const DAY = 24 * HOUR;
+
+// $/MTok: input, 5m cache write, 1h cache write, cache read, output.
+const PRICES = {
+  "claude-opus-5-5": [4, 5, 8, 0.2, 20],
+  "claude-sonnet-5-5": [2, 2.5, 4, 0.1, 10],
+  "claude-sonnet-5": [2, 2.5, 4, 0.2, 10],
+};
+// Haiku 5.5 is priced by request size: above 100K tokens of context, x5.
+const HAIKU = { small: [0.1, 0.125, 0.2, 0.01, 0.5], large: [0.5, 0.625, 1, 0.05, 2.5], limit: 100e3 };
+
+// Streamed replies repeat the same message id + request id on several lines
+// with partial counts: keep the maximum of each counter.
+function readRequests(file, kind, since, requests, agent = null) {
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    if (!line.includes('"usage"')) continue;
+    let o;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const m = o.message;
+    if (!m?.usage || !m.model?.startsWith("claude")) continue;
+    if (since && new Date(o.timestamp) < since) continue;
+    const v = counters(m.usage);
+    // Per-step usage when an advisor may have run: "message" steps are the
+    // executor (their sum is the top-level usage), "advisor_message" steps are
+    // billed to the advisor's own model. Kept by index so that a streamed
+    // repeat takes the maximum of each counter step by step.
+    const iters = (m.usage.iterations ?? []).map((it) => ({ advisor: it.type === "advisor_message", model: it.model ?? null, v: counters(it) }));
+    const id = `${m.id}:${o.requestId ?? ""}`;
+    const prev = requests.get(id);
+    if (prev) {
+      for (let i = 0; i < v.length; i++) v[i] = Math.max(v[i], prev.v[i]);
+      for (let j = 0; j < Math.max(iters.length, prev.iters.length); j++) {
+        const a = iters[j], b = prev.iters[j];
+        if (!a) iters[j] = b;
+        else if (b) a.v = a.v.map((x, i) => Math.max(x, b.v[i]));
+      }
+    }
+    requests.set(id, { kind, agent, model: m.model, ts: o.timestamp, v, iters });
+  }
+}
+
+// [input, 5m write, 1h write, read, output] of a usage object.
+function counters(u) {
+  const cc = u.cache_creation ?? {};
+  let w5 = cc.ephemeral_5m_input_tokens ?? 0;
+  const w1 = cc.ephemeral_1h_input_tokens ?? 0;
+  if (!u.cache_creation && u.cache_creation_input_tokens) w5 = u.cache_creation_input_tokens;
+  return [u.input_tokens ?? 0, w5, w1, u.cache_read_input_tokens ?? 0, u.output_tokens ?? 0];
+}
+
+// Cost vector of the executor part of a request, or null without a price. The
+// Haiku tier depends on each call's size, so its steps are priced one by one.
+function executorCost(r) {
+  const steps = r.iters.filter((it) => !it.advisor);
+  if (!r.model.startsWith("claude-haiku-5-5") || !steps.length) return priceOf(r.model, r.v);
+  const parts = steps.map((it) => priceOf(r.model, it.v));
+  return parts.reduce((a, c) => a.map((x, i) => x + c[i]), [0, 0, 0, 0, 0]);
+}
+
+const advisorSteps = (r) => r.iters.filter((it) => it.advisor && it.model);
+
+function priceOf(model, v) {
+  let p = PRICES[model];
+  if (!p && model.startsWith("claude-haiku-5-5")) p = v[0] + v[1] + v[2] + v[3] > HAIKU.limit ? HAIKU.large : HAIKU.small;
+  return p ? v.map((x, i) => (x / 1e6) * p[i]) : null;
+}
+
+// Total cost of a request, advisor steps included; `priced` is false when a
+// model has no price, and `cost` then leaves it out.
+function requestCost(r) {
+  const sum = (c) => c.reduce((a, x) => a + x, 0);
+  const c = executorCost(r);
+  let cost = c ? sum(c) : 0;
+  let priced = Boolean(c);
+  for (const it of advisorSteps(r)) {
+    const ac = priceOf(it.model, it.v);
+    if (ac) cost += sum(ac);
+    else priced = false;
+  }
+  return { cost, priced };
+}
+
+// The transcript's sibling .meta.json names the agent type and its task.
+function agentInfo(file) {
+  const id = file.replace(/^.*agent-/, "").replace(/.jsonl$/, "");
+  try {
+    const m = JSON.parse(readFileSync(file.replace(/.jsonl$/, ".meta.json"), "utf8"));
+    return { id, file, type: m.agentType ?? "?", description: m.description ?? "" };
+  } catch {
+    return { id, file, type: "?", description: "" };
+  }
+}
+
+// Claude Code names a project's folder after its path, every character other
+// than a letter or digit replaced by "-". The drive letter's case varies.
+const projectSlug = (dir) => dir.replace(/[^A-Za-z0-9]/g, "-").toLowerCase();
+
+const projectsRoot = () => join(homedir(), ".claude", "projects");
+
+// Every transcript of every project, from directory listings and stat only:
+// { path, project, kind: "conversation" | "agent", mtime }.
+function walkTranscripts(root = projectsRoot()) {
+  const out = [];
+  const add = (path, project, kind) => {
+    try {
+      out.push({ path, project, kind, mtime: statSync(path).mtimeMs });
+    } catch {
+      // vanished between the listing and the stat
+    }
+  };
+  const list = (dir) => {
+    try {
+      return readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+  };
+  for (const p of list(root)) {
+    if (!p.isDirectory()) continue;
+    const pdir = join(root, p.name);
+    for (const e of list(pdir)) {
+      if (e.isFile() && e.name.endsWith(".jsonl")) add(join(pdir, e.name), p.name, "conversation");
+      else if (e.isDirectory()) {
+        const sub = join(pdir, e.name, "subagents");
+        for (const a of list(sub)) if (a.isFile() && a.name.startsWith("agent-") && a.name.endsWith(".jsonl")) add(join(sub, a.name), p.name, "agent");
+      }
+    }
+  }
+  return out;
+}
+
+const RUNNING_WINDOW = 10 * 60e3;
+
+// Agents working now on the account: subagent transcripts written in the last
+// ten minutes, `meeseeks` left out (they cost little and do not take a slot).
+// `others` are those of projects other than `currentSlug`.
+function countRunning(files, { now = Date.now(), currentSlug = null } = {}) {
+  let total = 0;
+  let others = 0;
+  for (const f of files) {
+    if (f.kind !== "agent" || f.mtime < now - RUNNING_WINDOW) continue;
+    if (agentInfo(f.path).type.endsWith("meeseeks")) continue;
+    total++;
+    if (f.project.toLowerCase() !== currentSlug) others++;
+  }
+  return { total, others };
+}
+
+const CAL = { days: 14, fresh: 6 * HOUR, minCost: 1, minIntervals: 5, recent: 48 * HOUR, recentMin: 3, factor: 2, quantile: 0.25 };
+const ROLES = ["rick", "morty", "council"];
+
+function quantile(sorted, p) {
+  const pos = p * (sorted.length - 1);
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
+const sortedNumbers = (a) => [...a].sort((x, y) => x - y);
+
+// Cost of the requests with a timestamp in [t1, t2], by binary search over a
+// timeline sorted by time with running sums.
+function costLine(requests) {
+  const rows = [...requests.values()]
+    .map((r) => ({ t: Date.parse(r.ts), ...requestCost(r) }))
+    .filter((r) => !Number.isNaN(r.t))
+    .sort((a, b) => a.t - b.t);
+  const cost = [0];
+  const unpriced = [0];
+  for (const r of rows) {
+    cost.push(cost.at(-1) + r.cost);
+    unpriced.push(unpriced.at(-1) + (r.priced ? 0 : 1));
+  }
+  const bound = (t, after) => {
+    let lo = 0;
+    let hi = rows.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (after ? rows[mid].t <= t : rows[mid].t < t) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  return (t1, t2) => {
+    const a = bound(t1, false);
+    const b = bound(t2, true);
+    return { cost: cost[b] - cost[a], unpriced: unpriced[b] - unpriced[a] };
+  };
+}
+
+// Points per dollar of each interval between two consecutive readings of a
+// counter in the same window. An interval whose cost is unknown (a model
+// without a price) or under the minimum says nothing and is left out.
+function intervalRatios(observations, type, from, between) {
+  const obs = observations.filter((o) => o.periodType === type && (o.provider ?? "claude") === "claude").sort((a, b) => a.observedAt - b.observedAt);
+  const out = [];
+  for (let i = 1; i < obs.length; i++) {
+    const a = obs[i - 1];
+    const b = obs[i];
+    if (a.observedAt < from || Math.abs(a.resetAt - b.resetAt) >= HOUR) continue;
+    const points = (b.usedFraction - a.usedFraction) * 100;
+    if (!(points > 0)) continue;
+    const span = between(a.observedAt, b.observedAt);
+    if (span.unpriced || span.cost < CAL.minCost) continue;
+    out.push(points / span.cost);
+  }
+  return out;
+}
+
+// Points of the quota counters per API-equivalent dollar and the cost of the
+// agent roles, from the transcripts of all projects. `files` comes from
+// walkTranscripts. The ratio is a low quantile because usage the transcripts
+// do not hold (claude.ai, another machine) only makes a ratio look larger.
+// When the last 48 hours differ from the stored ratio by more than x2 either
+// way the plan changed: the recent ratio replaces it, and only intervals since
+// then count until enough of them exist.
+function computeCalibration({ files, observations, now = Date.now(), previous = null }) {
+  const cutoff = now - CAL.days * DAY;
+  const requests = new Map();
+  const mtimes = new Map();
+  for (const f of files) {
+    if (f.mtime < cutoff) continue;
+    try {
+      readRequests(f.path, f.kind, null, requests, f.kind === "agent" ? agentInfo(f.path) : null);
+      mtimes.set(f.path, f.mtime);
+    } catch {
+      // unreadable or removed: its requests are missing, the interval costs are lower bounds
+    }
+  }
+  const between = costLine(requests);
+
+  const cal = { at: now, ratio5: null, n5: 0, ratio7: null, n7: 0, since: previous?.since ?? null, change: null, roles: {} };
+  const changes = [];
+  for (const [key, type, label] of [["5", "five-hour", "5h"], ["7", "seven-day", "week"]]) {
+    const prev = previous?.[`ratio${key}`] ?? null;
+    const kept = intervalRatios(observations, type, Math.max(cutoff, previous?.since ?? 0), between);
+    cal[`n${key}`] = kept.length;
+    if (kept.length >= CAL.minIntervals) cal[`ratio${key}`] = quantile(sortedNumbers(kept), CAL.quantile);
+    else if (previous?.since && prev !== null) {
+      cal[`ratio${key}`] = prev;
+      cal[`n${key}`] = previous[`n${key}`];
+    }
+    const recent = intervalRatios(observations, type, now - CAL.recent, between);
+    if (prev !== null && recent.length >= CAL.recentMin) {
+      const r = quantile(sortedNumbers(recent), CAL.quantile);
+      if (r > prev * CAL.factor || r < prev / CAL.factor) {
+        changes.push(`${label} ${fmtRatio(prev)}→${fmtRatio(r)}`);
+        cal[`ratio${key}`] = r;
+        cal[`n${key}`] = recent.length;
+        cal.since = now - CAL.recent;
+      }
+    }
+  }
+  if (changes.length) cal.change = `Calibration changed (subscription?): ${changes.join(", ")} points/$`;
+
+  const runs = new Map();
+  for (const r of requests.values()) {
+    if (r.kind !== "agent") continue;
+    const run = runs.get(r.agent.file) ?? { type: r.agent.type, cost: 0, priced: true, first: r.ts, file: r.agent.file };
+    const c = requestCost(r);
+    run.cost += c.cost;
+    if (!c.priced) run.priced = false;
+    if (r.ts < run.first) run.first = r.ts;
+    runs.set(r.agent.file, run);
+  }
+  for (const role of ROLES) {
+    const costs = [...runs.values()]
+      .filter((r) => new RegExp(`(^|:)${role}$`).test(r.type) && r.priced && Date.parse(r.first) >= cutoff && mtimes.get(r.file) < now - RUNNING_WINDOW)
+      .map((r) => r.cost);
+    cal.roles[role] = { n: costs.length, median: costs.length >= CAL.minIntervals ? quantile(sortedNumbers(costs), 0.5) : null };
+  }
+  return cal;
+}
+
+const fmtRatio = (x) => String(Number(x.toPrecision(3)));
+
+// Points of the 5h counter one agent may use, from the stored calibration:
+// the larger of a rick and a morty with its council review, as many roles as
+// have enough runs. Null without a 5h ratio or without a usable role.
+function learnedAgentCost(cal) {
+  if (!cal?.ratio5) return null;
+  const { rick, morty, council } = cal.roles ?? {};
+  const known = (r) => r?.median != null;
+  const options = [];
+  let runs = 0;
+  if (known(rick)) {
+    options.push(rick.median);
+    runs += rick.n;
+  }
+  if (known(morty) && known(council)) {
+    options.push(morty.median + council.median);
+    runs += morty.n + council.n;
+  }
+  if (!options.length) return null;
+  return { points: Math.max(1, Math.round(cal.ratio5 * Math.max(...options))), runs };
+}
+
+const calibrationFile = () => join(process.env.CLAUDE_PLUGIN_DATA || join(homedir(), ".claude", "microverse"), "calibration.json");
+
+function loadCalibration() {
+  try {
+    const cal = JSON.parse(readFileSync(calibrationFile(), "utf8"));
+    return typeof cal.at === "number" ? cal : null;
+  } catch {
+    return null;
+  }
+}
+
+const calibrationStale = (cal, now = Date.now()) => !cal || now - cal.at > CAL.fresh || cal.at > now;
+
+function saveCalibration(cal) {
+  const file = calibrationFile();
+  mkdirSync(join(file, ".."), { recursive: true });
+  writeFileSync(file, JSON.stringify(cal, null, 2));
+}
+
 // Pacing advice for launching agents: the first rule that applies. `delta`
 // is the weekly counter minus the pacing line, in points; `period` is the
 // current period's target. An agent here is a morty (with its council review)
@@ -184,4 +506,8 @@ function paceAdvice({ used7, used5, delta, target, period, fiveLimit, reset5 = "
 // (likely a reserved output budget plus a buffer; undocumented).
 const COMPACT_OFFSET = 33000;
 
-module.exports = { COMPACT_OFFSET, run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses, lastContext, readTail, paceAdvice };
+module.exports = {
+  COMPACT_OFFSET, run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses, lastContext, readTail, paceAdvice,
+  FIVE_HOUR_COST, readRequests, executorCost, advisorSteps, priceOf, requestCost, agentInfo, projectSlug, projectsRoot, walkTranscripts,
+  countRunning, computeCalibration, learnedAgentCost, calibrationFile, loadCalibration, saveCalibration, calibrationStale, fmtRatio,
+};

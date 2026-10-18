@@ -1,7 +1,7 @@
 "use strict";
 
 const { spawnSync } = require("node:child_process");
-const { mkdirSync, mkdtempSync, realpathSync, writeFileSync } = require("node:fs");
+const { appendFileSync, mkdirSync, mkdtempSync, realpathSync, utimesSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join, resolve } = require("node:path");
 
@@ -14,7 +14,11 @@ function sh(cmd, args, cwd, env = {}) {
 }
 
 const git = (cwd, ...args) => sh("git", args, cwd);
-const script = (name, args, cwd, env) => sh(process.execPath, [bin(name), ...args], cwd, env);
+// Scripts run with an empty home, so that none reads the real transcripts nor
+// writes the real calibration; a test that needs files passes its own home.
+const emptyHome = mkdtempSync(join(tmpdir(), "microverse-nohome-"));
+const script = (name, args, cwd, env) =>
+  sh(process.execPath, [bin(name), ...args], cwd, { HOME: emptyHome, USERPROFILE: emptyHome, CLAUDE_PLUGIN_DATA: "", ...env });
 
 // A repository on `main` with one commit, a feature branch checked out in a
 // worktree with one commit, and the profile written as given.
@@ -46,7 +50,52 @@ function commitFile(cwd, file, content, msg = `chore: ${file}`) {
   git(cwd, "commit", "-qm", msg);
 }
 
+// A fake account: a home with transcripts of several projects (requests priced
+// at Opus 5.5 input rates, $4 per million tokens) and a plugin data folder.
+// `env` points the scripts at them.
+function makeAccount() {
+  const home = realpathSync.native(mkdtempSync(join(tmpdir(), "microverse-account-")));
+  const data = join(home, "plugin-data");
+  const root = join(home, ".claude", "projects");
+  let n = 0;
+  const folder = (project) => {
+    const dir = join(root, join(home, project).replace(/[^A-Za-z0-9]/g, "-").toLowerCase());
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  };
+  const line = (ts, dollars) =>
+    JSON.stringify({
+      timestamp: new Date(ts).toISOString(),
+      requestId: `r${++n}`,
+      message: { id: `m${n}`, model: "claude-opus-5-5", usage: { input_tokens: Math.round((dollars / 4) * 1e6), output_tokens: 0 } },
+    }) + "\n";
+  return {
+    home,
+    data,
+    env: { HOME: home, USERPROFILE: home, CLAUDE_PLUGIN_DATA: data },
+    // The directory of a project, which is also the working directory of a script run "in" it.
+    project(name) {
+      mkdirSync(join(home, name), { recursive: true });
+      folder(name);
+      return join(home, name);
+    },
+    conversation(project, ts, dollars) {
+      appendFileSync(join(folder(project), "main.jsonl"), line(ts, dollars));
+    },
+    // A subagent transcript last written `ageMs` ago, with one request per `requests` item { ts, dollars }.
+    agent(project, id, type, requests, ageMs = 0) {
+      const dir = join(folder(project), "main", "subagents");
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, `agent-${id}.jsonl`);
+      writeFileSync(file, requests.map((r) => line(r.ts, r.dollars)).join(""));
+      writeFileSync(join(dir, `agent-${id}.meta.json`), JSON.stringify({ agentType: type, description: "task" }));
+      const t = new Date(Date.now() - ageMs);
+      utimesSync(file, t, t);
+    },
+  };
+}
+
 // `git merge-tree --write-tree` exists from git 2.38; the tests relying on it skip without.
 const hasMergeTree = sh("git", ["merge-tree", "--write-tree", "HEAD", "HEAD"], ROOT).code === 0;
 
-module.exports = { ROOT, bin, sh, git, script, makeRepo, commitFile, hasMergeTree };
+module.exports = { ROOT, bin, sh, git, script, makeRepo, makeAccount, commitFile, hasMergeTree };
