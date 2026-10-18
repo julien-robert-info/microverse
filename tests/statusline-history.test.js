@@ -335,6 +335,17 @@ test("T11: a source switch skips the plan-change comparison; a stored extension 
   assert.match(changed.change, /Calibration changed \(subscription\?\): 5h 1→6/);
   assert.equal(changed.source, "extension");
   assert.ok(changed.since > now - 49 * HOUR);
+  // With `since` set and too few history intervals, the extension's ratio and n
+  // are not carried over, and the next run reports no change.
+  const few = rows.filter((o) => o.observedAt < now - 40 * HOUR + 18 * HOUR);
+  const first = lib.computeCalibration({ files, observations: few, now, previous: { ...stored, source: "extension" }, source: "statusline" });
+  assert.equal(first.ratio5, null);
+  assert.equal(first.n5, 3);
+  assert.equal(first.ratio7, null);
+  assert.equal(first.since, since);
+  const second = lib.computeCalibration({ files, observations: rows, now, previous: first, source: "statusline" });
+  assert.equal(second.change, null);
+  assert.equal(second.since, since);
   // A stored statusline calibration compared with the extension is a switch too.
   const back = lib.computeCalibration({ files, observations: rows, now, previous: { ...stored, source: "statusline" }, source: "extension" });
   assert.equal(back.change, null);

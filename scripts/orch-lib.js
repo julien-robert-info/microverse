@@ -412,7 +412,7 @@ function computeCalibration({ files, observations, now = Date.now(), previous = 
     const kept = intervalRatios(observations, type, Math.max(cutoff, since ?? 0), between);
     cal[`n${key}`] = kept.length;
     if (kept.length >= CAL.minIntervals) cal[`ratio${key}`] = quantile(sortedNumbers(kept), CAL.quantile);
-    else if (since && previous?.[`ratio${key}`] != null) {
+    else if (since && sameSource && previous?.[`ratio${key}`] != null) {
       cal[`ratio${key}`] = previous[`ratio${key}`];
       cal[`n${key}`] = previous[`n${key}`];
     }
