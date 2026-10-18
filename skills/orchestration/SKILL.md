@@ -343,7 +343,6 @@ budget spent on marginal fixes while the goal waits.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/stop-resume.md` when the user
 announces, in any words, that they will stop soon, or when a new conversation
-starts and the `SessionStart` hook lists unmerged agent worktrees (the hook's
-first line, which asks for this skill, is already met once you read this). It covers the
+starts and the `SessionStart` hook lists unmerged agent worktrees. It covers the
 stop procedure, the "Resume" section of the state file and the resuming of
 interrupted missions.
