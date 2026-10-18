@@ -116,7 +116,9 @@ branches are freed with `agent-cleanup --keep-branch` and relaunched.
 The scripts can also be run by hand from the repository root:
 
 ```bash
-orch-quota --target 98 --reserve 30 --running 1
+orch-quota --target 98 --reserve 30            # counts the running agents and learns their cost
+orch-quota --running 1 --agent-cost 15         # overrides, rarely needed
+orch-quota --calibrate                         # recompute the calibration now
 orch-usage --since 2026-01-01
 orch-usage --context
 orch-usage --agents

@@ -72,9 +72,12 @@ any other launch, and a launch with no `model`):
 
 ## 1. Before launching
 
-- **Budget**: `orch-quota --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --running <agents working now> --file '${user_config.quota_file}'`
+- **Budget**: `orch-quota --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --file '${user_config.quota_file}'`
   (single quotes: an unset option stays literal and double quotes would make
-  bash fail on it). Follow its advice (speed up, normal, smooth out, no new
+  bash fail on it). Do not pass `--running` or `--agent-cost`: without them it
+  counts the agents running on the whole account and uses their learned cost,
+  which several orchestrators need to share one room; they only override
+  that. Follow its advice (speed up, normal, smooth out, no new
   agent, stop); details and the no-file case in
   `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/budget.md`.
 - **Parallelism**: as many agents (`morty` or `rick`) as the advice allows,

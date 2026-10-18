@@ -44,7 +44,8 @@ In order, the first that applies:
 Both counts shrink to what the 5h room can pay for: one agent (a `morty` with
 its `council` review, or a `rick`) may use about 15 points of the 5h counter,
 and the agents already running keep their share. `--running` gives their
-number, `--agent-cost` replaces the 15. Without them, `orch-quota` counts the
+number, `--agent-cost` replaces the 15; both are overrides, the Budget command
+passes neither. Without them, `orch-quota` counts the
 agents running on the whole account (subagent transcripts written in the last
 10 minutes, in every project, `meeseeks` left out) so that orchestrators of
 several projects share one room, and learns the cost of an agent from the
