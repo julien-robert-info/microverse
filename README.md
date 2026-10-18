@@ -15,14 +15,14 @@ cleans up; the launch pace follows the usage quota.
 | agent `meeseeks` (Haiku; Sonnet for a code map; writes only the new file its prompt names) | answers one question with facts and their evidence, writes a code map or runs measurement recipes |
 | agent `rick` (Opus, Sonnet for a small mission; writes only its notes file) | designs a mission: measurements, rules, draft brief, questions for the user |
 | agent `council` (Opus; writes only its review file) | reviews a risky diff, writes the full review to a file, returns a verdict and one line per defect |
-| `orch-quota` | reads the quota counters (extension and terminal status line readings, merged; the status line also keeps a 15-day history that serves the period start and, without a recent extension reading, the calibration) and advises the launch pace, counting the agents running on the account and learning their cost (`--calibrate`) |
+| `orch-quota` | reads the quota counters (extension and terminal status line readings, merged; the status line also keeps a 15-day history that serves the period start and, without a recent extension reading, the calibration) and advises the launch pace, counting the agents running on the account and learning their cost (`--calibrate`); `--no-write` reads without refreshing, pruning or saving anything |
 | `orch-usage` | tokens and API-equivalent cost per model (advisor calls on their own `<model> (advisor)` rows) or per agent run, context size of a session |
-| `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown |
+| `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown (`--no-write` is passed to `orch-quota`, `--session <id>` picks the conversation of the context line) |
 | `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (`--merged`: on the merge result), suspicious patterns in the diff; one run per worktree at a time |
 | `agent-cleanup [--keep-branch] <branch>` | removes an agent's worktree and merged branch; `--keep-branch` removes the worktree only, to resume an interrupted agent (refuses with uncommitted changes) |
 | `PreToolUse` hook (`agent-model-guard`, matcher `Agent\|Task`) | denies the launch of a `microverse:` agent with no model or a model its role does not allow; other agents pass |
 | `SubagentStop` hook | stops servers left running by a finished agent |
-| `UserPromptSubmit` hook (`context-guard`) | once, when the context nears the auto-compaction window: update the state file; once, when it is past it (`autoCompactWindow` probably unset); once, when `autoCompactWindow` is below `compact_window` + 33000; once, when `CLAUDE.local.md` exceeds 60 lines |
+| `UserPromptSubmit` hook (`context-guard`) | once, when the context nears the auto-compaction window: update the state file; once, when it is past it (`autoCompactWindow` probably unset); once, when `autoCompactWindow` is below `compact_window` + 33000; once, when `CLAUDE.local.md` exceeds 60 lines; ignores a prompt starting with `/microverse:status` |
 | `SessionStart` hook (matcher `compact\|startup\|resume\|clear`) | in a project with a profile, tells every conversation to load the orchestration skill first; after a compaction, restates that `CLAUDE.local.md` is the state of reference and lists the agent worktrees, merged or not; on a new, cleared or resumed conversation, lists them with their last commit and uncommitted changes to resume an interrupted series (silent without a profile) |
 | `user/CLAUDE.md` | writing rules (README, comments, commits), to import into `~/.claude/CLAUDE.md` |
 
@@ -121,10 +121,12 @@ The scripts can also be run by hand from the repository root:
 orch-quota --target 98 --reserve 30            # counts the running agents and learns their cost
 orch-quota --running 1 --agent-cost 15         # overrides, rarely needed
 orch-quota --calibrate                         # recompute the calibration now
+orch-quota --no-write                          # read-only: no refresh, no pruning, no saved calibration
 orch-usage --since 2026-01-01
 orch-usage --context
 orch-usage --agents
 orch-report --since a0f5690 --target 98 --reserve 30
+orch-report --since a0f5690 --no-write --session <id>   # read-only; context of that conversation
 agent-check feat/subject
 agent-check feat/subject --merged
 agent-cleanup feat/subject

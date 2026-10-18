@@ -18,6 +18,14 @@
 - `/microverse:init` offers the status line in `.claude/settings.local.json`;
   it replaces an earlier microverse status line once confirmed and leaves any
   other one untouched.
+- `orch-quota --no-write` reads without writing: it does not refresh the
+  installed status line script, deletes no expired reading and does not save the
+  calibration (a stale one is recomputed in memory). `orch-report` accepts
+  `--no-write`, passed to `orch-quota`, and `--session <id>`, passed to
+  `orch-usage --context`.
+- The `context-guard` hook ignores a prompt starting with `/microverse:status`,
+  so its one-time warnings are not spent on a prompt that is not answered by
+  the model.
 
 - In a project set up with `/microverse:init`, every conversation (new,
   resumed, cleared or compacted) is told by the `SessionStart` hook to load the
