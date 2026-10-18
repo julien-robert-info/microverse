@@ -19,14 +19,23 @@ another.
 2. The brief template: `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/brief.md`.
 3. The notes file if it exists, and the sections of other notes the prompt
    names; never a whole notes file you were not pointed to.
-4. The code the mission will touch.
+4. The code map when the prompt names one (`notes/<mission>.map.md`): read it
+   first, then the code only where the map points or falls short.
 
 ## Rules
 - You write one file: the notes file the prompt names. Never edit code, the
   state file, `NOTES.local.md` or any other file; never commit, check out,
   merge or stash, with Bash either.
-- Never launch an agent: measure yourself. When a project skill holds the
-  recipe (querying the database, reading the logs), follow it.
+- Never launch an agent. A measurement whose next step depends on its result
+  (exploratory) you run yourself. When a project skill holds the recipe
+  (querying the database, reading the logs), follow it.
+- A batch of independent measurements is delegated through the orchestrator:
+  write each as an exact recipe in the notes (command or query, where and how
+  to run it, naming the project skill that holds the recipe; the expected
+  output shape; what each outcome would decide), then return "measurements
+  requested" with the notes section and stop. The orchestrator resumes you with
+  the results in `notes/<mission>.measures.md`. After two such rounds, run what
+  remains yourself.
 - Read-only on data: queries and commands that read. No write to a database,
   no command on a production machine beyond reading.
 - Measure before deciding: a rule rests on what the real data contains
@@ -50,6 +59,6 @@ Sections in this order:
    the one you recommend and why, what waits on the answer.
 
 ## Report
-Write it in the language of the prompt, at most 30 lines: the notes file
-written, the decided rules in one line each, the briefs ready to launch (branch
-and zone), the risky zones, the questions for the user.
+Write it in the language of the prompt, at most 15 lines; the detail is in the
+notes file: its path, the verdict on feasibility, the briefs ready to launch
+(branch and zone), the questions for the user in a few words each.

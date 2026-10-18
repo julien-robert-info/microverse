@@ -36,9 +36,22 @@ loss:
 | `microverse:rick` | Opus | designs a mission: measures, settles the rules, drafts the brief in its notes file |
 | `microverse:morty` | Sonnet | implements a brief in its worktree |
 | `microverse:council` | Opus | reviews a risky diff and approves it or not, fixes nothing |
-| `microverse:meeseeks` | Haiku | reads and summarizes: one question, facts with their evidence |
+| `microverse:meeseeks` | Haiku or Sonnet | reads and summarizes: one question, facts with their evidence |
 
-- The model comes from the project's settings (`/microverse:init`). Changing it
+The only allowed agent/model combinations (the `agent-model-guard` hook denies
+any other launch, and a launch with no `model`):
+
+| Agent | Model | When |
+|---|---|---|
+| `rick` | `opus` | default |
+| `rick` | `sonnet` | a small mission: at most two rules to settle, one data source, no arithmetic on amounts or units, no storage keys, migrations or deletion (the advisor of the project settings backs it) |
+| `morty` | `sonnet` | always; never Haiku |
+| `council` | `opus` | always |
+| `meeseeks` | `haiku` | one question, or measurement recipes run literally |
+| `meeseeks` | `sonnet` | a code map for a `rick` |
+
+- The model of the orchestrating conversation comes from the project's
+  settings (`/microverse:init`). Changing it
   inside a conversation rewrites the whole cache: don't. Design that needs
   Opus goes to a `rick`, not to a model switch.
 - **Consult the advisor** (say "consult the advisor") before writing a brief a
@@ -73,9 +86,28 @@ loss:
   decide it badly. A mission whose rules are settled and need one or two
   measurements: one `meeseeks` per measurement (launched together when
   independent), then write the rules in the notes. A mission with open rules
-  or an investigation to run goes to a `rick`: it measures, writes the rules
-  and a draft brief in `notes/<mission>.md`, and returns the questions for
-  the user. It has no worktree, so the `after-compact` hook does not list it:
+  or an investigation to run goes to a `rick`, in two phases chained by the
+  orchestrator (a `rick` cannot launch agents), so the Opus context stays
+  small:
+  1. a `meeseeks` (sonnet) writes the code map to the new file
+     `notes/<mission>.map.md`: entry points, functions with file:line, data
+     flow, tables, existing tests, about 150 lines at most;
+  2. the `rick` reads the map first, the code only where the map points or
+     falls short, and writes each measurement it needs as an exact recipe in
+     its notes (command or query, where and how to run it, the project skill
+     holding the recipe, expected output shape, what each outcome would
+     decide). It returns "measurements requested" and stops. A measurement
+     whose next step depends on its result it runs itself;
+  3. one `meeseeks` (haiku) per batch of at most 20 recipes runs them
+     literally and writes the results to the new file
+     `notes/<mission>.measures.md`; a recipe that fails or returns an
+     unexpected shape is reported as such, never rewritten;
+  4. resume the same `rick` with `SendMessage` (context and cache still warm):
+     it settles the rules, writes the draft brief in `notes/<mission>.md` and
+     returns the questions for the user. At most two measurement rounds, then
+     the `rick` runs what remains itself.
+
+  The `rick` has no worktree, so the `after-compact` hook does not list it:
   the mission gets a line "design in progress (rick)" in the state file at
   launch. Add its notes file to the `NOTES.local.md` index yourself, put its
   questions in the state file's list, and launch its briefs once the questions
@@ -91,8 +123,14 @@ Agent(subagent_type: "microverse:rick", model: "opus", run_in_background: true,
       description: "<3-5 words>",
       prompt: <mission, user's question, what is decided, notes file,
                user's language>)
+Agent(subagent_type: "microverse:rick", model: "sonnet", run_in_background: true,
+      description: "<3-5 words>", prompt: <as above; small mission only>)
 Agent(subagent_type: "microverse:meeseeks", model: "haiku",
-      description: "<3-5 words>", prompt: <one question>)
+      description: "<3-5 words>", prompt: <one question, or up to 20 recipes
+               and the new file for the results>)
+Agent(subagent_type: "microverse:meeseeks", model: "sonnet",
+      description: "<3-5 words>", prompt: <the mission, the new file for the
+               code map>)
 ```
 
 - The brief follows `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/brief.md`.
@@ -118,9 +156,11 @@ Agent(subagent_type: "microverse:meeseeks", model: "haiku",
 3. **Risky diff** (arithmetic on amounts or units, deduplication or storage
    keys, migrations, data deletion): `Agent(subagent_type: "microverse:council",
    model: "opus", prompt: <branch, brief, the morty's rule and test table,
-   risky zones>)`, then rule on its remarks. The risky zones come from the
-   `rick`'s notes when there are some. The fixes go back to the `morty`;
-   `review.md` says how they are checked.
+   risky zones, the new file `notes/<mission>.review-<n>.md`>)`. It writes the
+   full review there and returns the verdict, one line per defect and the path:
+   read the file's section of a defect when you rule on it. The risky zones
+   come from the `rick`'s notes when there are some. The fixes go back to the
+   `morty`; `review.md` says how they are checked.
 4. **Merge** without waiting for the user, who reviews afterwards:
    `git merge --no-ff <branch>` with the subject `merge: …`. The full check of
    the main branch (build included) runs once, before a deployment.

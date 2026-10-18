@@ -41,9 +41,11 @@ review, which costs a fraction of a `council` round. Pass the table to the
 Arithmetic on amounts or units, deduplication or storage keys, migrations, data
 deletion or rewriting, concurrency: the diff goes to `council` (Opus) with the
 branch, the brief and the risky zones (from the `rick`'s notes when a `rick`
-designed the mission). It returns a verdict and ranked defects with file:line
-and the scenario that breaks; rule on each (fix through the agent, accept, note)
-before merging.
+designed the mission). The prompt names a new file `notes/<mission>.review-<n>.md`: it
+writes the full review there (scenario and evidence of each defect) and returns
+the verdict, one line per defect and the path. Read the file's section of a
+defect when you rule on it (fix through the agent, accept, note) before
+merging.
 
 ## After the fixes
 

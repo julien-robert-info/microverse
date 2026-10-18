@@ -25,6 +25,12 @@ specific to the task.
 9. **Verification on real data**: how to rerun the step, expected figures,
    precise questions the report must answer.
 
+**Size.** An agent's cost grows faster than its length, since each request
+re-reads the whole context. Aim at a `morty` run of about 60 tool calls. A
+mission with more than about six rules, or spanning several layers (storage,
+computation, screen), is split into chained briefs, each merged before the
+next one starts.
+
 A brief that leaves a business rule open is not ready: settle it first, or hand
 the mission to a `rick`. A brief drafted by a `rick` is taken from its notes
 file as it stands, once the user has answered its questions.
