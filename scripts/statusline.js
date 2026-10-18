@@ -4,7 +4,9 @@
 // Status line command of the microverse plugin. Claude Code pipes it a JSON
 // payload on each update; it records the quota counters (`rate_limits`) so
 // that orch-quota can read them without the VS Code extension, and prints one
-// line for the status bar.
+// line for the status bar. It also appends the rising readings to a 15-day
+// history (statusline-history/), which orch-quota reads for the usage at the
+// start of a period and for the calibration.
 //
 //   node statusline.js            read the payload on stdin, record, print
 //   node statusline.js --install  copy this file to the data folder, print the

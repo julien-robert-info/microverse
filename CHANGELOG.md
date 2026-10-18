@@ -7,8 +7,14 @@
   advice. Per counter it takes the latest window not yet reset and its highest
   value; the `Counters:` line names the source and age of each. A weekly
   reading whose reset has passed is no longer used ("No current weekly
-  reading"). The calibration still uses the extension readings only, and each
-  run refreshes the installed copy of the status line script.
+  reading"). Each run refreshes the installed copy of the status line script.
+- The status line keeps a 15-day history of the rising readings
+  (`statusline-history/<UTC day>.jsonl` in the data folder). `orch-quota` uses
+  it for the usage at the start of the weekday period, and calibrates from it
+  (points per dollar, agent cost) when the extension has no reading under 48
+  hours old; the two sources are never mixed, `calibration.json` stores the
+  `source`, a switch skips the plan-change comparison, and `--calibrate` names
+  the source.
 - `/microverse:init` offers the status line in `.claude/settings.local.json`;
   it replaces an earlier microverse status line once confirmed and leaves any
   other one untouched.

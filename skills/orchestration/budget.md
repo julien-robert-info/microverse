@@ -12,7 +12,9 @@ counter it takes the latest window not yet reset and, in it, the highest value
 value late); the `Counters:` line gives the source and age of each. If neither
 source has a reading, or the newest is more than two hours old, ask the user for
 both counters (`5h x% | wk y%`) at the next opportunity, without blocking, and
-apply the same rules by hand.
+apply the same rules by hand. The status line also appends each rising reading
+to a 15-day history (`statusline-history/`), which gives the usage at the start
+of the weekday period when the readings of that moment are gone.
 
 ## The periods
 
@@ -57,7 +59,11 @@ past runs (ratio of 5h points per dollar times the median cost of a `rick`,
 or of a `morty` plus its `council`). The calibration is kept in
 `calibration.json` (plugin data folder), recomputed after 6 hours or with
 `orch-quota --calibrate`, and a ratio that jumps by more than x2 in two days
-is reported as a likely subscription change.
+is reported as a likely subscription change. The ratio comes from one source,
+never both (their readings interleaved would invent intervals): the extension
+while it has a reading under 48 hours old, else the 15-day history of rising
+readings the status line keeps. After a switch of source the stored ratio is
+not compared with the new one. `--calibrate` names the source.
 
 An agent here is a `morty` or a `rick`. Two `morty` work on distinct code
 zones, never two on the same `shared` resource; a `rick` touches no code and

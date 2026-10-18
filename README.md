@@ -15,7 +15,7 @@ cleans up; the launch pace follows the usage quota.
 | agent `meeseeks` (Haiku; Sonnet for a code map; writes only the new file its prompt names) | answers one question with facts and their evidence, writes a code map or runs measurement recipes |
 | agent `rick` (Opus, Sonnet for a small mission; writes only its notes file) | designs a mission: measurements, rules, draft brief, questions for the user |
 | agent `council` (Opus; writes only its review file) | reviews a risky diff, writes the full review to a file, returns a verdict and one line per defect |
-| `orch-quota` | reads the quota counters (extension and terminal status line readings, merged) and advises the launch pace, counting the agents running on the account and learning their cost (`--calibrate`) |
+| `orch-quota` | reads the quota counters (extension and terminal status line readings, merged; the status line also keeps a 15-day history that serves the period start and, without a recent extension reading, the calibration) and advises the launch pace, counting the agents running on the account and learning their cost (`--calibrate`) |
 | `orch-usage` | tokens and API-equivalent cost per model (advisor calls on their own `<model> (advisor)` rows) or per agent run, context size of a session |
 | `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown |
 | `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (`--merged`: on the merge result), suspicious patterns in the diff; one run per worktree at a time |
