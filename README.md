@@ -9,7 +9,7 @@ cleans up; the launch pace follows the usage quota.
 
 | Component | Role |
 |---|---|
-| skill `orchestration` | procedure: roles and models, budget, brief, review of an agent's branch, series report, compaction, talking to the user |
+| skill `orchestration` | procedure: roles and models, budget, brief, review of an agent's branch, series report, compaction, talking to the user, a series that runs on its own, stopping and resuming |
 | skill `init` | writes a project's orchestration profile; offers to set `autoCompactWindow`, `"model": "sonnet"` and `"advisorModel": "opus"` in `.claude/settings.local.json` (the conversation runs on Sonnet and consults Opus at decision points) |
 | agent `morty` (Sonnet) | implements a brief in its worktree |
 | agent `meeseeks` (Haiku; Sonnet for a code map; writes only the new file its prompt names) | answers one question with facts and their evidence, writes a code map or runs measurement recipes |
@@ -19,11 +19,11 @@ cleans up; the launch pace follows the usage quota.
 | `orch-usage` | tokens and API-equivalent cost per model (advisor calls on their own `<model> (advisor)` rows) or per agent run, context size of a session |
 | `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown |
 | `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (`--merged`: on the merge result), suspicious patterns in the diff; one run per worktree at a time |
-| `agent-cleanup <branch>` | removes an agent's worktree and merged branch |
+| `agent-cleanup [--keep-branch] <branch>` | removes an agent's worktree and merged branch; `--keep-branch` removes the worktree only, to resume an interrupted agent (refuses with uncommitted changes) |
 | `PreToolUse` hook (`agent-model-guard`, matcher `Agent\|Task`) | denies the launch of a `microverse:` agent with no model or a model its role does not allow; other agents pass |
 | `SubagentStop` hook | stops servers left running by a finished agent |
 | `UserPromptSubmit` hook (`context-guard`) | once, when the context nears the auto-compaction window: update the state file; once, when it is past it (`autoCompactWindow` probably unset); once, when `CLAUDE.local.md` exceeds 60 lines |
-| `SessionStart` hook (matcher `compact`) | after a compaction, restates that `CLAUDE.local.md` is the state of reference and lists the agent worktrees, merged or not |
+| `SessionStart` hook (matcher `compact\|startup\|resume`) | after a compaction, restates that `CLAUDE.local.md` is the state of reference and lists the agent worktrees, merged or not; on a new or resumed conversation, lists them with their last commit and uncommitted changes to resume an interrupted series (silent without a profile or worktree) |
 | `user/CLAUDE.md` | writing rules (README, comments, commits), to import into `~/.claude/CLAUDE.md` |
 
 ## Requirements
@@ -82,9 +82,36 @@ The project ignores `CLAUDE.local.md`, `NOTES.local.md` and
 
 ## Usage
 
-In a conversation opened at the project root: "démarre <mission>", "mission
-suivante", "où en est-on ?", "rapport". The `orchestration` skill loads on these
-requests; `/microverse:orchestration` forces it.
+In a conversation opened at the project root, the `orchestration` skill loads
+on requests about missions and series;
+`/microverse:orchestration` forces it.
+
+### Talking to the orchestrator
+
+Requests are understood by intent, in any language; the examples are not a
+word list.
+
+| You say (example) | The orchestrator |
+|---|---|
+| start a mission, or a series with its goal | designs or briefs it, launches it; the series then runs on its own |
+| next mission, chain | launches the next one after a fresh quota check |
+| where are we | summarizes the trace lines |
+| report | writes the series report |
+| "Q1 as recommended, Q2 b" | applies the answers to the numbered questions |
+| confirm or reject a "to confirm" decision | records it in the notes and the state file |
+| the counters "5h x% \| wk y%" | fills in the quota when the usage extension is missing |
+| yes to a push or deploy | pushes or deploys; nothing remote happens before |
+| "I'm stopping soon" | agents commit their work, the state file gets a "Resume" section, the last message is "Ready to shut down" |
+| "resume", in a new conversation | relaunches interrupted missions from their branches |
+| a reference to a message of the previous conversation | searched in its transcript |
+
+Stopping and resuming. On an announced stop, each running `morty` commits its
+work as `wip:`, each `rick` writes its notes, and the state file lists per
+mission the branch, last commit and next step, with the open questions and the
+transcript path. On an unannounced one, the state file is already current and a
+`morty` commits after each step, so at most one step is lost. In the next
+conversation the `SessionStart` hook lists the agent worktrees; interrupted
+branches are freed with `agent-cleanup --keep-branch` and relaunched.
 
 The scripts can also be run by hand from the repository root:
 
@@ -122,12 +149,12 @@ Results land in `evals/results/` (ignored by git).
 
 ```
 .claude-plugin/   plugin.json (manifest, settings), marketplace.json (catalog)
-skills/           orchestration (SKILL.md, budget.md, brief.md, review.md), init
+skills/           orchestration (SKILL.md, budget.md, brief.md, review.md, stop-resume.md), init
 agents/           rick, morty, council, meeseeks
 bin/              dependency-free Node scripts, added to the Bash tool's PATH;
                   the .cmd files make them callable from PowerShell
 scripts/          orch-lib.js (shared by bin/ and the hooks), hooks (SubagentStop,
-                  UserPromptSubmit, SessionStart after a compaction)
+                  UserPromptSubmit, SessionStart on compaction, startup and resume)
 tests/            node:test suite, run with `npm test`
 hooks/hooks.json  hook declaration
 user/CLAUDE.md    global writing rules

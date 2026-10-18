@@ -14,7 +14,7 @@
     ],
     "SessionStart": [
       {
-        "matcher": "compact",
+        "matcher": "compact|startup|resume",
         "hooks": [
           {
             "type": "command",

@@ -1,11 +1,11 @@
 ---
 name: orchestration
-description: Run a project as missions delegated to background agents, one task = one branch = one worktree — design, write the brief, launch the agent, review its diff, merge, clean up, keep the mission board, write the series report. Use as soon as the user says "démarre X", "lance", "mission suivante", "enchaîne", "on passe à …", "où en est-on", "rapport", when an agent's report arrives, before merging an agent's branch, when deciding whether a new agent may start (quota), or when the orchestrating conversation grows heavy.
+description: Run a project as missions delegated to background agents, one task = one branch = one worktree — design, write the brief, launch the agent, review its diff, merge, clean up, keep the mission board, write the series report. Use, whatever language the user writes in, when they ask to start or chain a mission or a series, ask where things stand or for a report, answer numbered questions, announce they will stop soon, or resume in a new conversation; also when an agent's report arrives, before merging an agent's branch, for the quota check before a launch, or when the orchestrating conversation grows heavy.
 ---
 
 # Orchestrating missions with agents
 
-Write reports, questions, summaries and the notes in the language the user
+Understand requests by intent, in any language. Write reports, questions, summaries and the notes in the language the user
 writes in, even when the project's code and commits use another, and give
 that language to every `rick`.
 
@@ -168,9 +168,9 @@ Agent(subagent_type: "microverse:meeseeks", model: "sonnet",
    branch is not merged.
 6. **State file**: the mission's line, merged commit, released reservation,
    pending questions.
-7. **Chain**: a task already planned launches as soon as the previous one is
-   merged, without asking, after a fresh `orch-quota`. Between two reports,
-   trace lines only (§ 6).
+7. **Chain**: by default the series runs on its own (§ 7): after a merge, the
+   next launchable mission starts without asking, after a fresh `orch-quota`.
+   Between two reports, trace lines only (§ 6).
 
 ## 4. Series report
 
@@ -279,9 +279,14 @@ Each question is answered without having read the conversation:
 - the recommendation and its reason;
 - what waits on the answer (a brief, a deployment).
 
-The user can then answer "Q1 as recommended, Q2 b". Ask first the questions
-that block a launch; the others wait in the state file for the next report. A
-`rick`'s questions are rewritten in this form, not relayed as it wrote them.
+The user can then answer "Q1 as recommended, Q2 b". A `rick`'s questions are
+rewritten in this form, not relayed as it wrote them.
+
+A question that blocks a launch is asked at once only when nothing else can be
+launched; otherwise it waits, numbered, in the state file and is asked in the
+series report. Numbers stay stable across conversations: a new question takes
+the next number after the highest in the state file and the notes, an answered
+number is never reused.
 
 ### What remains to ask
 
@@ -301,3 +306,41 @@ options):
 - **then verify the effect** of the requested actions when it can be read, and
   say so in the next report; an action a mission depends on is verified before
   launching it.
+
+## 7. Running a series
+
+The series runs on its own as long as nothing blocks it. When it starts, write
+its goal in the state file (one line: what the user wants at the end). After
+each merge the next launchable mission starts without asking: planned missions
+first, then missions generated from defects (below). The series stops only
+when nothing is launchable, on the quota advice, or on the user's stop request
+(§ 8); it then ends with the series report (§ 4), which asks the questions that
+waited.
+
+A defect met in a review, a report or a measurement becomes a mission without
+asking only if all of these hold:
+
+- it needs no new business rule (otherwise it is a question, § 6);
+- it serves the series' goal;
+- its brief says in one line what it changes for the user;
+- it was not found by a mission itself generated from a defect (depth 1: those
+  go to the notes, or become questions);
+- the zone it touches holds fewer than three decisions taken alone and not yet
+  confirmed by the user;
+- the quota allows it.
+
+Cosmetic defects are grouped into one mission. Each generated mission gets a
+trace line and a state-file line marked `auto`.
+
+These guards prevent three drifts: a cascade where each fix uncovers the next
+defect and the series never ends; decisions stacked on decisions the user has
+not confirmed, so one wrong early choice spoils everything after it; and a
+budget spent on marginal fixes while the goal waits.
+
+## 8. Stopping and resuming
+
+Read `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/stop-resume.md` when the user
+announces, in any words, that they will stop soon, or when a new conversation
+starts and the `SessionStart` hook lists unmerged agent worktrees. It covers the
+stop procedure, the "Resume" section of the state file and the resuming of
+interrupted missions.
