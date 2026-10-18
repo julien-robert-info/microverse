@@ -7,7 +7,13 @@
 //
 // --running is the number of agents working now; with --agent-cost (points of
 // the 5h counter one agent may use) it bounds new launches by the room left
-// under the 5h limit.
+// under the 5h limit. Without --running, the agents of all projects of the
+// account are counted from their transcripts' modification times. Without
+// --agent-cost, the cost is learned from past runs (see --calibrate).
+//
+// orch-quota --calibrate recomputes the calibration (points of each counter per
+// API-equivalent dollar, median cost of each agent role) and prints it. It is
+// otherwise recomputed when older than 6 hours.
 //
 // The weekly window is split in two periods: the weekend (window start to
 // Sunday 24:00 local time) may use up to target - reserve %, the weekdays
@@ -18,18 +24,17 @@
 const { existsSync, readFileSync } = require("node:fs");
 const { homedir } = require("node:os");
 const { join } = require("node:path");
-const { paceAdvice, parseArgs } = require("../scripts/orch-lib.js");
+const lib = require("../scripts/orch-lib.js");
+const { paceAdvice, parseArgs } = lib;
 
 const HOUR = 3600e3;
 const DAY = 24 * HOUR;
 
-const opts = parseArgs(process.argv.slice(2));
+const opts = parseArgs(process.argv.slice(2), { flags: ["calibrate"] });
 const num = (v, d) => (v === undefined || v === true || Number.isNaN(Number(v)) ? d : Number(v));
 const target = num(opts.target, 98);
 const reserve = num(opts.reserve, 30);
 const fiveLimit = num(opts["five-hour"], 90);
-const running = num(opts.running, 0);
-const agentCost = num(opts["agent-cost"], 15);
 
 function defaultFile() {
   const rel = ["Code", "User", "globalStorage", "growthjack.claude-code-usage", "quota-observations-v2.json"];
@@ -68,6 +73,58 @@ if (!week.length) {
 }
 
 const now = Date.now();
+
+// Agents running and cost of one agent: given, else detected / learned.
+const files = lib.walkTranscripts();
+let runningLine;
+let running = num(opts.running, null);
+if (running !== null) runningLine = `Running: ${running} agent${running === 1 ? "" : "s"} (given)`;
+else {
+  const r = lib.countRunning(files, { now, currentSlug: lib.projectSlug(process.cwd()) });
+  running = r.total;
+  runningLine = `Running: ${r.total} agent${r.total === 1 ? "" : "s"} (${r.others} in other projects)`;
+}
+
+let cal = lib.loadCalibration();
+let calNote = null;
+if (opts.calibrate || lib.calibrationStale(cal, now)) {
+  try {
+    cal = lib.computeCalibration({ files, observations, now, previous: cal });
+  } catch (e) {
+    calNote = `Calibration unavailable: ${e.message}`;
+  }
+  // A computed calibration is used even when it cannot be stored; the next run
+  // then recomputes it.
+  if (!calNote) {
+    try {
+      lib.saveCalibration(cal);
+    } catch (e) {
+      calNote = `Calibration not saved: ${e.message}`;
+    }
+  }
+}
+let agentCost = num(opts["agent-cost"], null);
+let costLine;
+if (agentCost !== null) costLine = `Agent cost: ${agentCost} points of 5h (given)`;
+else {
+  const learned = lib.learnedAgentCost(cal);
+  agentCost = learned?.points ?? lib.FIVE_HOUR_COST;
+  costLine = learned
+    ? `Agent cost: ~${agentCost} points of 5h (learned from ${learned.runs} runs)`
+    : `Agent cost: ${agentCost} points of 5h (default)`;
+}
+
+if (opts.calibrate && cal) {
+  const r = (x, n) => (x === null ? `none (${n} intervals, 5 needed)` : `${lib.fmtRatio(x)} points/$ (${n} intervals)`);
+  const from = Math.max(cal.at - 14 * DAY, cal.since ?? 0);
+  console.log(`Calibration of ${new Date(cal.at).toISOString().slice(0, 16)}Z, intervals since ${new Date(from).toISOString().slice(0, 16)}Z`);
+  console.log(`5h: ${r(cal.ratio5, cal.n5)}`);
+  console.log(`Week: ${r(cal.ratio7, cal.n7)}`);
+  for (const [role, v] of Object.entries(cal.roles)) console.log(`${role}: ${v.median === null ? `no median (${v.n} runs, 5 needed)` : `median $${v.median.toFixed(2)} (${v.n} runs)`}`);
+}
+if (calNote) console.log(calNote);
+if (cal?.change) console.log(cal.change);
+
 const w = week.at(-1);
 const f = five.at(-1);
 const used7 = Math.round(w.usedFraction * 100);
@@ -116,4 +173,6 @@ console.log(`Period: ${period.name} until ${fmt(period.end)}, ${hours(period.end
 console.log(
   `Pace: expected ${Math.round(expected)} % by now, actual ${used7} % (${delta >= 0 ? "+" : ""}${Math.round(delta)} points); ${Math.max(0, period.target - used7)} points left for the period`,
 );
+console.log(runningLine);
+console.log(costLine);
 console.log(`Advice: ${advice}`);

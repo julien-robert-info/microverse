@@ -12,30 +12,21 @@
 "use strict";
 
 const { existsSync, readdirSync, readFileSync, statSync } = require("node:fs");
-const { homedir } = require("node:os");
 const { join } = require("node:path");
-const { fail, parseArgs, lastContext } = require("../scripts/orch-lib.js");
+const { fail, parseArgs, lastContext, readRequests, executorCost, advisorSteps, priceOf, requestCost, agentInfo, projectSlug, projectsRoot } = require("../scripts/orch-lib.js");
 
 // Same parsing as scripts/context-guard.js.
 const windowOption = process.env.CLAUDE_PLUGIN_OPTION_COMPACT_WINDOW;
 const windowValue = /^\s*\d+\s*$/.test(windowOption ?? "") ? parseInt(windowOption, 10) : NaN;
 const CONTEXT_LIMIT = windowValue >= 100e3 && windowValue <= 1e6 ? windowValue : 150e3;
-// $/MTok: input, 5m cache write, 1h cache write, cache read, output.
-const PRICES = {
-  "claude-opus-5-5": [4, 5, 8, 0.2, 20],
-  "claude-sonnet-5-5": [2, 2.5, 4, 0.1, 10],
-  "claude-sonnet-5": [2, 2.5, 4, 0.2, 10],
-};
-// Haiku 5.5 is priced by request size: above 100K tokens of context, x5.
-const HAIKU = { small: [0.1, 0.125, 0.2, 0.01, 0.5], large: [0.5, 0.625, 1, 0.05, 2.5], limit: 100e3 };
 
 const opts = parseArgs(process.argv.slice(2));
 const projectDir = typeof opts.project === "string" ? opts.project : process.cwd();
 
 // Claude Code names a project's folder after its path, every character other
 // than a letter or digit replaced by "-". The drive letter's case varies.
-const root = join(homedir(), ".claude", "projects");
-const slug = projectDir.replace(/[^A-Za-z0-9]/g, "-").toLowerCase();
+const root = projectsRoot();
+const slug = projectSlug(projectDir);
 const folder = existsSync(root) && readdirSync(root).find((n) => n.toLowerCase() === slug);
 if (!folder) fail(`no conversation for ${projectDir} in ${root}`);
 const dir = join(root, folder);
@@ -45,77 +36,6 @@ const sessions = readdirSync(dir)
   .map((n) => ({ id: n.slice(0, -6), path: join(dir, n), mtime: statSync(join(dir, n)).mtimeMs }))
   .sort((a, b) => b.mtime - a.mtime);
 if (typeof opts.session === "string" && !sessions.some((s) => s.id === opts.session)) fail(`session ${opts.session} not found`);
-
-// Streamed replies repeat the same message id + request id on several lines
-// with partial counts: keep the maximum of each counter.
-function readRequests(file, kind, since, requests, agent = null) {
-  for (const line of readFileSync(file, "utf8").split("\n")) {
-    if (!line.includes('"usage"')) continue;
-    let o;
-    try {
-      o = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    const m = o.message;
-    if (!m?.usage || !m.model?.startsWith("claude")) continue;
-    if (since && new Date(o.timestamp) < since) continue;
-    const v = counters(m.usage);
-    // Per-step usage when an advisor may have run: "message" steps are the
-    // executor (their sum is the top-level usage), "advisor_message" steps are
-    // billed to the advisor's own model. Kept by index so that a streamed
-    // repeat takes the maximum of each counter step by step.
-    const iters = (m.usage.iterations ?? []).map((it) => ({ advisor: it.type === "advisor_message", model: it.model ?? null, v: counters(it) }));
-    const id = `${m.id}:${o.requestId ?? ""}`;
-    const prev = requests.get(id);
-    if (prev) {
-      for (let i = 0; i < v.length; i++) v[i] = Math.max(v[i], prev.v[i]);
-      for (let j = 0; j < Math.max(iters.length, prev.iters.length); j++) {
-        const a = iters[j], b = prev.iters[j];
-        if (!a) iters[j] = b;
-        else if (b) a.v = a.v.map((x, i) => Math.max(x, b.v[i]));
-      }
-    }
-    requests.set(id, { kind, agent, model: m.model, ts: o.timestamp, v, iters });
-  }
-}
-
-// [input, 5m write, 1h write, read, output] of a usage object.
-function counters(u) {
-  const cc = u.cache_creation ?? {};
-  let w5 = cc.ephemeral_5m_input_tokens ?? 0;
-  const w1 = cc.ephemeral_1h_input_tokens ?? 0;
-  if (!u.cache_creation && u.cache_creation_input_tokens) w5 = u.cache_creation_input_tokens;
-  return [u.input_tokens ?? 0, w5, w1, u.cache_read_input_tokens ?? 0, u.output_tokens ?? 0];
-}
-
-// Cost vector of the executor part of a request, or null without a price. The
-// Haiku tier depends on each call's size, so its steps are priced one by one.
-function executorCost(r) {
-  const steps = r.iters.filter((it) => !it.advisor);
-  if (!r.model.startsWith("claude-haiku-5-5") || !steps.length) return priceOf(r.model, r.v);
-  const parts = steps.map((it) => priceOf(r.model, it.v));
-  return parts.reduce((a, c) => a.map((x, i) => x + c[i]), [0, 0, 0, 0, 0]);
-}
-
-const advisorSteps = (r) => r.iters.filter((it) => it.advisor && it.model);
-
-function priceOf(model, v) {
-  let p = PRICES[model];
-  if (!p && model.startsWith("claude-haiku-5-5")) p = v[0] + v[1] + v[2] + v[3] > HAIKU.limit ? HAIKU.large : HAIKU.small;
-  return p ? v.map((x, i) => (x / 1e6) * p[i]) : null;
-}
-
-// The transcript's sibling .meta.json names the agent type and its task.
-function agentInfo(file) {
-  const id = file.replace(/^.*agent-/, "").replace(/.jsonl$/, "");
-  try {
-    const m = JSON.parse(readFileSync(file.replace(/.jsonl$/, ".meta.json"), "utf8"));
-    return { id, type: m.agentType ?? "?", description: m.description ?? "" };
-  } catch {
-    return { id, type: "?", description: "" };
-  }
-}
 
 const k = (n) => `${Math.round(n / 1e3)}K`;
 
@@ -146,16 +66,11 @@ if (opts.agents) {
   for (const r of requests.values()) {
     if (r.kind !== "agent") continue;
     const run = runs.get(r.agent.id) ?? { agent: r.agent, model: r.model, n: 0, cost: 0, priced: true, ts: r.ts };
-    const c = executorCost(r);
-    run.n++;
-    if (c) run.cost += c.reduce((a, x) => a + x, 0);
-    else run.priced = false;
     // The advisor's cost belongs to the run that consulted it.
-    for (const it of advisorSteps(r)) {
-      const ac = priceOf(it.model, it.v);
-      if (ac) run.cost += ac.reduce((a, x) => a + x, 0);
-      else run.priced = false;
-    }
+    const c = requestCost(r);
+    run.n++;
+    run.cost += c.cost;
+    if (!c.priced) run.priced = false;
     if (r.ts < run.ts) run.ts = r.ts;
     runs.set(r.agent.id, run);
   }

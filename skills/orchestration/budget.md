@@ -44,7 +44,16 @@ In order, the first that applies:
 Both counts shrink to what the 5h room can pay for: one agent (a `morty` with
 its `council` review, or a `rick`) may use about 15 points of the 5h counter,
 and the agents already running keep their share. `--running` gives their
-number, `--agent-cost` replaces the 15.
+number, `--agent-cost` replaces the 15; both are overrides, the Budget command
+passes neither. Without them, `orch-quota` counts the
+agents running on the whole account (subagent transcripts written in the last
+10 minutes, in every project, `meeseeks` left out) so that orchestrators of
+several projects share one room, and learns the cost of an agent from the
+past runs (ratio of 5h points per dollar times the median cost of a `rick`,
+or of a `morty` plus its `council`). The calibration is kept in
+`calibration.json` (plugin data folder), recomputed after 6 hours or with
+`orch-quota --calibrate`, and a ratio that jumps by more than x2 in two days
+is reported as a likely subscription change.
 
 An agent here is a `morty` or a `rick`. Two `morty` work on distinct code
 zones, never two on the same `shared` resource; a `rick` touches no code and
