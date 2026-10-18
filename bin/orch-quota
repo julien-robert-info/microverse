@@ -10,7 +10,11 @@
 // extension while it has a reading under 48 hours old, else that history.
 //
 // orch-quota [--target 98] [--reserve 30] [--five-hour 90] [--running 0]
-//             [--agent-cost 15] [--file <path>]
+//             [--agent-cost 15] [--file <path>] [--no-write]
+//
+// --no-write leaves everything as found: the installed status line script is
+// not refreshed, expired readings are not deleted and a calibration is not
+// saved (a stale one is recomputed in memory, with the same result).
 //
 // --running is the number of agents working now; with --agent-cost (points of
 // the 5h counter one agent may use) it bounds new launches by the room left
@@ -38,7 +42,8 @@ const { paceAdvice, parseArgs } = lib;
 const HOUR = 3600e3;
 const DAY = 24 * HOUR;
 
-const opts = parseArgs(process.argv.slice(2), { flags: ["calibrate"] });
+const opts = parseArgs(process.argv.slice(2), { flags: ["calibrate", "no-write"] });
+const write = !opts["no-write"];
 const num = (v, d) => (v === undefined || v === true || Number.isNaN(Number(v)) ? d : Number(v));
 const target = num(opts.target, 98);
 const reserve = num(opts.reserve, 30);
@@ -58,10 +63,12 @@ const file = given ?? defaultFile();
 const now = Date.now();
 
 // Keeps the installed copy of the status line script current; never fatal.
-try {
-  statusline.refreshInstalled();
-} catch (e) {
-  console.log(`Status line script not refreshed: ${e.message}`);
+if (write) {
+  try {
+    statusline.refreshInstalled();
+  } catch (e) {
+    console.log(`Status line script not refreshed: ${e.message}`);
+  }
 }
 
 // Extension file: absent or unreadable is allowed when the status line has readings.
@@ -75,8 +82,8 @@ else {
     fileProblem = `Counters unreadable (${file}): ${e.message}`;
   }
 }
-const statuslineObs = lib.statuslineObservations(statusline.readReadings({ now, prune: true }));
-const historyObs = lib.risingOnly(statusline.readHistory({ now, prune: true }));
+const statuslineObs = lib.statuslineObservations(statusline.readReadings({ now, prune: write }));
+const historyObs = lib.risingOnly(statusline.readHistory({ now, prune: write }));
 if (!observations.length && !statuslineObs.length && !historyObs.length) {
   console.log(fileProblem ? `${fileProblem}, and no status line reading exists.` : `Counters not found: ${file} has no reading, and no status line reading exists.`);
   console.log("The extension is read in VS Code; in a terminal session the status line is set up by /microverse:init.");
@@ -121,8 +128,8 @@ if (opts.calibrate || lib.calibrationStale(cal, now)) {
     calNote = `Calibration unavailable: ${e.message}`;
   }
   // A computed calibration is used even when it cannot be stored; the next run
-  // then recomputes it.
-  if (!calNote) {
+  // then recomputes it. Without writing it stays in memory.
+  if (!calNote && write) {
     try {
       lib.saveCalibration(cal);
     } catch (e) {

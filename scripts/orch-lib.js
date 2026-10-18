@@ -575,7 +575,53 @@ function fmtAge(ms) {
   return `${Math.floor(ms / HOUR)} h`;
 }
 
+// Worktrees of `cwd`'s repository as { path, head, branch }, main one first.
+function listWorktrees(cwd) {
+  const r = git(["worktree", "list", "--porcelain"], cwd);
+  if (r.code !== 0) return [];
+  return r.out
+    .split(/\r?\n\r?\n/)
+    .map((block) => {
+      const wt = {};
+      for (const line of block.split(/\r?\n/)) {
+        if (line.startsWith("worktree ")) wt.path = line.slice(9);
+        else if (line.startsWith("HEAD ")) wt.head = line.slice(5);
+        else if (line.startsWith("branch ")) wt.branch = line.slice(7).replace(/^refs\/heads\//, "");
+      }
+      return wt;
+    })
+    .filter((wt) => wt.path && wt.head);
+}
+
+// Worktrees of the agents under <projectDir>/.claude/worktrees/ as
+// { branch|null, path, rel, merged, last?, dirty? }. Merged means the worktree's
+// HEAD is an ancestor of the main worktree's HEAD. Paths are compared in a
+// normal form (forward slashes, lower case) because git and the environment
+// disagree on drive-letter case and separators on Windows. With `details`,
+// `last` is the last commit ("<hash> <subject>", "" when unknown) and `dirty`
+// whether uncommitted changes remain. Throws as the git calls do.
+function agentWorktrees(projectDir, { details = false } = {}) {
+  const norm = (p) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const all = listWorktrees(projectDir);
+  const prefix = `${norm(projectDir)}/.claude/worktrees/`;
+  const projectLen = norm(projectDir).length;
+  const rows = [];
+  for (const wt of all.slice(1)) {
+    if (!norm(wt.path).startsWith(prefix)) continue;
+    const merged = git(["merge-base", "--is-ancestor", wt.head, all[0].head], all[0].path).code === 0;
+    const rel = wt.path.replace(/\\/g, "/").slice(projectLen + 1);
+    const row = { branch: wt.branch ?? null, path: wt.path, rel, merged };
+    if (details) {
+      row.last = git(["log", "-1", "--format=%h %s"], wt.path).out.trim();
+      row.dirty = git(["status", "--porcelain"], wt.path).out.trim() !== "";
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
 module.exports = {
+  listWorktrees, agentWorktrees,
   statuslineObservations, risingOnly, currentReading, fmtAge,
   COMPACT_OFFSET, run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses, lastContext, readTail, paceAdvice,
   FIVE_HOUR_COST, readRequests, executorCost, advisorSteps, priceOf, requestCost, agentInfo, projectSlug, projectsRoot, walkTranscripts,

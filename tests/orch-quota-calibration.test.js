@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { mkdirSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { makeAccount, script } = require("./helpers.js");
 
@@ -215,6 +215,50 @@ test("a calibration that cannot be saved is still used and reported as not saved
   assert.match(r.out, /5h: 2\.25 points\/\$/);
   assert.match(r.out, /Calibration not saved: /);
   assert.doesNotMatch(r.out, /Calibration unavailable/);
+});
+
+// The lines that must not depend on whether the run writes.
+const verdict = (out) => out.split("\n").filter((l) => /^(Agent cost|Advice):/.test(l));
+
+test("--no-write leaves the calibration, the expired reading and the installed status line copy as found", () => {
+  const fx = accountWith(SIX, days(6));
+  addRuns(fx.acc, "rick", [16, 18, 20, 22, 30]);
+  addRuns(fx.acc, "morty", [4, 6, 6, 8, 10]);
+  addRuns(fx.acc, "council", [1, 2, 2, 3, 4]);
+  withStored(fx, { at: Date.now() - 24 * HOUR, ratio5: 3, ratio7: null });
+  const dir = join(fx.acc.home, ".claude", "microverse");
+  mkdirSync(join(dir, "statusline"), { recursive: true });
+  const expired = JSON.stringify({ v: 1, at: Date.now() - 10 * 24 * HOUR, five: { used: 50, resetsAt: 1 }, week: { used: 10, resetsAt: 2 } });
+  const readingFile = join(dir, "statusline", "old-session.json");
+  const copy = join(dir, "statusline.js");
+  writeFileSync(readingFile, expired);
+  writeFileSync(copy, "// an older copy\n");
+  const calFile = join(fx.acc.data, "calibration.json");
+  const before = { cal: readFileSync(calFile, "utf8"), reading: readFileSync(readingFile, "utf8"), copy: readFileSync(copy, "utf8") };
+
+  const read = run(fx, ["--no-write"]);
+  const forced = run(fx, ["--calibrate", "--no-write"]);
+  assert.equal(read.code, 0, read.out);
+  assert.equal(readFileSync(calFile, "utf8"), before.cal);
+  assert.equal(readFileSync(readingFile, "utf8"), before.reading);
+  assert.equal(readFileSync(copy, "utf8"), before.copy);
+  // Recomputed in memory (the stored 3 is replaced by the 2.25 of the intervals), and printed.
+  assert.match(forced.out, /5h: 2\.25 points\/\$ \(6 intervals\)/);
+  assert.match(read.out, /Agent cost: ~45 points of 5h \(learned from 15 runs\)/);
+
+  const writing = run(fx);
+  assert.deepEqual(verdict(read.out), verdict(writing.out));
+  assert.notEqual(readFileSync(calFile, "utf8"), before.cal, "without the flag the calibration is saved");
+  assert.notEqual(readFileSync(copy, "utf8"), before.copy, "without the flag the installed copy is refreshed");
+  assert.equal(existsSync(readingFile), false, "without the flag the expired reading is deleted");
+});
+
+test("--no-write does not create a calibration where none exists", () => {
+  const fx = accountWith(SIX, days(6));
+  const r = run(fx, ["--calibrate", "--no-write"]);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(existsSync(join(fx.acc.data, "calibration.json")), false);
+  assert.doesNotMatch(r.out, /Calibration not saved/);
 });
 
 test("a fresh calibration is reused without reading the transcripts, --calibrate recomputes", () => {
