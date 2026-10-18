@@ -12,6 +12,19 @@
         ]
       }
     ],
+    "UserPromptExpansion": [
+      {
+        "matcher": "^microverse:status$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/status-command.js"],
+            "timeout": 20
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "matcher": "compact|startup|resume|clear",

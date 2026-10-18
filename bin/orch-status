@@ -1,0 +1,261 @@
+#!/usr/bin/env node
+// Overview of the orchestration in plain text: the missions and questions of
+// CLAUDE.local.md, the agent worktrees, what was merged since the last report,
+// the agent runs, the quota and the context size. Reads only; it is the
+// command behind /microverse:status.
+//
+// orch-status [<commit>] [--base B] [--session id] [--target N] [--reserve N]
+//             [--five-hour N] [--file F]
+//
+// <commit> is the previous report; without it the commit is taken from the
+// first line of CLAUDE.local.md that says "last report" or "dernier rapport".
+// The other options go to orch-report and orch-quota (which always get
+// --no-write). Run from anywhere in the repository, even from an agent's
+// worktree: the project is the main worktree. Exits 0, except 2 on a usage
+// error such as a commit that does not exist.
+"use strict";
+
+const { existsSync, readFileSync } = require("node:fs");
+const { basename, join } = require("node:path");
+const { agentWorktrees, fail, git, listWorktrees, parseArgs, run } = require("../scripts/orch-lib.js");
+
+const STATE_MAX = 4000;
+const TOTAL_MAX = 9000;
+const MERGED_MAX = 20;
+const AGENT_ROWS = 5;
+const SECTION_TITLE = /^(missions?|questions?|resume|reprise)/;
+
+const opts = parseArgs(process.argv.slice(2));
+const given = opts._.map((a) => a.trim()).find(Boolean);
+const cwd = process.cwd();
+
+// Options shared by orch-report and orch-quota, when set to a real value.
+const common = [];
+for (const o of ["target", "reserve", "five-hour", "file"]) {
+  if (typeof opts[o] === "string" && opts[o] !== "" && !opts[o].includes("${")) common.push(`--${o}`, opts[o]);
+}
+const session = typeof opts.session === "string" && opts.session ? ["--session", opts.session] : [];
+
+// A sibling script's output, or its error message when it fails.
+function sibling(name, args, dir) {
+  const r = run(process.execPath, [join(__dirname, name), ...args], { cwd: dir });
+  return { ok: r.code === 0, text: (r.out + (r.code === 0 ? "" : r.err)).trim() };
+}
+
+const lines = (s) => s.split(/\r?\n/);
+const out = [];
+function section(title, body) {
+  if (out.length) out.push("");
+  out.push(title, ...body.map((l) => (l === "" ? "" : `  ${l}`)));
+}
+const more = (body, max, what) => (body.length > max ? [...body.slice(0, max), `… ${body.length - max} ${what}`] : body);
+
+function quotaSection(dir) {
+  section("Quota", lines(sibling("orch-quota", ["--no-write", ...common], dir).text));
+}
+function contextSection(dir) {
+  section("Context", lines(sibling("orch-usage", ["--context", ...session], dir).text));
+}
+
+function notOrchestrated(message) {
+  out.push(message);
+  quotaSection(cwd);
+}
+
+// Sections of the state file whose title is about missions, questions or
+// resuming, as { title, body }. A level 1 or 2 title closes a section; table
+// rows become "a · b" and their separator row disappears.
+function stateSections(text) {
+  const found = [];
+  let current = null;
+  let fence = false;
+  for (const raw of text.split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(raw)) {
+      fence = !fence;
+      continue;
+    }
+    const h = fence ? null : /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(raw);
+    if (h && h[1].length <= 2) {
+      current = null;
+      const key = h[2].normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      if (h[1].length === 2 && SECTION_TITLE.test(key)) found.push((current = { title: h[2], body: [] }));
+      continue;
+    }
+    if (current) current.body.push(row(raw));
+  }
+  return found;
+}
+
+function row(raw) {
+  const t = raw.trim();
+  if (!t.startsWith("|") || !t.endsWith("|") || t.length < 2) return raw;
+  if (/^\|[\s:|-]*-[\s:|-]*\|$/.test(t)) return null;
+  const cells = t.slice(1, -1).split(/(?<!\\)\|/).map((c) => c.replace(/\\\|/g, "|").trim());
+  return cells.join(" · ");
+}
+
+// Lines of the state file to show, cut at STATE_MAX characters on a line end.
+function stateLines(text) {
+  const wanted = stateSections(text);
+  const flat = [];
+  const push = (title, body) => {
+    flat.push({ title });
+    let b = body.filter((l) => l !== null);
+    while (b.length && !b[0].trim()) b.shift();
+    while (b.length && !b[b.length - 1].trim()) b.pop();
+    for (const l of b) flat.push({ text: l.trimEnd() });
+  };
+  if (wanted.length) for (const s of wanted) push(s.title, s.body);
+  else flat.push(...text.split(/\r?\n/).filter((l) => !/^\s*(```|~~~)/.test(l)).map((l) => ({ text: (row(l) ?? "").replace(/^#{1,6}\s+/, "") })));
+  const res = [];
+  let size = 0;
+  let i = 0;
+  for (; i < flat.length; i++) {
+    const cost = (flat[i].title ?? flat[i].text).length + 3;
+    if (size + cost > STATE_MAX) break;
+    size += cost;
+    res.push(flat[i]);
+  }
+  return { shown: res, hidden: flat.length - i };
+}
+
+function stateSection(text) {
+  const { shown, hidden } = stateLines(text);
+  for (const l of shown) {
+    if (l.title !== undefined) out.push("", l.title);
+    else out.push(l.text === "" ? "" : `  ${l.text}`);
+  }
+  if (hidden) out.push(`  … ${hidden} more lines in CLAUDE.local.md`);
+}
+
+// First commit-looking token of the "last report" line that git accepts.
+function reportCommit(text, dir) {
+  const line = lines(text).find((l) => /last report|dernier rapport/i.test(l));
+  for (const tok of line?.match(/\b[0-9a-f]{7,40}\b/gi) ?? []) {
+    const v = git(["rev-parse", "--verify", "--quiet", `${tok}^{commit}`], dir);
+    if (v.code === 0) return v.out.trim();
+  }
+  return null;
+}
+
+// Report sections by their "## " title, without the code fences around them.
+function reportSections(text) {
+  const res = {};
+  let cur = null;
+  for (const l of lines(text)) {
+    const h = /^## (.*)$/.exec(l);
+    if (h) res[(cur = h[1].split(" ")[0])] = [];
+    else if (cur && !l.startsWith("```")) res[cur].push(l);
+  }
+  for (const k of Object.keys(res)) res[k] = res[k].filter((l) => l.trim() !== "");
+  return res;
+}
+
+function main() {
+  const top = git(["rev-parse", "--show-toplevel"], cwd);
+  if (top.code !== 0) return notOrchestrated(`Not in a git repository: ${cwd}.`);
+  const dir = listWorktrees(cwd)[0]?.path ?? top.out.trim();
+  if (!existsSync(join(dir, ".claude", "orchestration", "profile.json"))) {
+    return notOrchestrated("Not an orchestrated project: no .claude/orchestration/profile.json (/microverse:init sets one up).");
+  }
+
+  let base = null;
+  if (typeof opts.base === "string" && opts.base) {
+    if (opts.base.startsWith("-") || git(["rev-parse", "--verify", "--quiet", `${opts.base}^{commit}`], dir).code !== 0) fail(`not a commit: ${opts.base}`);
+    base = opts.base;
+  } else {
+    base = ["main", "master"].find((b) => git(["rev-parse", "--verify", "--quiet", `refs/heads/${b}`], dir).code === 0) ?? null;
+  }
+
+  let given_ = null;
+  if (given) {
+    if (given.startsWith("-")) fail(`not a commit: ${given}`);
+    const v = git(["rev-parse", "--verify", "--quiet", `${given}^{commit}`], dir);
+    if (v.code !== 0) fail(`not a commit: ${given}`);
+    given_ = v.out.trim();
+  }
+
+  const name = basename(dir);
+  if (base) {
+    const tip = git(["log", "-1", "--format=%h %s", base], dir).out.trim();
+    out.push(`microverse status: ${name} · ${base} ${tip}`);
+  } else out.push(`microverse status: ${name} · base unknown (neither main nor master; pass --base)`);
+
+  const stateFile = join(dir, "CLAUDE.local.md");
+  let state = null;
+  try {
+    state = readFileSync(stateFile, "utf8");
+  } catch {}
+  if (state === null) out.push("", "No CLAUDE.local.md (state file).");
+  else stateSection(state);
+
+  let rows = [];
+  try {
+    rows = agentWorktrees(dir, { details: true });
+  } catch {}
+  section(
+    "Agent worktrees",
+    rows.length
+      ? rows.map((w) => `${w.branch ?? "(detached)"}  ${w.rel}  ${w.merged ? "merged" : "not merged"}, last commit ${w.last || "unknown"}, ${w.dirty ? "uncommitted changes" : "clean"}`)
+      : ["none"],
+  );
+
+  if (base) {
+    const inTree = new Set(listWorktrees(dir).map((w) => w.branch).filter(Boolean));
+    const refs = git(["for-each-ref", `--no-merged=${base}`, "--format=%(refname:short)%09%(objectname:short)%09%(subject)", "refs/heads"], dir);
+    const free = lines(refs.out)
+      .filter(Boolean)
+      .map((l) => l.split("\t"))
+      .filter(([b]) => !inTree.has(b))
+      .map((c) => c.join("  "));
+    if (free.length) section(`Branches not merged into ${base}, without a worktree`, more(free, MERGED_MAX, "more"));
+  }
+
+  const commit = base ? given_ ?? (state === null ? null : reportCommit(state, dir)) : null;
+  if (!commit) {
+    if (base) {
+      out.push("", 'Last report: no commit found (a "Last report"/"Dernier rapport" line with a commit in CLAUDE.local.md, or /microverse:status <commit>)');
+    }
+    quotaSection(dir);
+    contextSection(dir);
+    return;
+  }
+
+  const rep = sibling("orch-report", ["--since", commit, "--base", base, "--no-write", ...common, ...session], dir);
+  if (!rep.ok) {
+    section("Report", lines(rep.text));
+    return;
+  }
+  const sec = reportSections(rep.text);
+  const short = git(["rev-parse", "--short", commit], dir).out.trim();
+  const merged = sec.Merged ?? [];
+  section(`Merged since ${short} (last report)`, more(merged.length ? merged : ["nothing"], MERGED_MAX, "more"));
+
+  const agents = sec.Agents ?? [];
+  const total = agents.find((l) => l.startsWith("Total:"));
+  const advisor = agents.find((l) => l.startsWith("Advisor:"));
+  const header = /^Agents since (\S+)/.exec(agents[0] ?? "");
+  if (!total || !header) section("Agents", agents.length ? agents : ["no output"]);
+  else {
+    const runs = agents.slice(2, agents.indexOf(total)).map((l) => l.replace(/\t/g, "  "));
+    const cost = /\$([\d.]+)/.exec(total)?.[1] ?? "?";
+    const shown = runs.slice(-AGENT_ROWS);
+    section(`Agents since ${header[1]}: ${runs.length} runs, $${cost} (API-equivalent)`, [
+      ...(runs.length > shown.length ? [`… ${runs.length - shown.length} earlier runs`] : []),
+      ...shown,
+      ...(advisor ? [advisor] : []),
+    ]);
+  }
+  section("Quota", sec.Quota ?? ["no output"]);
+  section("Context", sec.Context ?? ["no output"]);
+}
+
+main();
+
+// Control characters (ESC and the rest of C0 and C1, except newline) in what
+// was copied from files, commit subjects and branch names could drive the
+// terminal; tabs become spaces.
+let text = out.join("\n").replace(/\r/g, "").replace(/\t/g, "  ");
+text = text.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, "");
+if (text.length > TOTAL_MAX) text = `${text.slice(0, text.lastIndexOf("\n", TOTAL_MAX - 60))}\n… output truncated`;
+console.log(text);
