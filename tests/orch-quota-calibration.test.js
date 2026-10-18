@@ -20,7 +20,7 @@ function accountWith(intervals, t0) {
   // readings of different windows were paired, the gap would be an interval too.
   let used = 0.05;
   intervals.forEach((iv, i) => {
-    const start = t0 + i * 6 * HOUR;
+    const start = iv.start ?? t0 + i * 6 * HOUR;
     const reset = start + 2 * HOUR;
     observations.push({ periodType: "five-hour", usedFraction: used, resetAt: reset, observedAt: start });
     used += iv.points / 100;
@@ -136,22 +136,29 @@ test("a role with fewer than five runs is not used, and a running agent is not a
 });
 
 test("a ratio three times the stored one is reported and used, one and a half times is not", () => {
-  const recent = SIX.slice(0, 6).map((iv) => ({ ...iv, points: iv.dollars * 6 })); // 6 points/$ in the last 48 h
+  // The old plan (2 points/$, 5 to 10 days back) keeps the 14-day ratio at 2, so
+  // only the change branch can produce the 6 of the last 48 h.
+  const oldPlan = SIX.slice(0, 6).map((iv, i) => ({ ...iv, points: iv.dollars * 2, start: Date.now() - 10 * 24 * HOUR + i * 6 * HOUR }));
+  const recent = SIX.slice(0, 6).map((iv, i) => ({ ...iv, points: iv.dollars * 6, start: Date.now() - 40 * HOUR + i * 6 * HOUR }));
+  const intervals = [...oldPlan, ...recent];
   const old = { at: Date.now() - 24 * HOUR, ratio5: 2, n5: 8, ratio7: null, n7: 0, since: null, change: null, roles: {} };
-  let fx = accountWith(recent, Date.now() - 40 * HOUR);
+  let fx = accountWith(intervals, 0);
   mkdirSync(fx.acc.data, { recursive: true });
   writeFileSync(join(fx.acc.data, "calibration.json"), JSON.stringify(old));
   let r = run(fx, ["--calibrate"]);
   assert.match(r.out, /Calibration changed \(subscription\?\): 5h 2→6 points\/\$/);
   assert.ok(Math.abs(stored(fx.acc).ratio5 - 6) < 1e-9);
+  assert.ok(stored(fx.acc).since > Date.now() - 49 * HOUR);
   // The message stays with the stored calibration until it is recomputed.
   assert.match(run(fx).out, /Calibration changed/);
 
-  fx = accountWith(recent, Date.now() - 40 * HOUR);
+  fx = accountWith(intervals, 0);
   mkdirSync(fx.acc.data, { recursive: true });
   writeFileSync(join(fx.acc.data, "calibration.json"), JSON.stringify({ ...old, ratio5: 4 }));
   r = run(fx, ["--calibrate"]);
   assert.doesNotMatch(r.out, /Calibration changed/);
+  assert.ok(Math.abs(stored(fx.acc).ratio5 - 2) < 1e-9);
+  assert.equal(stored(fx.acc).since, null);
 });
 
 test("a fresh calibration is reused without reading the transcripts, --calibrate recomputes", () => {
