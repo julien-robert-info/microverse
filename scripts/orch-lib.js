@@ -436,24 +436,15 @@ function computeCalibration({ files, observations, now = Date.now(), previous = 
 const fmtRatio = (x) => String(Number(x.toPrecision(3)));
 
 // Points of the 5h counter one agent may use, from the stored calibration:
-// the larger of a rick and a morty with its council review, as many roles as
-// have enough runs. Null without a 5h ratio or without a usable role.
+// the larger of a rick and a morty with its council review. Null (the default
+// applies) unless all three roles have a median: a missing one would leave the
+// cost under-estimated.
 function learnedAgentCost(cal) {
   if (!cal?.ratio5) return null;
   const { rick, morty, council } = cal.roles ?? {};
-  const known = (r) => r?.median != null;
-  const options = [];
-  let runs = 0;
-  if (known(rick)) {
-    options.push(rick.median);
-    runs += rick.n;
-  }
-  if (known(morty) && known(council)) {
-    options.push(morty.median + council.median);
-    runs += morty.n + council.n;
-  }
-  if (!options.length) return null;
-  return { points: Math.max(1, Math.round(cal.ratio5 * Math.max(...options))), runs };
+  if (![rick, morty, council].every((r) => r?.median != null)) return null;
+  const dollars = Math.max(rick.median, morty.median + council.median);
+  return { points: Math.max(1, Math.round(cal.ratio5 * dollars)), runs: rick.n + morty.n + council.n };
 }
 
 const calibrationFile = () => join(process.env.CLAUDE_PLUGIN_DATA || join(homedir(), ".claude", "microverse"), "calibration.json");

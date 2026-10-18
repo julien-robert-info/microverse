@@ -157,10 +157,14 @@ test("a ratio three times the stored one is reported and used, one and a half ti
 test("a fresh calibration is reused without reading the transcripts, --calibrate recomputes", () => {
   const fx = accountWith(SIX, days(6));
   addRuns(fx.acc, "rick", [16, 18, 20, 22, 30]);
-  const first = run(fx).out;
-  assert.match(first, /Agent cost: ~45 points of 5h \(learned from 5 runs\)/);
+  // A role without a median leaves the default, whatever the others say.
+  assert.match(run(fx, ["--calibrate"]).out, /Agent cost: 15 points of 5h \(default\)/);
+  addRuns(fx.acc, "morty", [4, 6, 6, 8, 10]);
+  addRuns(fx.acc, "council", [1, 2, 2, 3, 4]);
+  const first = run(fx, ["--calibrate"]).out;
+  assert.match(first, /Agent cost: ~45 points of 5h \(learned from 15 runs\)/);
   rmSync(join(fx.acc.home, ".claude"), { recursive: true });
-  assert.equal(run(fx).out, first);
+  assert.match(run(fx).out, /Agent cost: ~45 points of 5h \(learned from 15 runs\)/);
   // Recomputed without the transcripts: nothing left to calibrate on.
   assert.match(run(fx, ["--calibrate"]).out, /5h: none/);
   assert.match(run(fx).out, /Agent cost: 15 points of 5h \(default\)/);
