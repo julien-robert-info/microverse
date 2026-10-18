@@ -374,8 +374,10 @@ function intervalRatios(observations, type, from, between) {
 // do not hold (claude.ai, another machine) only makes a ratio look larger.
 // When the last 48 hours differ from the stored ratio by more than x2 either
 // way the plan changed: the recent ratio replaces it, and only intervals since
-// then count until enough of them exist.
-function computeCalibration({ files, observations, now = Date.now(), previous = null }) {
+// then count until enough of them exist. `observations` come from one source
+// only (`source`, stored in the result): the two never mix, and a stored ratio
+// of the other source is no basis for detecting a plan change.
+function computeCalibration({ files, observations, now = Date.now(), previous = null, source = "extension" }) {
   const cutoff = now - CAL.days * DAY;
   const requests = new Map();
   const mtimes = new Map();
@@ -395,8 +397,9 @@ function computeCalibration({ files, observations, now = Date.now(), previous = 
   let since = previous?.since >= cutoff ? previous.since : null;
   const counters = [["5", "five-hour", "5h"], ["7", "seven-day", "week"]];
   const changed = {};
+  const sameSource = !previous || (previous.source ?? "extension") === source;
   for (const [key, type, label] of counters) {
-    const prev = previous?.[`ratio${key}`] ?? null;
+    const prev = sameSource ? previous?.[`ratio${key}`] ?? null : null;
     const recent = intervalRatios(observations, type, now - CAL.recent, between);
     if (prev === null || recent.length < CAL.recentMin) continue;
     const r = quantile(sortedNumbers(recent), CAL.quantile);
@@ -404,7 +407,7 @@ function computeCalibration({ files, observations, now = Date.now(), previous = 
   }
   if (Object.keys(changed).length) since = now - CAL.recent;
 
-  const cal = { at: now, ratio5: null, n5: 0, ratio7: null, n7: 0, since, change: null, roles: {} };
+  const cal = { at: now, source, ratio5: null, n5: 0, ratio7: null, n7: 0, since, change: null, roles: {} };
   for (const [key, type] of counters) {
     const kept = intervalRatios(observations, type, Math.max(cutoff, since ?? 0), between);
     cal[`n${key}`] = kept.length;
@@ -517,6 +520,33 @@ function statuslineObservations(readings) {
   return out;
 }
 
+// The observations that raise a counter: per counter, the first reading of
+// each window and every reading strictly above the highest value seen in it.
+// A window is a run of readings (by time) whose reset stays within an hour of
+// the run's first one. Sessions append to the history independently, so it
+// holds duplicates and stale lower values that would fake intervals.
+function risingOnly(observations) {
+  const out = [];
+  for (const type of ["five-hour", "seven-day"]) {
+    const obs = observations
+      .filter((o) => o.periodType === type)
+      .sort((a, b) => a.observedAt - b.observedAt || a.usedFraction - b.usedFraction);
+    let first = null;
+    let max = -Infinity;
+    for (const o of obs) {
+      if (!first || !(Math.abs(o.resetAt - first.resetAt) < HOUR)) {
+        first = o;
+        max = o.usedFraction;
+        out.push(o);
+      } else if (o.usedFraction > max) {
+        max = o.usedFraction;
+        out.push(o);
+      }
+    }
+  }
+  return out;
+}
+
 // The current reading of one counter among observations of any source: group
 // them by window (two resets less than an hour apart are one window, the
 // extension's jitter), keep the latest window whose reset is still ahead, and
@@ -546,7 +576,7 @@ function fmtAge(ms) {
 }
 
 module.exports = {
-  statuslineObservations, currentReading, fmtAge,
+  statuslineObservations, risingOnly, currentReading, fmtAge,
   COMPACT_OFFSET, run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses, lastContext, readTail, paceAdvice,
   FIVE_HOUR_COST, readRequests, executorCost, advisorSteps, priceOf, requestCost, agentInfo, projectSlug, projectsRoot, walkTranscripts,
   countRunning, computeCalibration, learnedAgentCost, calibrationFile, loadCalibration, saveCalibration, calibrationStale, fmtRatio,

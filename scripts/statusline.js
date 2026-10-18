@@ -15,6 +15,7 @@
 // from a copy in the data folder. Only `node:` modules, no relative require.
 
 const {
+  appendFileSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -28,13 +29,17 @@ const {
 const { homedir } = require("node:os");
 const { join } = require("node:path");
 
-const DAY = 24 * 3600e3;
+const HOUR = 3600e3;
+const DAY = 24 * HOUR;
 const SESSION_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 // Not CLAUDE_PLUGIN_DATA: neither the status line command nor the Bash tool
 // receives it, only hooks do. One fixed folder avoids two of them.
 const dataDir = () => join(homedir(), ".claude", "microverse");
 const readingsDir = () => join(dataDir(), "statusline");
+// Its own folder: the pruning of readingsDir() must never reach it.
+const historyDir = () => join(dataDir(), "statusline-history");
+const HISTORY_FILE = /^(\d{4})-(\d{2})-(\d{2})\.jsonl$/;
 
 const isNum = (n) => typeof n === "number" && Number.isFinite(n);
 
@@ -137,6 +142,89 @@ function readReadings({ now = Date.now(), prune = false } = {}) {
   return out;
 }
 
+// The counters of `reading` worth a history line given the session's previous
+// reading (null when it had none): a counter the previous one lacked, a new
+// window (reset moved by an hour or more), or a higher value. Values are
+// compared as the integers stored, so a repeat of 64.6 appends nothing.
+function historyLines(reading, previous) {
+  const out = [];
+  for (const [type, key] of [["five-hour", "five"], ["seven-day", "week"]]) {
+    const cur = reading[key];
+    if (!cur) continue;
+    const used = Math.min(100, Math.max(0, Math.round(cur.used)));
+    const prev = previous && previous.v === 1 ? previous[key] : null;
+    const known = prev && isNum(prev.used) && isNum(prev.resetsAt);
+    if (known && Math.abs(cur.resetsAt - prev.resetsAt) < HOUR && used <= Math.round(prev.used)) continue;
+    out.push({ v: 1, at: reading.at, type, used, resetsAt: cur.resetsAt });
+  }
+  return out;
+}
+
+// Appends the lines to the file of the UTC day of `at`. One write per line:
+// two renders can append at once on Windows, and a torn line is skipped by the
+// reader. False when nothing could be written.
+function appendHistory(lines) {
+  let ok = true;
+  for (const line of lines) {
+    try {
+      const day = new Date(line.at).toISOString().slice(0, 10);
+      mkdirSync(historyDir(), { recursive: true });
+      appendFileSync(join(historyDir(), `${day}.jsonl`), JSON.stringify(line) + "\n");
+    } catch {
+      ok = false;
+    }
+  }
+  return ok;
+}
+
+// The history as observations, oldest and newest included: the dated files of
+// the last `days` days (by the UTC date in the name). Torn, foreign-version and
+// non-numeric lines are skipped. `prune` deletes the dated files older than
+// that, never today's, and nothing else.
+function readHistory({ now = Date.now(), days = 15, prune = false } = {}) {
+  let names;
+  try {
+    names = readdirSync(historyDir());
+  } catch {
+    return [];
+  }
+  const today = Math.floor(now / DAY);
+  const out = [];
+  for (const name of names.sort()) {
+    const m = HISTORY_FILE.exec(name);
+    if (!m) continue;
+    const dayNo = Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY);
+    if (!Number.isFinite(dayNo)) continue;
+    const file = join(historyDir(), name);
+    if (today - dayNo > days) {
+      if (prune && dayNo < today) {
+        try {
+          unlinkSync(file);
+        } catch {}
+      }
+      continue;
+    }
+    let text;
+    try {
+      text = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    for (const raw of text.split("\n")) {
+      let d;
+      try {
+        d = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+      if (!d || d.v !== 1 || !isNum(d.at) || !isNum(d.used) || !isNum(d.resetsAt)) continue;
+      if (d.type !== "five-hour" && d.type !== "seven-day") continue;
+      out.push({ periodType: d.type, usedFraction: d.used / 100, resetAt: d.resetsAt, observedAt: d.at, source: "statusline" });
+    }
+  }
+  return out;
+}
+
 const installedPath = () => join(dataDir(), "statusline.js");
 
 const same = (a, b) => {
@@ -183,7 +271,20 @@ function main() {
   } catch {}
   try {
     const reading = readingOf(input);
-    if (reading) writeReading(input.session_id, reading);
+    if (reading) {
+      // The previous reading is read before anything is written; the history
+      // goes first so that a failing session file does not lose it.
+      let previous = null;
+      try {
+        previous = JSON.parse(readFileSync(join(readingsDir(), `${input.session_id}.json`), "utf8"));
+      } catch {}
+      if (typeof input.session_id === "string" && SESSION_ID.test(input.session_id)) {
+        try {
+          appendHistory(historyLines(reading, previous));
+        } catch {}
+      }
+      writeReading(input.session_id, reading);
+    }
   } catch {}
   process.stdout.write(formatLine(input) + "\n");
 }
@@ -195,4 +296,4 @@ if (require.main === module) {
   process.exitCode = 0;
 }
 
-module.exports = { dataDir, readingsDir, readingOf, formatLine, writeReading, readReadings, install, refreshInstalled };
+module.exports = { dataDir, readingsDir, historyDir, historyLines, appendHistory, readHistory, readingOf, formatLine, writeReading, readReadings, install, refreshInstalled };
