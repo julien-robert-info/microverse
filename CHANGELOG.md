@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `orch-quota` reads the counters from the terminal status line readings as
+  well as from the VS Code extension, so a CLI-only session gets its pacing
+  advice. Per counter it takes the latest window not yet reset and its highest
+  value; the `Counters:` line names the source and age of each. A weekly
+  reading whose reset has passed is no longer used ("No current weekly
+  reading"). The calibration still uses the extension readings only, and each
+  run refreshes the installed copy of the status line script.
+
 - In a project set up with `/microverse:init`, every conversation (new,
   resumed, cleared or compacted) is told by the `SessionStart` hook to load the
   orchestration skill first; the hook now also runs on `clear` and no longer

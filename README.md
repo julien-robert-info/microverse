@@ -15,7 +15,7 @@ cleans up; the launch pace follows the usage quota.
 | agent `meeseeks` (Haiku; Sonnet for a code map; writes only the new file its prompt names) | answers one question with facts and their evidence, writes a code map or runs measurement recipes |
 | agent `rick` (Opus, Sonnet for a small mission; writes only its notes file) | designs a mission: measurements, rules, draft brief, questions for the user |
 | agent `council` (Opus; writes only its review file) | reviews a risky diff, writes the full review to a file, returns a verdict and one line per defect |
-| `orch-quota` | reads the quota counters and advises the launch pace, counting the agents running on the account and learning their cost (`--calibrate`) |
+| `orch-quota` | reads the quota counters (extension and terminal status line readings, merged) and advises the launch pace, counting the agents running on the account and learning their cost (`--calibrate`) |
 | `orch-usage` | tokens and API-equivalent cost per model (advisor calls on their own `<model> (advisor)` rows) or per agent run, context size of a session |
 | `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown |
 | `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (`--merged`: on the merge result), suspicious patterns in the diff; one run per worktree at a time |
@@ -31,9 +31,10 @@ cleans up; the launch pace follows the usage quota.
 - Claude Code 2.1.293 or newer (`haiku` model alias for Claude Haiku 5.5).
 - Node.js 20 or newer, for the scripts in `bin/`.
 - Git.
-- Optional: the VS Code extension "Claude Code Usage" (growthjack), whose
-  readings `orch-quota` uses. Without it, the orchestrator asks the user for the
-  counters.
+- Optional, for the quota counters: the VS Code extension "Claude Code Usage"
+  (growthjack), or the microverse status line in a terminal session (set up by
+  `/microverse:init`). `orch-quota` merges the readings of both. With neither,
+  the orchestrator asks the user for the counters.
 
 ## Installation
 
@@ -99,7 +100,7 @@ word list.
 | report | writes the series report |
 | "Q1 as recommended, Q2 b" | applies the answers to the numbered questions |
 | confirm or reject a "to confirm" decision | records it in the notes and the state file |
-| the counters "5h x% \| wk y%" | fills in the quota when the usage extension is missing |
+| the counters "5h x% \| wk y%" | fills in the quota when neither the extension nor the status line has a reading |
 | yes to a push or deploy | pushes or deploys; nothing remote happens before |
 | "I'm stopping soon" | agents commit their work, the state file gets a "Resume" section, the last message is "Ready to shut down" |
 | "resume", in a new conversation | relaunches interrupted missions from their branches |
