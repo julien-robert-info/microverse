@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { mkdirSync, mkdtempSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { git, makeRepo, script } = require("./helpers.js");
@@ -149,6 +149,38 @@ test("the quota file option reaches orch-quota", () => {
   const { dir, since } = series();
   const r = script("orch-report", ["--since", since, "--file", quotaFile(0.99, 0.1)], dir, emptyHome());
   assert.match(r.out.split("## Quota")[1].split("## Context")[0], /Advice: stop/);
+});
+
+test("--no-write reaches orch-quota and does not swallow the next option", () => {
+  const { dir, since } = series();
+  const home = emptyHome();
+  const data = join(home.HOME, "data");
+  const env = { ...home, CLAUDE_PLUGIN_DATA: data };
+  const file = quotaFile(0.99, 0.1);
+  const r = script("orch-report", ["--no-write", "--since", since, "--file", file], dir, env);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out.split("## Quota")[1].split("## Context")[0], /Advice: stop/);
+  assert.equal(existsSync(join(data, "calibration.json")), false);
+  // Without the flag the calibration computed by orch-quota is saved.
+  script("orch-report", ["--since", since, "--file", file], dir, env);
+  assert.equal(existsSync(join(data, "calibration.json")), true);
+});
+
+test("--session names the conversation of the Context section", () => {
+  const { dir, since } = series();
+  const home = mkdtempSync(join(tmpdir(), "microverse-home-"));
+  const sessions = join(home, ".claude", "projects", dir.replace(/[^A-Za-z0-9]/g, "-").toLowerCase());
+  mkdirSync(sessions, { recursive: true });
+  const ts = new Date().toISOString();
+  const line = (id, input) =>
+    JSON.stringify({ timestamp: ts, requestId: `r-${id}`, message: { id, model: "claude-opus-5-5", usage: { input_tokens: input, output_tokens: 0 } } }) + "\n";
+  writeFileSync(join(sessions, "older.jsonl"), line("m1", 40000));
+  writeFileSync(join(sessions, "newer.jsonl"), line("m2", 90000));
+  utimesSync(join(sessions, "older.jsonl"), new Date(Date.now() - HOUR), new Date(Date.now() - HOUR));
+  const env = { HOME: home, USERPROFILE: home };
+  const context = (extra) => script("orch-report", ["--since", since, "--file", quotaFile(0.1, 0.1), ...extra], dir, env).out.split("## Context")[1];
+  assert.match(context([]), /Session newer .*context 90K/);
+  assert.match(context(["--session", "older"]), /Session older .*context 40K/);
 });
 
 test("a missing or unknown --since is a usage error", () => {

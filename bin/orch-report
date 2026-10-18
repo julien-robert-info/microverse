@@ -3,16 +3,19 @@
 // agent runs and their cost, the quota, the context size.
 //
 // orch-report --since <commit> [--base main] [--target N] [--reserve N] [--five-hour N] [--file <quota file>]
+//             [--no-write] [--session <id>]
 //
 // Run from the repository root. --since is the commit of the previous report;
-// the other options are those of orch-quota. A sibling script that fails has
+// the other options are those of orch-quota, which gets --no-write too, and
+// --session names the conversation whose context is shown (orch-usage
+// --context; default: the most recent). A sibling script that fails has
 // its message printed in its section and the report goes on.
 "use strict";
 
 const { join } = require("node:path");
 const { defaultBase, fail, git, parseArgs, repoRoot, run } = require("../scripts/orch-lib.js");
 
-const opts = parseArgs(process.argv.slice(2));
+const opts = parseArgs(process.argv.slice(2), { flags: ["no-write"] });
 const root = repoRoot();
 if (typeof opts.since !== "string") fail("usage: orch-report --since <commit> [--base main] [--target N] [--reserve N] [--five-hour N] [--file <quota file>]");
 const verify = git(["rev-parse", "--verify", "--quiet", `${opts.since}^{commit}`], root);
@@ -71,8 +74,11 @@ if (agents.ok) {
 
 const quotaArgs = [];
 for (const o of ["target", "reserve", "five-hour", "file"]) if (typeof opts[o] === "string") quotaArgs.push(`--${o}`, opts[o]);
+if (opts["no-write"]) quotaArgs.push("--no-write");
 out.push("", "## Quota", "", "```", sibling("orch-quota", quotaArgs).text, "```");
 
-out.push("", "## Context", "", "```", sibling("orch-usage", ["--context"]).text, "```");
+const contextArgs = ["--context"];
+if (typeof opts.session === "string") contextArgs.push("--session", opts.session);
+out.push("", "## Context", "", "```", sibling("orch-usage", contextArgs).text, "```");
 
 console.log(out.join("\n"));
