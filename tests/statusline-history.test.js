@@ -233,7 +233,8 @@ test("T8: the usage at the start of the weekday period comes from the history", 
   const now = Date.now();
   const monday = mondayBefore(now);
   // The window began Sunday 23:00 and has less than an hour left on Sundays 23:00-24:00 only.
-  if (now - monday > 7 * DAY - 2 * HOUR) return t.skip("last hour of the week");
+  // Late in the week the two expected paces are too close to tell apart (20 points x (1 - elapsed)).
+  if ((now - monday) / (7 * DAY - HOUR) > 0.8) return t.skip("late in the week");
   const fx = quotaAccount();
   const start = monday - HOUR;
   const resetsAt = start + 7 * DAY;
