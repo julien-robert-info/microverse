@@ -45,7 +45,15 @@ test("orch-usage --context reports the size of the last request", () => {
   const { env, project } = fixture();
   const r = script("orch-usage", ["--project", project, "--context"], process.cwd(), env);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /context 1000K tokens/);
+  assert.match(r.out, /context 1000K tokens, threshold 150K/);
+});
+
+test("orch-usage --context takes its threshold from the compact_window option", () => {
+  const { env, project } = fixture();
+  const r = script("orch-usage", ["--project", project, "--context"], process.cwd(), { ...env, CLAUDE_PLUGIN_OPTION_COMPACT_WINDOW: "1500000" });
+  assert.match(r.out, /threshold 150K/, "out of range falls back");
+  const ok = script("orch-usage", ["--project", project, "--context"], process.cwd(), { ...env, CLAUDE_PLUGIN_OPTION_COMPACT_WINDOW: "250000" });
+  assert.match(ok.out, /threshold 250K/);
 });
 
 const step = (type, input, extra = {}) => ({ type, input_tokens: input, output_tokens: 0, ...extra });

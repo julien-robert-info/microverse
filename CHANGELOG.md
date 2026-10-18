@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+<<<<<<< HEAD
 - A series runs on its own by default: after a merge the next launchable
   mission starts, including missions generated from defects under guards
   (no new business rule, depth 1, fewer than three unconfirmed decisions in the
@@ -17,6 +18,10 @@
 - The orchestration skill triggers on intent, in any language, instead of
   quoted phrases; the README documents what to say in "Talking to the
   orchestrator".
+- Compaction happens at `compact_window`: Claude Code compacts about 33K below
+  `autoCompactWindow`, so `/microverse:init` writes `compact_window` + 33000,
+  `context-guard` warns when the setting is lower, and `orch-usage --context`
+  uses the plugin option as its threshold.
 
 - Agent/model combinations are a short table in the orchestration skill
   (`rick` Opus or Sonnet for a small mission, `morty` Sonnet, `council` Opus,

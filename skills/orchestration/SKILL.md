@@ -242,8 +242,9 @@ Then note the new "Last report" in the state file.
 ## 5. Compaction
 
 The conversation is not switched: Claude Code compacts it automatically at
-`${user_config.compact_window}` tokens (`autoCompactWindow`, written by
-`/microverse:init`). Agents keep running and their reports still arrive.
+`${user_config.compact_window}` tokens (`/microverse:init` writes that value plus
+33000 as `autoCompactWindow`, as Claude Code compacts about 33K below it).
+Agents keep running and their reports still arrive.
 
 - When the `context-guard` hook warns that compaction is near, update the state
   file before going on: mission table, decisions not yet in the notes, pending

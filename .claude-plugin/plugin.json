@@ -40,7 +40,7 @@
     "compact_window": {
       "type": "number",
       "title": "Auto-compact window (tokens)",
-      "description": "Context size at which Claude Code compacts the orchestrating conversation; written by /microverse:init as autoCompactWindow in .claude/settings.local.json.",
+      "description": "Context size at which Claude Code compacts the orchestrating conversation; /microverse:init writes compact_window + 33000 as autoCompactWindow in .claude/settings.local.json, because Claude Code compacts about 33K below that setting.",
       "default": 150000,
       "min": 100000,
       "max": 1000000

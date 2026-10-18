@@ -180,4 +180,8 @@ function paceAdvice({ used7, used5, delta, target, period, fiveLimit, reset5 = "
   return "normal: one agent at a time";
 }
 
-module.exports = { run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses, lastContext, readTail, paceAdvice };
+// Claude Code compacts about this many tokens before `autoCompactWindow`
+// (likely a reserved output budget plus a buffer; undocumented).
+const COMPACT_OFFSET = 33000;
+
+module.exports = { COMPACT_OFFSET, run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses, lastContext, readTail, paceAdvice };
