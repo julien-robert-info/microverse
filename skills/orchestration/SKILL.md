@@ -249,8 +249,9 @@ Agents keep running and their reports still arrive.
 - When the `context-guard` hook warns that compaction is near, update the state
   file before going on: mission table, decisions not yet in the notes, pending
   questions. No report is required.
-- After a compaction, the `after-compact` hook lists the agent worktrees and
-  whether each is merged. Re-read the state file rather than trusting the
+- After a compaction, the `after-compact` hook tells you to load this skill
+  again (its text may not survive the summary), then lists the agent worktrees
+  and whether each is merged. Re-read the state file rather than trusting the
   summary.
 - If the guard says `autoCompactWindow` seems unset, ask the user to run
   `/compact` (a slash command the model cannot run) and `/microverse:init`.

@@ -27,7 +27,8 @@ after each completed step, so at most one step is lost.
 ## New conversation
 
 The `SessionStart` hook lists the agent worktrees (branch, last commit, merged
-or not, uncommitted changes or not). Read the state file and its "Resume"
+or not, uncommitted changes or not); it gives only the skill instruction and
+the transcript path when there are none. Read the state file and its "Resume"
 section, then for each mission left unmerged:
 
 1. commit the leftover changes of its worktree, or put them in the notes;
