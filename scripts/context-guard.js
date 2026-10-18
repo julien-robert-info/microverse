@@ -24,6 +24,9 @@ const LOCAL_MD_LINES = 60;
 
 function main() {
   const payload = JSON.parse(readFileSync(0, "utf8"));
+  // /microverse:status is answered by a hook that runs after this one and blocks
+  // the prompt: a warning given now would be lost yet marked as given.
+  if (typeof payload.prompt === "string" && payload.prompt.trim().startsWith("/microverse:status")) return;
   const projectDir = process.env.CLAUDE_PROJECT_DIR || payload.cwd;
   if (!projectDir || !existsSync(join(projectDir, ".claude", "orchestration", "profile.json"))) return;
 

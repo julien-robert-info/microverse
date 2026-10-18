@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
-const { mkdirSync, mkdtempSync, realpathSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { ROOT } = require("./helpers.js");
@@ -61,6 +61,21 @@ test("the approach warning is given once, and re-armed after a compaction", () =
 
   transcript(ctx, 131000, "m6");
   assert.equal(message(run(ctx, {}, "other")), APPROACH(131, 150), "another session has its own state");
+});
+
+test("a /microverse:status prompt leaves the state alone and the next prompt still gets the warning", () => {
+  const ctx = setup();
+  transcript(ctx, 135000);
+  writeFileSync(join(ctx.project, "CLAUDE.local.md"), `${Array.from({ length: 70 }, (_, i) => `line ${i}`).join("\n")}\n`);
+  for (const prompt of ["/microverse:status", "  /microverse:status abc1234", "\n\t/microverse:status"]) {
+    const r = run(ctx, { prompt });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, "");
+    assert.equal(existsSync(join(ctx.data, "context-guard")), false, "no state written");
+  }
+  const other = run(ctx, { prompt: "status please" });
+  assert.match(message(other), /context 135K, auto-compaction at 150K/);
+  assert.match(message(other), /CLAUDE\.local\.md has 70 lines/);
 });
 
 test("the window comes from the plugin option", () => {
