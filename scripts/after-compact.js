@@ -16,7 +16,7 @@
 
 const { existsSync, readFileSync } = require("node:fs");
 const { join } = require("node:path");
-const { git } = require("./orch-lib.js");
+const { agentWorktrees } = require("./orch-lib.js");
 
 const HEADER =
   "Conversation compacted: CLAUDE.local.md is reloaded and is the state of reference; agents still running keep reporting here; continue with the orchestration skill.";
@@ -37,26 +37,6 @@ const OPENING = {
     "Conversation resumed: CLAUDE.local.md holds the state of the orchestration. Agents launched before the interruption may have finished or been cut off; check each worktree below before relaunching anything (orchestration skill, Stopping and resuming).",
 };
 
-const norm = (p) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-
-// Worktrees of `cwd`'s repository as { path, head, branch }, main one first.
-function listWorktrees(cwd) {
-  const r = git(["worktree", "list", "--porcelain"], cwd);
-  if (r.code !== 0) return [];
-  return r.out
-    .split(/\r?\n\r?\n/)
-    .map((block) => {
-      const wt = {};
-      for (const line of block.split(/\r?\n/)) {
-        if (line.startsWith("worktree ")) wt.path = line.slice(9);
-        else if (line.startsWith("HEAD ")) wt.head = line.slice(5);
-        else if (line.startsWith("branch ")) wt.branch = line.slice(7).replace(/^refs\/heads\//, "");
-      }
-      return wt;
-    })
-    .filter((wt) => wt.path && wt.head);
-}
-
 function main() {
   const payload = JSON.parse(readFileSync(0, "utf8"));
   const source = payload.source;
@@ -71,22 +51,11 @@ function main() {
   const orientation = detailed ? OPENING[source] : HEADER;
   const lines = [LOAD_SKILL, orientation];
   try {
-    const all = listWorktrees(projectDir);
-    const prefix = `${norm(projectDir)}/.claude/worktrees/`;
-    const projectLen = norm(projectDir).length;
-    const rows = [];
-    for (const wt of all.slice(1)) {
-      if (!norm(wt.path).startsWith(prefix)) continue;
-      const merged = git(["merge-base", "--is-ancestor", wt.head, all[0].head], all[0].path).code === 0;
-      const rel = wt.path.replace(/\\/g, "/").slice(projectLen + 1);
-      let row = `- ${wt.branch ?? "(detached)"} (${rel}): ${merged ? "merged" : "not merged"}`;
-      if (detailed) {
-        const last = git(["log", "-1", "--format=%h %s"], wt.path).out.trim();
-        const dirty = git(["status", "--porcelain"], wt.path).out.trim() !== "";
-        row += `, last commit ${last || "unknown"}, ${dirty ? "UNCOMMITTED CHANGES" : "no uncommitted changes"}`;
-      }
-      rows.push(row);
-    }
+    const rows = agentWorktrees(projectDir, { details: detailed }).map((wt) => {
+      let row = `- ${wt.branch ?? "(detached)"} (${wt.rel}): ${wt.merged ? "merged" : "not merged"}`;
+      if (detailed) row += `, last commit ${wt.last || "unknown"}, ${wt.dirty ? "UNCOMMITTED CHANGES" : "no uncommitted changes"}`;
+      return row;
+    });
     if (rows.length) lines.push("Agent worktrees:", ...rows);
     else if (detailed) lines.splice(1, 1);
   } catch {

@@ -2,7 +2,13 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { lastContext, normPath, paceAdvice, parseArgs } = require("../scripts/orch-lib.js");
+const { mkdtempSync, writeFileSync } = require("node:fs");
+const { tmpdir } = require("node:os");
+const { join } = require("node:path");
+const { agentWorktrees, lastContext, listWorktrees, normPath, paceAdvice, parseArgs } = require("../scripts/orch-lib.js");
+const { git, makeRepo } = require("./helpers.js");
+
+const norm = (p) => p.replace(/\\/g, "/").toLowerCase();
 
 test("parseArgs splits options, flags and positionals", () => {
   const o = parseArgs(["feat/x", "--base", "dev", "--no-checks", "--since", "2026-01-01"]);
@@ -101,4 +107,42 @@ test("paceAdvice: the weekly and 5h limits come before the pace", () => {
   assert.match(pace({ used7: 95, delta: -20 }), /^no new agent \(≥ 95 %\)/);
   assert.match(pace({ used5: 90, delta: -20, reset5: " until X" }), /^no new agent until X/);
   assert.match(pace({ used5: 95, delta: -20 }), /^no more resuming/);
+});
+
+test("listWorktrees gives the main worktree first, and nothing outside a git repository", () => {
+  const { dir, wt } = makeRepo({});
+  const list = listWorktrees(wt);
+  assert.equal(list.length, 2);
+  assert.equal(norm(list[0].path), norm(dir));
+  assert.equal(list[0].branch, "main");
+  assert.equal(norm(list[1].path), norm(wt));
+  assert.equal(list[1].branch, "feat/x");
+  assert.match(list[1].head, /^[0-9a-f]{40}$/);
+  assert.deepEqual(listWorktrees(mkdtempSync(join(tmpdir(), "microverse-nogit-"))), []);
+});
+
+test("agentWorktrees keeps the worktrees under .claude/worktrees, with merge status and details", () => {
+  const { dir, wt } = makeRepo({});
+  git(dir, "worktree", "add", "-q", "-b", "feat/done", join(dir, ".claude", "worktrees", "done"));
+  git(dir, "worktree", "add", "-q", "--detach", join(dir, ".claude", "worktrees", "loose"));
+  git(dir, "worktree", "add", "-q", "-b", "feat/elsewhere", join(mkdtempSync(join(tmpdir(), "microverse-else-")), "wt"));
+  writeFileSync(join(wt, "dirty.txt"), "x\n");
+
+  const rows = agentWorktrees(dir);
+  assert.deepEqual(rows.map((r) => r.rel).sort(), [".claude/worktrees/done", ".claude/worktrees/loose", ".claude/worktrees/w"]);
+  const by = Object.fromEntries(rows.map((r) => [r.rel.split("/").pop(), r]));
+  assert.equal(by.w.branch, "feat/x");
+  assert.equal(by.w.merged, false);
+  assert.equal(by.done.merged, true);
+  assert.equal(by.loose.branch, null);
+  assert.equal(by.loose.merged, true);
+  assert.equal(norm(by.w.path), norm(wt));
+  assert.equal("last" in by.w, false);
+  assert.equal("dirty" in by.w, false);
+
+  const detailed = Object.fromEntries(agentWorktrees(dir, { details: true }).map((r) => [r.rel.split("/").pop(), r]));
+  assert.match(detailed.w.last, /^[0-9a-f]+ feat: a$/);
+  assert.equal(detailed.w.dirty, true);
+  assert.equal(detailed.done.dirty, false);
+  assert.deepEqual(agentWorktrees(mkdtempSync(join(tmpdir(), "microverse-nogit-"))), []);
 });
