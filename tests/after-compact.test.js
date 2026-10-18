@@ -12,6 +12,9 @@ const HOOK = join(ROOT, "scripts", "after-compact.js");
 const HEADER =
   "Conversation compacted: CLAUDE.local.md is reloaded and is the state of reference; agents still running keep reporting here; continue with the orchestration skill.";
 
+const LOAD_SKILL =
+  "This project is orchestrated with microverse: before replying, call the Skill tool with `microverse:orchestration`, unless its text is already in this conversation.";
+
 const tmp = () => realpathSync.native(mkdtempSync(join(tmpdir(), "microverse-compact-")));
 
 function withProfile(dir) {
@@ -30,13 +33,14 @@ const message = (r) => JSON.parse(r.stdout).hookSpecificOutput.additionalContext
 
 test("without a profile, with another source, or on bad input the hook is silent", () => {
   const bare = tmp();
-  for (const r of [run(bare, {}), run(bare, { source: "startup" }), run(bare, { source: "resume" })]) {
+  for (const source of ["startup", "resume", "clear", "compact"]) {
+    const r = run(bare, { source });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, "");
   }
   const dir = tmp();
   withProfile(dir);
-  for (const r of [run(dir, { source: "clear" }), run(dir, { source: "toString" }), run(dir, "not json"), run(dir, "")]) {
+  for (const r of [run(dir, { source: "toString" }), run(dir, { source: "other" }), run(dir, "not json"), run(dir, "")]) {
     assert.equal(r.status, 0);
     assert.equal(r.stdout, "");
   }
@@ -48,7 +52,7 @@ test("outside a git repository only the orientation line is given", () => {
   const r = run(dir, {});
   assert.equal(r.status, 0);
   assert.equal(JSON.parse(r.stdout).hookSpecificOutput.hookEventName, "SessionStart");
-  assert.equal(message(r), HEADER);
+  assert.equal(message(r), [LOAD_SKILL, HEADER].join("\n"));
 });
 
 test("agent worktrees are listed with their merge status, others are left out", () => {
@@ -83,6 +87,7 @@ test("agent worktrees are listed with their merge status, others are left out", 
   assert.equal(
     out,
     [
+      LOAD_SKILL,
       HEADER,
       "Agent worktrees:",
       "- (detached) (.claude/worktrees/agent-detached): not merged",
@@ -120,18 +125,21 @@ test("on startup and resume, worktrees are listed with last commit and uncommitt
   commitFile(clean, "clean.txt", "clean\n", "feat: clean step");
 
   const rows = (m) => m.split("\n").filter((l) => l.startsWith("- "));
-  const startup = message(run(dir, { source: "startup" }));
-  assert.match(startup, /^New conversation: /);
-  assert.deepEqual(
-    rows(startup).map((l) => l.replace(/ [0-9a-f]{7,} /, " <sha> ")),
-    [
-      "- feat/clean (.claude/worktrees/agent-clean): not merged, last commit <sha> feat: clean step, no uncommitted changes",
-      "- feat/done (.claude/worktrees/agent-done): merged, last commit <sha> feat: finish the import, no uncommitted changes",
-      "- feat/open (.claude/worktrees/agent-open): not merged, last commit <sha> wip: first step of the export, UNCOMMITTED CHANGES",
-    ],
-  );
+  const expected = [
+    "- feat/clean (.claude/worktrees/agent-clean): not merged, last commit <sha> feat: clean step, no uncommitted changes",
+    "- feat/done (.claude/worktrees/agent-done): merged, last commit <sha> feat: finish the import, no uncommitted changes",
+    "- feat/open (.claude/worktrees/agent-open): not merged, last commit <sha> wip: first step of the export, UNCOMMITTED CHANGES",
+  ];
+  for (const source of ["startup", "clear"]) {
+    const m = message(run(dir, { source }));
+    const lines = m.split("\n");
+    assert.equal(lines[0], LOAD_SKILL);
+    assert.match(lines[1], /^New conversation: /);
+    assert.deepEqual(rows(m).map((l) => l.replace(/ [0-9a-f]{7,} /, " <sha> ")), expected);
+  }
   const resumed = message(run(dir, { source: "resume" }));
-  assert.match(resumed, /^Conversation resumed: /);
+  assert.equal(resumed.split("\n")[0], LOAD_SKILL);
+  assert.match(resumed.split("\n")[1], /^Conversation resumed: /);
   assert.equal(rows(resumed).length, 3);
 });
 
@@ -144,23 +152,48 @@ test("compact keeps its orientation line and rows without commit details", () =>
   writeFileSync(join(open, "open.txt"), "edited\n");
   assert.equal(
     message(run(dir, {})),
-    [HEADER, "Agent worktrees:", "- feat/open (.claude/worktrees/agent-open): not merged"].join("\n"),
+    [LOAD_SKILL, HEADER, "Agent worktrees:", "- feat/open (.claude/worktrees/agent-open): not merged"].join("\n"),
   );
 });
 
-test("on startup a repository with a profile but no agent worktree gives no output", () => {
+test("every source with a profile gives the skill instruction first, alone when there is no agent worktree", () => {
   const dir = tmp();
   repoWith(dir);
-  for (const source of ["startup", "resume"]) {
+  for (const source of ["startup", "resume", "clear"]) {
     const r = run(dir, { source });
     assert.equal(r.status, 0);
-    assert.equal(r.stdout, "");
+    assert.equal(message(r), LOAD_SKILL);
   }
+  assert.equal(message(run(dir, { source: "compact" })), [LOAD_SKILL, HEADER].join("\n"));
+  // Not a profile-less repository: no profile, no output, even in a git repo.
   const bare = tmp();
   git(bare, "init", "-q", "-b", "main", ".");
-  const r = run(bare, { source: "startup" });
-  assert.equal(r.status, 0);
-  assert.equal(r.stdout, "");
+  for (const source of ["startup", "clear"]) assert.equal(run(bare, { source }).stdout, "");
+});
+
+test("clear, resume and compact give the instruction before the orientation and the rows", () => {
+  const dir = tmp();
+  repoWith(dir);
+  const open = join(dir, ".claude", "worktrees", "agent-open");
+  git(dir, "worktree", "add", "-q", "-b", "feat/open", open);
+  commitFile(open, "open.txt", "open\n");
+  const cleared = message(run(dir, { source: "clear" })).split("\n");
+  assert.deepEqual(cleared.slice(0, 2).map((l) => l.slice(0, 16)), [LOAD_SKILL.slice(0, 16), "New conversation"]);
+  assert.ok(cleared.some((l) => l.startsWith("- feat/open")));
+  const compacted = message(run(dir, { source: "compact" })).split("\n");
+  assert.deepEqual(compacted.slice(0, 2), [LOAD_SKILL, HEADER]);
+  const resumed = message(run(dir, { source: "resume" })).split("\n");
+  assert.equal(resumed[0], LOAD_SKILL);
+});
+
+test("when listing worktrees fails, startup still gives the instruction and the transcript", () => {
+  const dir = tmp();
+  withProfile(dir); // not a git repository: nothing to list
+  const transcript_path = join(tmp(), "s.jsonl");
+  assert.equal(
+    message(run(dir, { source: "startup", transcript_path })),
+    [LOAD_SKILL, `Transcript of this conversation: ${transcript_path}`].join("\n"),
+  );
 });
 
 test("the transcript path is given on every source, alone when nothing else is to say", () => {
@@ -168,14 +201,14 @@ test("the transcript path is given on every source, alone when nothing else is t
   repoWith(dir);
   const transcript_path = join(tmp(), "session-1.jsonl");
   const line = `Transcript of this conversation: ${transcript_path}`;
-  // No agent worktree: startup and resume give only the transcript line.
-  for (const source of ["startup", "resume"]) assert.equal(message(run(dir, { source, transcript_path })), line);
-  assert.equal(message(run(dir, { transcript_path })), [HEADER, line].join("\n"));
+  // No agent worktree: startup, clear and resume give the instruction and the transcript line.
+  for (const source of ["startup", "clear", "resume"]) assert.equal(message(run(dir, { source, transcript_path })), [LOAD_SKILL, line].join("\n"));
+  assert.equal(message(run(dir, { transcript_path })), [LOAD_SKILL, HEADER, line].join("\n"));
 
   const open = join(dir, ".claude", "worktrees", "agent-open");
   git(dir, "worktree", "add", "-q", "-b", "feat/open", open);
   commitFile(open, "open.txt", "open\n");
-  for (const source of ["startup", "resume", "compact"]) {
+  for (const source of ["startup", "clear", "resume", "compact"]) {
     const lines = message(run(dir, { source, transcript_path })).split("\n");
     assert.equal(lines.at(-1), line);
     assert.ok(lines.some((l) => l.startsWith("- feat/open")));
