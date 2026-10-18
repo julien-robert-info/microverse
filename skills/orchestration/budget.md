@@ -4,11 +4,15 @@ Read before launching an agent or resuming one.
 
 ## The counters
 
-`orch-quota` reads the latest reading of the VS Code extension "Claude Code
-Usage" (growthjack) for the two counters, `five-hour` and `seven-day`. If the
-extension is not installed, or the reading is more than two hours old, ask the
-user for both counters (`5h x% | wk y%`) at the next opportunity, without
-blocking, and apply the same rules by hand.
+`orch-quota` reads the two counters, `five-hour` and `seven-day`, from two
+sources: the VS Code extension "Claude Code Usage" (growthjack), and the
+readings the microverse status line writes in terminal sessions. For each
+counter it takes the latest window not yet reset and, in it, the highest value
+(a counter does not fall within a window, and an idle session may rewrite an old
+value late); the `Counters:` line gives the source and age of each. If neither
+source has a reading, or the newest is more than two hours old, ask the user for
+both counters (`5h x% | wk y%`) at the next opportunity, without blocking, and
+apply the same rules by hand.
 
 ## The periods
 
