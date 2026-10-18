@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Agent/model combinations are a short table in the orchestration skill
+  (`rick` Opus or Sonnet for a small mission, `morty` Sonnet, `council` Opus,
+  `meeseeks` Haiku or Sonnet) and the new `PreToolUse` hook `agent-model-guard`
+  denies any other launch of a `microverse:` agent, or one with no model.
+- Cheaper, shorter work: design runs in two phases (a Sonnet `meeseeks` writes
+  the code map, the `rick` requests measurements as recipes that a Haiku
+  `meeseeks` runs, then the `rick` is resumed); `meeseeks` and `council` write
+  one new file named by the prompt, so `council` returns only the verdict and
+  one line per defect; briefs aim at about 60 tool calls and are split past
+  about six rules or several layers.
+
 - The unit of work is now called a mission (it was "chantier") in the skills,
   agents, hooks and scripts. Projects already set up rename the term in their
   state file (section titles, the `# Compact instructions` section) and in
