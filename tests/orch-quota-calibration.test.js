@@ -150,6 +150,9 @@ test("a ratio three times the stored one is reported and used, one and a half ti
   assert.match(r.out, /Calibration changed \(subscription\?\): 5h 2→6 points\/\$/);
   assert.ok(Math.abs(stored(fx.acc).ratio5 - 6) < 1e-9);
   assert.ok(stored(fx.acc).since > Date.now() - 49 * HOUR);
+  // The header names the narrowed window, not the 14 days.
+  const header = new Date(stored(fx.acc).since).toISOString().slice(0, 16);
+  assert.ok(r.out.includes(`intervals since ${header}Z`), r.out);
   // The message stays with the stored calibration until it is recomputed.
   assert.match(run(fx).out, /Calibration changed/);
 
@@ -160,6 +163,8 @@ test("a ratio three times the stored one is reported and used, one and a half ti
   assert.doesNotMatch(r.out, /Calibration changed/);
   assert.ok(Math.abs(stored(fx.acc).ratio5 - 2) < 1e-9);
   assert.equal(stored(fx.acc).since, null);
+  const start = new Date(stored(fx.acc).at - 14 * 24 * HOUR).toISOString().slice(0, 16);
+  assert.ok(r.out.includes(`intervals since ${start}Z`), r.out);
 });
 
 const plans = () => [

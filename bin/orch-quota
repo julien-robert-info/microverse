@@ -116,7 +116,8 @@ else {
 
 if (opts.calibrate && cal) {
   const r = (x, n) => (x === null ? `none (${n} intervals, 5 needed)` : `${lib.fmtRatio(x)} points/$ (${n} intervals)`);
-  console.log(`Calibration of ${new Date(cal.at).toISOString().slice(0, 16)}Z over 14 days`);
+  const from = Math.max(cal.at - 14 * DAY, cal.since ?? 0);
+  console.log(`Calibration of ${new Date(cal.at).toISOString().slice(0, 16)}Z, intervals since ${new Date(from).toISOString().slice(0, 16)}Z`);
   console.log(`5h: ${r(cal.ratio5, cal.n5)}`);
   console.log(`Week: ${r(cal.ratio7, cal.n7)}`);
   for (const [role, v] of Object.entries(cal.roles)) console.log(`${role}: ${v.median === null ? `no median (${v.n} runs, 5 needed)` : `median $${v.median.toFixed(2)} (${v.n} runs)`}`);
