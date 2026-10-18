@@ -504,7 +504,49 @@ function paceAdvice({ used7, used5, delta, target, period, fiveLimit, reset5 = "
 // (likely a reserved output budget plus a buffer; undocumented).
 const COMPACT_OFFSET = 33000;
 
+// Status line readings ([{ at, five?, week? }] from scripts/statusline.js) as
+// observations of the extension's shape. `used` is 0-100, `usedFraction` 0-1.
+// An absent window yields no observation: it is not a reading of 0.
+function statuslineObservations(readings) {
+  const out = [];
+  for (const r of readings) {
+    for (const [periodType, w] of [["five-hour", r.five], ["seven-day", r.week]]) {
+      if (w) out.push({ periodType, usedFraction: w.used / 100, resetAt: w.resetsAt, observedAt: r.at, source: "statusline" });
+    }
+  }
+  return out;
+}
+
+// The current reading of one counter among observations of any source: group
+// them by window (two resets less than an hour apart are one window, the
+// extension's jitter), keep the latest window whose reset is still ahead, and
+// return its highest value (a counter does not fall inside a window, and an
+// idle session may rewrite an old value after a fresher one) with the resetAt,
+// time and source of its newest reading. Readings without a reset belong to no
+// window. Null when no window is current.
+function currentReading(observations, now) {
+  const live = observations.filter((o) => Number.isFinite(o.resetAt) && o.resetAt > now).sort((a, b) => a.resetAt - b.resetAt);
+  if (!live.length) return null;
+  let start = live.length - 1;
+  while (start > 0 && live[start].resetAt - live[start - 1].resetAt < HOUR) start--;
+  const group = live.slice(start);
+  const newest = group.reduce((a, b) => (b.observedAt >= a.observedAt ? b : a));
+  return {
+    usedFraction: Math.max(...group.map((o) => o.usedFraction)),
+    resetAt: newest.resetAt,
+    observedAt: newest.observedAt,
+    source: newest.source,
+  };
+}
+
+function fmtAge(ms) {
+  if (ms < 60e3) return "under 1 min";
+  if (ms < HOUR) return `${Math.floor(ms / 60e3)} min`;
+  return `${Math.floor(ms / HOUR)} h`;
+}
+
 module.exports = {
+  statuslineObservations, currentReading, fmtAge,
   COMPACT_OFFSET, run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses, lastContext, readTail, paceAdvice,
   FIVE_HOUR_COST, readRequests, executorCost, advisorSteps, priceOf, requestCost, agentInfo, projectSlug, projectsRoot, walkTranscripts,
   countRunning, computeCalibration, learnedAgentCost, calibrationFile, loadCalibration, saveCalibration, calibrationStale, fmtRatio,
