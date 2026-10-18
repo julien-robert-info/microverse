@@ -87,6 +87,9 @@ Also check:
   missions in progress with their branches, the agents launched and not yet
   returned, the decisions not yet written to the notes, the questions awaiting
   the user;
+- tell the user that once the profile exists, the plugin's `SessionStart` hook
+  loads the orchestration skill in every conversation of the project (new,
+  resumed, cleared or compacted); nothing to configure;
 - offer a `.worktreeinclude` for unversioned files a worktree needs (`.env`…);
 - run each `checks` command once on the current branch, to verify it passes
   before making it a criterion.

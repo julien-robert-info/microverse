@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-<<<<<<< HEAD
+- In a project set up with `/microverse:init`, every conversation (new,
+  resumed, cleared or compacted) is told by the `SessionStart` hook to load the
+  orchestration skill first; the hook now also runs on `clear` and no longer
+  stays silent when there is no agent worktree.
 - A series runs on its own by default: after a merge the next launchable
   mission starts, including missions generated from defects under guards
   (no new business rule, depth 1, fewer than three unconfirmed decisions in the

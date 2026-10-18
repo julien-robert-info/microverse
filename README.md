@@ -23,7 +23,7 @@ cleans up; the launch pace follows the usage quota.
 | `PreToolUse` hook (`agent-model-guard`, matcher `Agent\|Task`) | denies the launch of a `microverse:` agent with no model or a model its role does not allow; other agents pass |
 | `SubagentStop` hook | stops servers left running by a finished agent |
 | `UserPromptSubmit` hook (`context-guard`) | once, when the context nears the auto-compaction window: update the state file; once, when it is past it (`autoCompactWindow` probably unset); once, when `autoCompactWindow` is below `compact_window` + 33000; once, when `CLAUDE.local.md` exceeds 60 lines |
-| `SessionStart` hook (matcher `compact\|startup\|resume`) | after a compaction, restates that `CLAUDE.local.md` is the state of reference and lists the agent worktrees, merged or not; on a new or resumed conversation, lists them with their last commit and uncommitted changes to resume an interrupted series (silent without a profile or worktree) |
+| `SessionStart` hook (matcher `compact\|startup\|resume\|clear`) | in a project with a profile, tells every conversation to load the orchestration skill first; after a compaction, restates that `CLAUDE.local.md` is the state of reference and lists the agent worktrees, merged or not; on a new, cleared or resumed conversation, lists them with their last commit and uncommitted changes to resume an interrupted series (silent without a profile) |
 | `user/CLAUDE.md` | writing rules (README, comments, commits), to import into `~/.claude/CLAUDE.md` |
 
 ## Requirements
@@ -110,7 +110,7 @@ work as `wip:`, each `rick` writes its notes, and the state file lists per
 mission the branch, last commit and next step, with the open questions and the
 transcript path. On an unannounced one, the state file is already current and a
 `morty` commits after each step, so at most one step is lost. In the next
-conversation the `SessionStart` hook lists the agent worktrees; interrupted
+conversation the `SessionStart` hook loads the orchestration skill and lists the agent worktrees; interrupted
 branches are freed with `agent-cleanup --keep-branch` and relaunched.
 
 The scripts can also be run by hand from the repository root:
@@ -154,7 +154,7 @@ agents/           rick, morty, council, meeseeks
 bin/              dependency-free Node scripts, added to the Bash tool's PATH;
                   the .cmd files make them callable from PowerShell
 scripts/          orch-lib.js (shared by bin/ and the hooks), hooks (SubagentStop,
-                  UserPromptSubmit, SessionStart on compaction, startup and resume)
+                  UserPromptSubmit, SessionStart on compaction, startup, resume and clear)
 tests/            node:test suite, run with `npm test`
 hooks/hooks.json  hook declaration
 user/CLAUDE.md    global writing rules

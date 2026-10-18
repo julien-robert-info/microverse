@@ -249,8 +249,9 @@ Agents keep running and their reports still arrive.
 - When the `context-guard` hook warns that compaction is near, update the state
   file before going on: mission table, decisions not yet in the notes, pending
   questions. No report is required.
-- After a compaction, the `after-compact` hook lists the agent worktrees and
-  whether each is merged. Re-read the state file rather than trusting the
+- After a compaction, the `after-compact` hook tells you to load this skill
+  again (its text may not survive the summary), then lists the agent worktrees
+  and whether each is merged. Re-read the state file rather than trusting the
   summary.
 - If the guard says `autoCompactWindow` seems unset, ask the user to run
   `/compact` (a slash command the model cannot run) and `/microverse:init`.
@@ -342,6 +343,7 @@ budget spent on marginal fixes while the goal waits.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/stop-resume.md` when the user
 announces, in any words, that they will stop soon, or when a new conversation
-starts and the `SessionStart` hook lists unmerged agent worktrees. It covers the
+starts and the `SessionStart` hook lists unmerged agent worktrees (the hook's
+first line, which asks for this skill, is already met once you read this). It covers the
 stop procedure, the "Resume" section of the state file and the resuming of
 interrupted missions.
