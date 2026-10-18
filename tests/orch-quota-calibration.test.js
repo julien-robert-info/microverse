@@ -189,6 +189,16 @@ test("a window narrowed more than 14 days ago is dropped, with the ratio it kept
   assert.equal(stored(fx.acc).since, null);
 });
 
+test("a calibration that cannot be saved is still used and reported as not saved", () => {
+  const fx = accountWith(SIX, days(6));
+  // A file where the data folder should be: the save fails, the computation does not.
+  writeFileSync(join(fx.acc.home, "blocked"), "");
+  const r = script("orch-quota", ["--file", fx.file, "--calibrate"], fx.cwd, { ...fx.acc.env, CLAUDE_PLUGIN_DATA: join(fx.acc.home, "blocked", "data") });
+  assert.match(r.out, /5h: 2\.25 points\/\$/);
+  assert.match(r.out, /Calibration not saved: /);
+  assert.doesNotMatch(r.out, /Calibration unavailable/);
+});
+
 test("a fresh calibration is reused without reading the transcripts, --calibrate recomputes", () => {
   const fx = accountWith(SIX, days(6));
   addRuns(fx.acc, "rick", [16, 18, 20, 22, 30]);

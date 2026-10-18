@@ -90,9 +90,17 @@ let calNote = null;
 if (opts.calibrate || lib.calibrationStale(cal, now)) {
   try {
     cal = lib.computeCalibration({ files, observations, now, previous: cal });
-    lib.saveCalibration(cal);
   } catch (e) {
     calNote = `Calibration unavailable: ${e.message}`;
+  }
+  // A computed calibration is used even when it cannot be stored; the next run
+  // then recomputes it.
+  if (!calNote) {
+    try {
+      lib.saveCalibration(cal);
+    } catch (e) {
+      calNote = `Calibration not saved: ${e.message}`;
+    }
   }
 }
 let agentCost = num(opts["agent-cost"], null);
