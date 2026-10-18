@@ -4,7 +4,10 @@
 // extension "Claude Code Usage" (growthjack), and those written by the
 // microverse status line of terminal sessions (scripts/statusline.js). Per
 // counter, the current window is the latest one not yet reset, and its value the
-// highest reading of that window. Only the extension feeds the calibration.
+// highest reading of that window. The status line also keeps a 15-day history
+// of the rising readings (statusline-history/): it gives the usage at the start
+// of the weekday period. The calibration uses one source, never both: the
+// extension while it has a reading under 48 hours old, else that history.
 //
 // orch-quota [--target 98] [--reserve 30] [--five-hour 90] [--running 0]
 //             [--agent-cost 15] [--file <path>]
@@ -73,16 +76,16 @@ else {
   }
 }
 const statuslineObs = lib.statuslineObservations(statusline.readReadings({ now, prune: true }));
-if (!observations.length && !statuslineObs.length) {
+const historyObs = lib.risingOnly(statusline.readHistory({ now, prune: true }));
+if (!observations.length && !statuslineObs.length && !historyObs.length) {
   console.log(fileProblem ? `${fileProblem}, and no status line reading exists.` : `Counters not found: ${file} has no reading, and no status line reading exists.`);
   console.log("The extension is read in VS Code; in a terminal session the status line is set up by /microverse:init.");
   console.log("Ask the user for both counters (5h and week, in %).");
   process.exit(1);
 }
 
-// Calibration (below) keeps the extension observations only: interleaving two
-// sources one point apart would create intervals that do not exist.
-const merged = [...observations.filter((o) => (o.provider ?? "claude") === "claude").map((o) => ({ ...o, source: "extension" })), ...statuslineObs];
+const extensionObs = observations.filter((o) => (o.provider ?? "claude") === "claude");
+const merged = [...extensionObs.map((o) => ({ ...o, source: "extension" })), ...statuslineObs, ...historyObs];
 const byType = (type) => merged.filter((o) => o.periodType === type).sort((a, b) => a.observedAt - b.observedAt);
 const five = byType("five-hour");
 const week = byType("seven-day");
@@ -104,11 +107,16 @@ else {
   runningLine = `Running: ${r.total} agent${r.total === 1 ? "" : "s"} (${r.others} in other projects)`;
 }
 
+// Calibration source: interleaving two sources one point apart would create
+// intervals that do not exist, so one is chosen. The extension is the finer one
+// while it is alive.
+const source = extensionObs.some((o) => o.observedAt >= now - 48 * HOUR) || !historyObs.length ? "extension" : "statusline";
+
 let cal = lib.loadCalibration();
 let calNote = null;
 if (opts.calibrate || lib.calibrationStale(cal, now)) {
   try {
-    cal = lib.computeCalibration({ files, observations, now, previous: cal });
+    cal = lib.computeCalibration({ files, observations: source === "extension" ? observations : historyObs, now, previous: cal, source });
   } catch (e) {
     calNote = `Calibration unavailable: ${e.message}`;
   }
@@ -136,7 +144,7 @@ else {
 if (opts.calibrate && cal) {
   const r = (x, n) => (x === null ? `none (${n} intervals, 5 needed)` : `${lib.fmtRatio(x)} points/$ (${n} intervals)`);
   const from = Math.max(cal.at - 14 * DAY, cal.since ?? 0);
-  console.log(`Calibration of ${new Date(cal.at).toISOString().slice(0, 16)}Z, intervals since ${new Date(from).toISOString().slice(0, 16)}Z`);
+  console.log(`Calibration of ${new Date(cal.at).toISOString().slice(0, 16)}Z from ${cal.source === "statusline" ? "the status line history" : "the extension"}, intervals since ${new Date(from).toISOString().slice(0, 16)}Z`);
   console.log(`5h: ${r(cal.ratio5, cal.n5)}`);
   console.log(`Week: ${r(cal.ratio7, cal.n7)}`);
   for (const [role, v] of Object.entries(cal.roles)) console.log(`${role}: ${v.median === null ? `no median (${v.n} runs, 5 needed)` : `median $${v.median.toFixed(2)} (${v.n} runs)`}`);
