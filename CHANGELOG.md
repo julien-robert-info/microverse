@@ -11,7 +11,12 @@
   "Resume" section. The `SessionStart` hook also runs on `startup` and
   `resume` and lists the worktrees with last commit and uncommitted changes;
   `agent-cleanup --keep-branch` frees an interrupted branch; `morty` commits
-  after each step and can resume a branch.
+  after each step and can resume a branch. The hook also gives the
+  conversation's transcript path, and the stop procedure lives in
+  `stop-resume.md`.
+- The orchestration skill triggers on intent, in any language, instead of
+  quoted phrases; the README documents what to say in "Talking to the
+  orchestrator".
 
 - Agent/model combinations are a short table in the orchestration skill
   (`rick` Opus or Sonnet for a small mission, `morty` Sonnet, `council` Opus,

@@ -82,9 +82,36 @@ The project ignores `CLAUDE.local.md`, `NOTES.local.md` and
 
 ## Usage
 
-In a conversation opened at the project root: "démarre <mission>", "mission
-suivante", "où en est-on ?", "rapport". The `orchestration` skill loads on these
-requests; `/microverse:orchestration` forces it.
+In a conversation opened at the project root, the `orchestration` skill loads
+on requests about missions and series;
+`/microverse:orchestration` forces it.
+
+### Talking to the orchestrator
+
+Requests are understood by intent, in any language; the examples are not a
+word list.
+
+| You say (example) | The orchestrator |
+|---|---|
+| start a mission, or a series with its goal | designs or briefs it, launches it; the series then runs on its own |
+| next mission, chain | launches the next one after a fresh quota check |
+| where are we | summarizes the trace lines |
+| report | writes the series report |
+| "Q1 as recommended, Q2 b" | applies the answers to the numbered questions |
+| confirm or reject a "to confirm" decision | records it in the notes and the state file |
+| the counters "5h x% \| wk y%" | fills in the quota when the usage extension is missing |
+| yes to a push or deploy | pushes or deploys; nothing remote happens before |
+| "I'm stopping soon" | agents commit their work, the state file gets a "Resume" section, the last message is "Ready to shut down" |
+| "resume", in a new conversation | relaunches interrupted missions from their branches |
+| a reference to a message of the previous conversation | searched in its transcript |
+
+Stopping and resuming. On an announced stop, each running `morty` commits its
+work as `wip:`, each `rick` writes its notes, and the state file lists per
+mission the branch, last commit and next step, with the open questions and the
+transcript path. On an unannounced one, the state file is already current and a
+`morty` commits after each step, so at most one step is lost. In the next
+conversation the `SessionStart` hook lists the agent worktrees; interrupted
+branches are freed with `agent-cleanup --keep-branch` and relaunched.
 
 The scripts can also be run by hand from the repository root:
 
@@ -122,12 +149,12 @@ Results land in `evals/results/` (ignored by git).
 
 ```
 .claude-plugin/   plugin.json (manifest, settings), marketplace.json (catalog)
-skills/           orchestration (SKILL.md, budget.md, brief.md, review.md), init
+skills/           orchestration (SKILL.md, budget.md, brief.md, review.md, stop-resume.md), init
 agents/           rick, morty, council, meeseeks
 bin/              dependency-free Node scripts, added to the Bash tool's PATH;
                   the .cmd files make them callable from PowerShell
 scripts/          orch-lib.js (shared by bin/ and the hooks), hooks (SubagentStop,
-                  UserPromptSubmit, SessionStart after a compaction)
+                  UserPromptSubmit, SessionStart on compaction, startup and resume)
 tests/            node:test suite, run with `npm test`
 hooks/hooks.json  hook declaration
 user/CLAUDE.md    global writing rules
