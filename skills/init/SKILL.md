@@ -73,9 +73,11 @@ Also check:
 
 - `.gitignore` contains `CLAUDE.local.md`, `NOTES.local.md` and
   `.claude/worktrees/`; offer to add what is missing;
-- offer to merge `"autoCompactWindow": ${user_config.compact_window}` into
-  `.claude/settings.local.json` (create it if missing, keep every existing
-  key), so Claude Code compacts the orchestrating conversation at that size;
+- offer to merge `"autoCompactWindow"` into `.claude/settings.local.json`
+  (create it if missing, keep every existing key), set to
+  `${user_config.compact_window}` + 33000 (at most 1000000), so Claude Code
+  compacts the orchestrating conversation at `compact_window` tokens: it
+  compacts about 33K below this setting (reserved output budget and buffer);
   merge `"model": "sonnet"` and `"advisorModel": "opus"` in the same file: the
   orchestrating conversation runs on Sonnet and consults Opus at decision
   points, so no model has to be chosen when opening a conversation; check that

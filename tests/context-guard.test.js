@@ -102,6 +102,51 @@ test("an old state file with contextStep does not prevent the approach warning",
   assert.equal(message(run(ctx, {})), APPROACH(135, 150));
 });
 
+const settings = (ctx, content) => {
+  mkdirSync(join(ctx.project, ".claude"), { recursive: true });
+  writeFileSync(join(ctx.project, ".claude", "settings.local.json"), typeof content === "string" ? content : JSON.stringify(content));
+};
+
+test("an autoCompactWindow below compact_window + 33K is reported once per session", () => {
+  const ctx = setup();
+  settings(ctx, { autoCompactWindow: 150000, model: "sonnet" });
+  transcript(ctx, 1000);
+  assert.equal(
+    message(run(ctx, {})),
+    "autoCompactWindow 150000 compacts at about 117K, before compact_window 150K: set it to 183000 (/microverse:init)",
+  );
+  assert.equal(run(ctx, {}).stdout, "");
+});
+
+test("a sufficient autoCompactWindow is not reported", () => {
+  const ctx = setup();
+  settings(ctx, { autoCompactWindow: 183000 });
+  transcript(ctx, 1000);
+  assert.equal(run(ctx, {}).stdout, "");
+});
+
+test("a missing file, invalid JSON or an absent key gives no autoCompactWindow message", () => {
+  for (const content of [null, "{not json", "[]", { model: "sonnet" }, { autoCompactWindow: "150000" }]) {
+    const ctx = setup();
+    if (content !== null) settings(ctx, content);
+    transcript(ctx, 1000);
+    const r = run(ctx, {});
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, "", JSON.stringify(content));
+  }
+});
+
+test("the autoCompactWindow proposal follows a custom compact_window", () => {
+  const ctx = setup();
+  ctx.env = { CLAUDE_PLUGIN_OPTION_COMPACT_WINDOW: "200000" };
+  settings(ctx, { autoCompactWindow: 220000 });
+  transcript(ctx, 1000);
+  assert.equal(
+    message(run(ctx, {})),
+    "autoCompactWindow 220000 compacts at about 187K, before compact_window 200K: set it to 233000 (/microverse:init)",
+  );
+});
+
 test("without a profile the hook is silent", () => {
   const ctx = setup({ profile: false });
   transcript(ctx, 300000);

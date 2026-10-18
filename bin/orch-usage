@@ -16,7 +16,10 @@ const { homedir } = require("node:os");
 const { join } = require("node:path");
 const { fail, parseArgs, lastContext } = require("../scripts/orch-lib.js");
 
-const CONTEXT_LIMIT = 150e3;
+// Same parsing as scripts/context-guard.js.
+const windowOption = process.env.CLAUDE_PLUGIN_OPTION_COMPACT_WINDOW;
+const windowValue = /^\s*\d+\s*$/.test(windowOption ?? "") ? parseInt(windowOption, 10) : NaN;
+const CONTEXT_LIMIT = windowValue >= 100e3 && windowValue <= 1e6 ? windowValue : 150e3;
 // $/MTok: input, 5m cache write, 1h cache write, cache read, output.
 const PRICES = {
   "claude-opus-5-5": [4, 5, 8, 0.2, 20],

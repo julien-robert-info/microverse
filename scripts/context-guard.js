@@ -13,7 +13,7 @@
 const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
-const { lastContext, readTail } = require("./orch-lib.js");
+const { COMPACT_OFFSET, lastContext, readTail } = require("./orch-lib.js");
 
 const DEFAULT_WINDOW = 150e3;
 const MIN_WINDOW = 100e3;
@@ -38,14 +38,27 @@ function main() {
 
   const messages = [];
 
+  const raw = process.env.CLAUDE_PLUGIN_OPTION_COMPACT_WINDOW;
+  const parsed = /^\s*\d+\s*$/.test(raw ?? "") ? parseInt(raw, 10) : NaN;
+  const window = parsed >= MIN_WINDOW && parsed <= MAX_WINDOW ? parsed : DEFAULT_WINDOW;
+
+  if (!state.settingsWarned) {
+    let configured;
+    try {
+      configured = JSON.parse(readFileSync(join(projectDir, ".claude", "settings.local.json"), "utf8")).autoCompactWindow;
+    } catch {}
+    const wanted = window + COMPACT_OFFSET;
+    if (typeof configured === "number" && configured < wanted) {
+      state.settingsWarned = true;
+      messages.push(`autoCompactWindow ${configured} compacts at about ${Math.round((configured - COMPACT_OFFSET) / 1e3)}K, before compact_window ${window / 1e3}K: set it to ${wanted} (/microverse:init)`);
+    }
+  }
+
   let last = null;
   try {
     last = lastContext(readTail(payload.transcript_path, TAIL_BYTES));
   } catch {}
   if (last) {
-    const raw = process.env.CLAUDE_PLUGIN_OPTION_COMPACT_WINDOW;
-    const parsed = /^\s*\d+\s*$/.test(raw ?? "") ? parseInt(raw, 10) : NaN;
-    const window = parsed >= MIN_WINDOW && parsed <= MAX_WINDOW ? parsed : DEFAULT_WINDOW;
     const k = Math.round(last.tokens / 1e3);
     if (last.tokens >= window + MARGIN) {
       // Compaction should have happened already; the approach warning is moot.
