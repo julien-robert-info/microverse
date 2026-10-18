@@ -390,29 +390,36 @@ function computeCalibration({ files, observations, now = Date.now(), previous = 
   }
   const between = costLine(requests);
 
-  const cal = { at: now, ratio5: null, n5: 0, ratio7: null, n7: 0, since: previous?.since ?? null, change: null, roles: {} };
-  const changes = [];
-  for (const [key, type, label] of [["5", "five-hour", "5h"], ["7", "seven-day", "week"]]) {
+  // A plan change narrows the window to the intervals since it; once that is
+  // older than the cutoff the window is the ordinary one again.
+  let since = previous?.since >= cutoff ? previous.since : null;
+  const counters = [["5", "five-hour", "5h"], ["7", "seven-day", "week"]];
+  const changed = {};
+  for (const [key, type, label] of counters) {
     const prev = previous?.[`ratio${key}`] ?? null;
-    const kept = intervalRatios(observations, type, Math.max(cutoff, previous?.since ?? 0), between);
+    const recent = intervalRatios(observations, type, now - CAL.recent, between);
+    if (prev === null || recent.length < CAL.recentMin) continue;
+    const r = quantile(sortedNumbers(recent), CAL.quantile);
+    if (r > prev * CAL.factor || r < prev / CAL.factor) changed[key] = { text: `${label} ${fmtRatio(prev)}→${fmtRatio(r)}`, r, n: recent.length };
+  }
+  if (Object.keys(changed).length) since = now - CAL.recent;
+
+  const cal = { at: now, ratio5: null, n5: 0, ratio7: null, n7: 0, since, change: null, roles: {} };
+  for (const [key, type] of counters) {
+    const kept = intervalRatios(observations, type, Math.max(cutoff, since ?? 0), between);
     cal[`n${key}`] = kept.length;
     if (kept.length >= CAL.minIntervals) cal[`ratio${key}`] = quantile(sortedNumbers(kept), CAL.quantile);
-    else if (previous?.since && prev !== null) {
-      cal[`ratio${key}`] = prev;
+    else if (since && previous?.[`ratio${key}`] != null) {
+      cal[`ratio${key}`] = previous[`ratio${key}`];
       cal[`n${key}`] = previous[`n${key}`];
     }
-    const recent = intervalRatios(observations, type, now - CAL.recent, between);
-    if (prev !== null && recent.length >= CAL.recentMin) {
-      const r = quantile(sortedNumbers(recent), CAL.quantile);
-      if (r > prev * CAL.factor || r < prev / CAL.factor) {
-        changes.push(`${label} ${fmtRatio(prev)}→${fmtRatio(r)}`);
-        cal[`ratio${key}`] = r;
-        cal[`n${key}`] = recent.length;
-        cal.since = now - CAL.recent;
-      }
+    if (changed[key]) {
+      cal[`ratio${key}`] = changed[key].r;
+      cal[`n${key}`] = changed[key].n;
     }
   }
-  if (changes.length) cal.change = `Calibration changed (subscription?): ${changes.join(", ")} points/$`;
+  const texts = Object.values(changed).map((c) => c.text);
+  if (texts.length) cal.change = `Calibration changed (subscription?): ${texts.join(", ")} points/$`;
 
   const runs = new Map();
   for (const r of requests.values()) {

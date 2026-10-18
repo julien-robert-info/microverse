@@ -13,7 +13,7 @@ const days = (n) => Date.now() - n * 24 * HOUR;
 // the pairs differ in window and only the two readings of a pair make an
 // interval. Each interval gets `points` and one request of `dollars` in
 // `project`; `t0` is the first pair's start.
-function accountWith(intervals, t0) {
+function accountWith(intervals, t0, week = false) {
   const acc = makeAccount();
   const observations = [];
   // The counter keeps rising between pairs and each gap holds a $2 request: if
@@ -22,9 +22,10 @@ function accountWith(intervals, t0) {
   intervals.forEach((iv, i) => {
     const start = iv.start ?? t0 + i * 6 * HOUR;
     const reset = start + 2 * HOUR;
-    observations.push({ periodType: "five-hour", usedFraction: used, resetAt: reset, observedAt: start });
+    const types = week ? ["five-hour", "seven-day"] : ["five-hour"];
+    for (const periodType of types) observations.push({ periodType, usedFraction: used, resetAt: reset, observedAt: start });
     used += iv.points / 100;
-    observations.push({ periodType: "five-hour", usedFraction: used, resetAt: reset, observedAt: start + HOUR });
+    for (const periodType of types) observations.push({ periodType, usedFraction: used, resetAt: reset, observedAt: start + HOUR });
     used += 0.01;
     acc.conversation(iv.project ?? "proj-a", start + 10 * 60e3, iv.dollars);
     acc.conversation("proj-a", start + 3 * HOUR, 2);
@@ -158,6 +159,33 @@ test("a ratio three times the stored one is reported and used, one and a half ti
   r = run(fx, ["--calibrate"]);
   assert.doesNotMatch(r.out, /Calibration changed/);
   assert.ok(Math.abs(stored(fx.acc).ratio5 - 2) < 1e-9);
+  assert.equal(stored(fx.acc).since, null);
+});
+
+const plans = () => [
+  ...SIX.slice(0, 6).map((iv, i) => ({ ...iv, points: iv.dollars * 2, start: Date.now() - 10 * 24 * HOUR + i * 6 * HOUR })),
+  ...SIX.slice(0, 6).map((iv, i) => ({ ...iv, points: iv.dollars * 6, start: Date.now() - 40 * HOUR + i * 6 * HOUR })),
+];
+const withStored = (fx, cal) => {
+  mkdirSync(fx.acc.data, { recursive: true });
+  writeFileSync(join(fx.acc.data, "calibration.json"), JSON.stringify({ at: 0, n5: 8, n7: 8, since: null, change: null, roles: {}, ...cal }));
+};
+
+test("a plan change narrows both counters to the same window", () => {
+  const fx = accountWith(plans(), 0, true);
+  // The week ratio is within x2 of the recent 6: only the 5h counter changed.
+  withStored(fx, { ratio5: 2, ratio7: 5 });
+  const r = run(fx, ["--calibrate"]);
+  assert.match(r.out, /Calibration changed \(subscription\?\): 5h 2→6 points\/\$/);
+  assert.doesNotMatch(r.out, /changed.*week \d+(\.\d+)?→/);
+  assert.ok(Math.abs(stored(fx.acc).ratio7 - 6) < 1e-9);
+});
+
+test("a window narrowed more than 14 days ago is dropped, with the ratio it kept", () => {
+  const fx = accountWith(SIX.slice(0, 3), days(6));
+  withStored(fx, { ratio5: 2, ratio7: null, since: Date.now() - 20 * 24 * HOUR });
+  run(fx, ["--calibrate"]);
+  assert.equal(stored(fx.acc).ratio5, null);
   assert.equal(stored(fx.acc).since, null);
 });
 
