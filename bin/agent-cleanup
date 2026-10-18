@@ -2,20 +2,30 @@
 // Removes an agent's worktree and its merged branch. Refuses while a process
 // still runs from the worktree: a forgotten server locks the folder on Windows.
 //
-// agent-cleanup <branch>
+// agent-cleanup [--keep-branch] <branch>
+//
+// --keep-branch frees an interrupted agent's branch: removes the worktree only,
+// merged or not, so a new agent can check the branch out. Refuses while the
+// worktree holds uncommitted or untracked changes.
 "use strict";
 
 const { fail, git, listProcesses, normPath, parseArgs, repoRoot, worktreeFor } = require("../scripts/orch-lib.js");
 
-const opts = parseArgs(process.argv.slice(2));
+const opts = parseArgs(process.argv.slice(2), { flags: ["keep-branch"] });
+const keepBranch = opts["keep-branch"] === true;
 const branch = opts._[0];
-if (!branch) fail("usage: agent-cleanup <branch>");
+if (!branch) fail("usage: agent-cleanup [--keep-branch] <branch>");
 const root = repoRoot();
 const wt = worktreeFor(root, branch);
 
 // Checked first, so an unmerged branch keeps its worktree.
 if (git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], root).code !== 0) fail(`branch not found: ${branch}`);
-if (git(["merge-base", "--is-ancestor", branch, "HEAD"], root).code !== 0) fail(`REFUSED: ${branch} is not merged into the current branch`);
+if (!keepBranch && git(["merge-base", "--is-ancestor", branch, "HEAD"], root).code !== 0) fail(`REFUSED: ${branch} is not merged into the current branch`);
+if (keepBranch && wt && normPath(wt) !== normPath(root)) {
+  const st = git(["status", "--porcelain"], wt);
+  if (st.code !== 0) fail(`git status failed in ${wt}: ${st.err.trim()}`);
+  if (st.out.trim()) fail(`REFUSED: uncommitted changes in ${wt}; commit or note them first`);
+}
 
 if (wt) {
   if (normPath(wt) === normPath(root)) fail(`${branch} is the main checkout's branch: nothing to clean up here`);
@@ -39,6 +49,10 @@ if (wt) {
   console.log(`OK worktree removed: ${wt}`);
 } else console.log("worktree: none for this branch");
 
+if (keepBranch) {
+  console.log(`OK branch kept: ${branch}`);
+  process.exit(0);
+}
 const del = git(["branch", "-d", branch], root);
 if (del.code !== 0) fail(`git branch -d failed (unmerged branch?): ${del.err.trim()}`);
 console.log(`OK branch deleted: ${branch}`);
