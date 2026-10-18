@@ -257,7 +257,9 @@ test("orch-status leaves the calibration and the readings alone", () => {
   git(dir, "init", "-q", "-b", "main", ".");
   mkdirSync(join(dir, ".claude", "orchestration"), { recursive: true });
   writeFileSync(join(dir, ".claude", "orchestration", "profile.json"), "{}");
-  const r = script("orch-status", [], dir, acc.env);
+  // No commit to report from: the quota section comes from orch-quota directly.
+  const r = script("orch-status", ["--file", quotaFile(0.2, 0.1)], dir, acc.env);
   assert.equal(r.code, 0, r.out);
-  assert.equal(existsSync(acc.data), false, "nothing is created in the data folder");
+  assert.match(r.out, /Advice:/);
+  assert.equal(existsSync(join(acc.data, "calibration.json")), false, "no calibration saved");
 });

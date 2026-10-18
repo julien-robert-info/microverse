@@ -11,6 +11,7 @@ cleans up; the launch pace follows the usage quota.
 |---|---|
 | skill `orchestration` | procedure: roles and models, budget, brief, review of an agent's branch, series report, compaction, talking to the user, a series that runs on its own, stopping and resuming |
 | skill `init` | writes a project's orchestration profile; offers to set `autoCompactWindow`, `"model": "sonnet"` and `"advisorModel": "opus"` in `.claude/settings.local.json` (the conversation runs on Sonnet and consults Opus at decision points) |
+| skill `status` plus `UserPromptExpansion` hook | `/microverse:status`: overview of the orchestration in the terminal, with no model request |
 | agent `morty` (Sonnet) | implements a brief in its worktree |
 | agent `meeseeks` (Haiku; Sonnet for a code map; writes only the new file its prompt names) | answers one question with facts and their evidence, writes a code map or runs measurement recipes |
 | agent `rick` (Opus, Sonnet for a small mission; writes only its notes file) | designs a mission: measurements, rules, draft brief, questions for the user |
@@ -18,9 +19,11 @@ cleans up; the launch pace follows the usage quota.
 | `orch-quota` | reads the quota counters (extension and terminal status line readings, merged; the status line also keeps a 15-day history that serves the period start and, without a recent extension reading, the calibration) and advises the launch pace, counting the agents running on the account and learning their cost (`--calibrate`); `--no-write` reads without refreshing, pruning or saving anything |
 | `orch-usage` | tokens and API-equivalent cost per model (advisor calls on their own `<model> (advisor)` rows) or per agent run, context size of a session |
 | `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown (`--no-write` is passed to `orch-quota`, `--session <id>` picks the conversation of the context line) |
+| `orch-status [<commit>]` | plain-text overview, read-only: missions and questions of `CLAUDE.local.md`, agent worktrees, merges since the last report, agent runs, quota, context (the command behind `/microverse:status`) |
 | `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (`--merged`: on the merge result), suspicious patterns in the diff; one run per worktree at a time |
 | `agent-cleanup [--keep-branch] <branch>` | removes an agent's worktree and merged branch; `--keep-branch` removes the worktree only, to resume an interrupted agent (refuses with uncommitted changes) |
 | `PreToolUse` hook (`agent-model-guard`, matcher `Agent\|Task`) | denies the launch of a `microverse:` agent with no model or a model its role does not allow; other agents pass |
+| `UserPromptExpansion` hook (`status-command`, matcher `^microverse:status$`) | answers `/microverse:status` by blocking the command with the output of `orch-status`; other commands are untouched |
 | `SubagentStop` hook | stops servers left running by a finished agent |
 | `UserPromptSubmit` hook (`context-guard`) | once, when the context nears the auto-compaction window: update the state file; once, when it is past it (`autoCompactWindow` probably unset); once, when `autoCompactWindow` is below `compact_window` + 33000; once, when `CLAUDE.local.md` exceeds 60 lines; ignores a prompt starting with `/microverse:status` |
 | `SessionStart` hook (matcher `compact\|startup\|resume\|clear`) | in a project with a profile, tells every conversation to load the orchestration skill first; after a compaction, restates that `CLAUDE.local.md` is the state of reference and lists the agent worktrees, merged or not; on a new, cleared or resumed conversation, lists them with their last commit and uncommitted changes to resume an interrupted series (silent without a profile) |
@@ -88,6 +91,19 @@ In a conversation opened at the project root, the `orchestration` skill loads
 on requests about missions and series;
 `/microverse:orchestration` forces it.
 
+`/microverse:status` shows the state of the orchestration at once: the
+missions and questions of `CLAUDE.local.md` (sections titled Missions,
+Questions, Resume or Reprise, copied as written), the agent worktrees, the
+branches not merged and without a worktree, what was merged since the last
+report, the agent runs and their cost since then, the quota and the context
+size. It sends no request to the model: a `UserPromptExpansion` hook runs
+`orch-status` and blocks the command with the output, which Claude Code shows
+as a warning preceded by `UserPromptExpansion operation blocked by hook:`. The
+last report is the commit on the first `Last report` / `Dernier rapport` line
+of `CLAUDE.local.md`, or the commit given as argument
+(`/microverse:status a0f5690`). Nothing is written. With hooks disabled, the
+skill asks the model to run `orch-status` instead, which costs one request.
+
 ### Talking to the orchestrator
 
 Requests are understood by intent, in any language; the examples are not a
@@ -122,6 +138,7 @@ orch-quota --target 98 --reserve 30            # counts the running agents and l
 orch-quota --running 1 --agent-cost 15         # overrides, rarely needed
 orch-quota --calibrate                         # recompute the calibration now
 orch-quota --no-write                          # read-only: no refresh, no pruning, no saved calibration
+orch-status --target 98 --reserve 30           # what /microverse:status prints
 orch-usage --since 2026-01-01
 orch-usage --context
 orch-usage --agents
@@ -160,7 +177,8 @@ agents/           rick, morty, council, meeseeks
 bin/              dependency-free Node scripts, added to the Bash tool's PATH;
                   the .cmd files make them callable from PowerShell
 scripts/          orch-lib.js (shared by bin/ and the hooks), hooks (SubagentStop,
-                  UserPromptSubmit, SessionStart on compaction, startup, resume and clear)
+                  UserPromptSubmit, UserPromptExpansion, SessionStart on compaction,
+                  startup, resume and clear)
 tests/            node:test suite, run with `npm test`
 hooks/hooks.json  hook declaration
 user/CLAUDE.md    global writing rules
