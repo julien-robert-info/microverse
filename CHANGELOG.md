@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The Windows `.cmd` wrappers of `bin/` are removed: cmd.exe expanded `& | % "` of an argument before Node started. Outside Git Bash and the Claude Code Bash tool, run a script as `node <plugin dir>\bin\<script> <args>`, and never give it text taken from a repository through cmd.exe or PowerShell.
+- `council`, `rick` and `meeseeks` never use `Artifact` or `SendUserFile`: a review or notes go in the repository file the prompt names.
 - Profile trust: `sanitize` also strips default-ignorable characters (variation selectors, soft hyphen, U+034F, U+3164…), so the approval screen and `orch-trust --commands` agree. The SessionStart hook tells the model to have an invalid profile fixed, or that the main worktree was not found, instead of asking for an approval; the README and the orchestration skill document both cases.
 
 - Profile trust, strict schema: `setup`, `teardown` and `servers` must be arrays of strings and each check an object with a string `run`; anything else (or unreadable JSON) is state `invalid`: it cannot be approved, `--status` and `--commands` exit 1, `agent-check` exits 2 with the reason, and `agent-check` runs only the validated lists. `--commands` also refuses a command with hidden characters (tag, zero-width, bidi). A main worktree that cannot be found is unapproved, never `none`.
@@ -180,7 +182,7 @@
 - Script `orch-report --since <commit>`: the mechanical parts of the series
   report (merges, agent runs and cost, quota, context size) in Markdown.
 
-## 0.1.0
+## [0.1.0] - 2026-10-11
 
 - Skills `orchestration` and `init`.
 - Agents `morty` (implements a brief, Sonnet), `meeseeks` (answers one question,

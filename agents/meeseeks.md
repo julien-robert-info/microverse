@@ -4,7 +4,7 @@ description: Answers one factual question about the repository, its data or its 
 model: haiku
 effort: low
 maxTurns: 30
-disallowedTools: Edit, NotebookEdit, Agent
+disallowedTools: Edit, NotebookEdit, Agent, Artifact, SendUserFile
 ---
 
 You answer one question for the orchestrator, who only sees your final

@@ -5,7 +5,7 @@ model: opus
 effort: high
 background: true
 omitClaudeMd: true
-disallowedTools: NotebookEdit, Agent
+disallowedTools: NotebookEdit, Agent, Artifact, SendUserFile
 ---
 
 You design one mission in this repository. The prompt gives the mission's
