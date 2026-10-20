@@ -121,14 +121,46 @@ function lockWorktree(wt) {
     } catch (e) {
       if (e.code !== "EEXIST") throw e;
     }
-    const pid = Number(readFileSync(lock, "utf8").trim());
+    let pid;
+    try {
+      pid = Number(readFileSync(lock, "utf8").trim());
+    } catch (e) {
+      if (e.code === "ENOENT") continue; // released between our two calls
+      throw e;
+    }
     if (pid && alive(pid)) {
       console.log(`FAIL another agent-check is running on ${branch} (pid ${pid}): wait for its result`);
       process.exit(1);
     }
-    rmSync(lock, { force: true });
+    reclaimStale(lock, pid);
   }
   fail(`cannot take the lock ${lock}`);
+}
+
+// Removing a stale lock and creating ours are two steps: without a guard, a
+// second run that read the same stale pid deletes the first one's fresh lock
+// and both proceed. Only the run holding the exclusively created guard may
+// remove it, after checking it is still the stale one.
+function reclaimStale(lock, stalePid) {
+  const guard = `${lock}.reclaim`;
+  try {
+    writeFileSync(guard, String(process.pid), { flag: "wx" });
+  } catch (e) {
+    if (e.code !== "EEXIST") throw e;
+    console.log(`FAIL another agent-check is reclaiming the lock of ${branch}: wait for its result (stuck? remove ${guard})`);
+    process.exit(1);
+  }
+  try {
+    let current;
+    try {
+      current = Number(readFileSync(lock, "utf8").trim());
+    } catch {
+      return;
+    }
+    if (current === stalePid) rmSync(lock, { force: true });
+  } finally {
+    rmSync(guard, { force: true });
+  }
 }
 
 function alive(pid) {

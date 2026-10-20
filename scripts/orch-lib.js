@@ -12,8 +12,10 @@ function run(cmd, args, opts = {}) {
   return { code: r.status ?? 1, out: r.stdout ?? "", err: r.stderr ?? (r.error ? String(r.error) : "") };
 }
 
+// GIT_OPTIONAL_LOCKS=0: `git status` would otherwise refresh the index and take
+// index.lock in a worktree a live agent is committing in, failing its commit.
 function git(args, cwd) {
-  return run("git", args, { cwd });
+  return run("git", args, { cwd, env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } });
 }
 
 function fail(message) {
