@@ -9,6 +9,8 @@
 // worktree holds uncommitted or untracked changes.
 "use strict";
 
+const { realpathSync } = require("node:fs");
+const { join, resolve, sep } = require("node:path");
 const { fail, git, listProcesses, normPath, parseArgs, repoRoot, worktreeFor } = require("../scripts/orch-lib.js");
 
 const opts = parseArgs(process.argv.slice(2), { flags: ["keep-branch"] });
@@ -17,6 +19,25 @@ const branch = opts._[0];
 if (!branch) fail("usage: agent-cleanup [--keep-branch] <branch>");
 const root = repoRoot();
 const wt = worktreeFor(root, branch);
+
+// Only worktrees under <root>/.claude/worktrees are an agent's. Any other one
+// carrying the branch is the user's (their files, maybe ignored ones git would
+// not warn about), so nothing is unlocked, removed or deleted for it. Real
+// paths, and the separator in the prefix, defeat symlinks and `worktrees-evil`.
+if (wt && normPath(wt) !== normPath(root)) {
+  const fold = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
+  const real = (p) => {
+    try {
+      return realpathSync.native(p);
+    } catch {
+      return resolve(p);
+    }
+  };
+  const agentDir = fold(real(join(root, ".claude", "worktrees"))) + sep;
+  if (!fold(real(wt)).startsWith(agentDir)) {
+    fail(`REFUSED: the worktree of ${branch} is ${wt}, outside ${join(root, ".claude", "worktrees")}: not an agent's, nothing touched`);
+  }
+}
 
 // Checked first, so an unmerged branch keeps its worktree.
 if (git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], root).code !== 0) fail(`branch not found: ${branch}`);
