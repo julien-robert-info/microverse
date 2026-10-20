@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `agent-cleanup` only touches worktrees under `.claude/worktrees` and refuses any other worktree carrying the branch (it never unlocks or removes one of yours). Git calls set `GIT_OPTIONAL_LOCKS=0` so status checks do not take `index.lock` in live agent worktrees, and `agent-check` reclaims a stale lock atomically.
+
 - Optional audio report: tell the orchestrator to turn it on and each report or question message also arrives as an mp3 (SendUserFile). The new orch-speak turns the spoken text into speech with edge-tts (installed separately); options speak_voice (default fr-FR-HenriNeural), speak_rate (default +10%), speak_pitch and speak_volume.
 - `/microverse:status` shows the orchestration at a glance in the terminal
   (missions and questions of `CLAUDE.local.md`, agent worktrees, branches

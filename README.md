@@ -22,7 +22,7 @@ cleans up; the launch pace follows the usage quota.
 | `orch-speak` | turns a spoken text (stdin or `--file`) into an mp3 with edge-tts for the optional audio report and prints its path; `MICROVERSE_EDGE_TTS` names the edge-tts command when it is not on PATH |
 | `orch-status [<commit>]` | plain-text overview, read-only: missions and questions of `CLAUDE.local.md`, agent worktrees, merges since the last report, agent runs, quota, context (the command behind `/microverse:status`) |
 | `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (`--merged`: on the merge result), suspicious patterns in the diff; one run per worktree at a time |
-| `agent-cleanup [--keep-branch] <branch>` | removes an agent's worktree and merged branch; `--keep-branch` removes the worktree only, to resume an interrupted agent (refuses with uncommitted changes) |
+| `agent-cleanup [--keep-branch] <branch>` | removes an agent's worktree (only under `.claude/worktrees`) and merged branch; `--keep-branch` removes the worktree only, to resume an interrupted agent (refuses with uncommitted changes) |
 | `PreToolUse` hook (`agent-model-guard`, matcher `Agent\|Task`) | denies the launch of a `microverse:` agent with no model or a model its role does not allow; other agents pass |
 | `UserPromptExpansion` hook (`status-command`, matcher `^microverse:status$`) | answers `/microverse:status` by blocking the command with the output of `orch-status`; other commands are untouched |
 | `SubagentStop` hook | stops servers left running by a finished agent |
