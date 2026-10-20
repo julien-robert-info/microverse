@@ -12,6 +12,8 @@
 - Tests: `node:test` in `tests/`, on throwaway repositories and files built by
   `tests/helpers.js` (`makeRepo`), never on the user's real transcripts, quota
   file or `~/.claude`. Fixtures use synthetic values.
+- Run the `bin/` scripts from the Bash tool, never from PowerShell or cmd.exe
+  with a branch name or other text taken from the repository.
 - Never write to `~/.claude` (settings, plugins, projects), never run
   `claude plugin install|uninstall|configure`, never push.
 - Variables `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`,

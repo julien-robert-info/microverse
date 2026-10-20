@@ -239,8 +239,8 @@ test("a hostile commit subject and branch name reach the context cleaned and bou
   for (const source of ["startup", "resume"]) {
     const m = message(run(dir, { source }));
     assert.doesNotMatch(m, /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029\u{e0000}-\u{e007f}]/u, source);
-    const row = m.split("\n").find((l) => l.startsWith("- feat/"));
-    assert.ok(row.startsWith("- feat/abcd (.claude/worktrees/agent-open): not merged, last commit "), row);
+    const row = m.split("\n").find((l) => l.startsWith("- (invalid name)"));
+    assert.ok(row.startsWith("- (invalid name) (.claude/worktrees/agent-open): not merged, last commit "), row);
     assert.match(row, /fix: x\]0;PWNED\[31m/);
     assert.ok(row.length < 100 + 100 + 120, `row too long: ${row.length}`);
     assert.ok(row.includes("…"));

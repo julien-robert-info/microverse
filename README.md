@@ -181,6 +181,14 @@ agent-check feat/subject --merged
 agent-cleanup feat/subject
 ```
 
+`agent-check` and `agent-cleanup` refuse (exit 2) a branch name that git
+accepts but that is unsafe in a shell: one containing `& | < > ^ % ! "`, a
+control character or a leading `-`; the listings print `(invalid name)` for such
+a branch. From PowerShell, run the scripts as `node <path to script>` or pass
+only names that pass this validation, `orch-speak.cmd` included. Validation
+inside Node cannot close the cmd.exe injection: cmd.exe expands the argument of
+a `.cmd` wrapper before Node starts.
+
 ## Trust model
 
 `.claude/orchestration/profile.json` is code, like the scripts of a

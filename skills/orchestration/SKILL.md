@@ -152,6 +152,9 @@ Agent(subagent_type: "microverse:meeseeks", model: "sonnet",
 
 ## 3. When the report arrives
 
+Run the `bin` scripts (`agent-check`, `agent-cleanup`, `orch-*`) from the Bash
+tool, never from PowerShell or cmd.exe.
+
 1. `agent-check <branch>`: commits present, worktree clean, the profile's
    `checks`, diff patterns; it also reports conflicts with main and how far main
    moved: when it moved since the launch, rerun with `--merged` before merging.
