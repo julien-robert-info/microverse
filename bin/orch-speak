@@ -153,10 +153,20 @@ function synthesize(engine, found, params, timeoutS) {
     if (!existsSync(part) || statSync(part).size === 0) throw new Exit(1, "orch-speak: edge-tts produced no audio");
     renameSync(part, params.outFile);
   } finally {
-    // A killed launcher can still hold the file for a moment on Windows.
+    removeWhenFree(part);
+  }
+}
+
+// On Windows the Python child of a killed launcher holds the file a little
+// longer than the launcher lives (rmSync's own retry does not cover EPERM).
+function removeWhenFree(file) {
+  for (let i = 0; i < 40; i++) {
     try {
-      rmSync(part, { force: true });
-    } catch {}
+      rmSync(file, { force: true });
+      return;
+    } catch {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+    }
   }
 }
 
