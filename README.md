@@ -184,10 +184,11 @@ agent-cleanup feat/subject
 `agent-check` and `agent-cleanup` refuse (exit 2) a branch name that git
 accepts but that is unsafe in a shell: one containing `& | < > ^ % ! "`, a
 control character or a leading `-`; the listings print `(invalid name)` for such
-a branch. From PowerShell, run the scripts as `node <path to script>` or pass
-only names that pass this validation, `orch-speak.cmd` included. Validation
-inside Node cannot close the cmd.exe injection: cmd.exe expands the argument of
-a `.cmd` wrapper before Node starts.
+a branch. The bare script name works in the Claude Code Bash tool and in Git
+Bash. On Windows outside Git Bash, run a script as
+`node <plugin dir>\bin\<script> <args>`, and never give it text taken from a
+repository through cmd.exe or PowerShell: they expand `& | % "` of an argument
+before Node starts, which validation inside Node cannot undo.
 
 ## Trust model
 
@@ -275,14 +276,20 @@ not part of the CI workflow. `--ablation none` skips the no-plugin baseline arm:
 the skill graders are scored directly instead of being treated as indicators.
 Results land in `evals/results/` (ignored by git).
 
+## Releasing
+
+Versions follow SemVer, in the 0.x range (a new feature raises the minor, a fix
+the patch). `CHANGELOG.md` follows Keep a Changelog: `## Unreleased` on top,
+then `## [x.y.z] - YYYY-MM-DD` sections. The version is the `version` field of
+`.claude-plugin/plugin.json`, and a release is the annotated tag `vX.Y.Z`.
+
 ## Architecture
 
 ```
 .claude-plugin/   plugin.json (manifest, settings), marketplace.json (catalog)
 skills/           orchestration (SKILL.md, budget.md, brief.md, review.md, stop-resume.md, audio.md), init, status
 agents/           rick, morty, council, meeseeks
-bin/              dependency-free Node scripts, added to the Bash tool's PATH;
-                  the .cmd files make them callable from PowerShell
+bin/              dependency-free Node scripts, added to the Bash tool's PATH
 scripts/          orch-lib.js (shared by bin/ and the hooks), hooks (SubagentStop,
                   UserPromptSubmit, UserPromptExpansion, SessionStart on compaction,
                   startup, resume and clear)

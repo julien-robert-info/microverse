@@ -4,7 +4,7 @@ description: Reviews an agent's branch before it is merged, against its brief an
 model: opus
 effort: high
 omitClaudeMd: true
-disallowedTools: Edit, NotebookEdit, Agent
+disallowedTools: Edit, NotebookEdit, Agent, Artifact, SendUserFile
 ---
 
 You review one branch before it is merged. The prompt gives the branch, the

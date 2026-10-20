@@ -7,8 +7,7 @@
   standard library (`node:` modules). Shared helpers live in
   `scripts/orch-lib.js`; reuse them rather than duplicating.
 - A new command in `bin/` gets a shebang `#!/usr/bin/env node`, a usage comment
-  at the top like its siblings, and a `bin/<name>.cmd` wrapper (CRLF, see
-  `.gitattributes`) copied from an existing one.
+  at the top like its siblings.
 - Tests: `node:test` in `tests/`, on throwaway repositories and files built by
   `tests/helpers.js` (`makeRepo`), never on the user's real transcripts, quota
   file or `~/.claude`. Fixtures use synthetic values.
@@ -32,3 +31,18 @@
 - `claude plugin validate --strict .` runs in CI; when you change a manifest,
   `hooks/hooks.json`, a frontmatter or `settings.json`, check the field names
   against code.claude.com/docs/en/plugins-reference.
+
+## Releasing
+
+Run by the orchestrator, never by an agent, at the end of a series when
+`## Unreleased` of `CHANGELOG.md` is not empty.
+
+1. Pick the version (0.x): a new feature raises the minor, fixes only raise the
+   patch.
+2. Move the `Unreleased` entries under `## [x.y.z] - YYYY-MM-DD` and leave an
+   empty `## Unreleased` on top.
+3. Set `version` in `.claude-plugin/plugin.json` to `x.y.z`.
+4. `claude plugin validate --strict .`, then `npm test` with a temporary `HOME`
+   and `USERPROFILE`.
+5. Commit `chore(release): vX.Y.Z`, then tag it: `git tag -a vX.Y.Z -m "vX.Y.Z"`.
+6. Push the commit and the tag. The scripts create no GitHub Release.
