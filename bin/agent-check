@@ -128,8 +128,9 @@ function lockWorktree(wt) {
       if (e.code === "ENOENT") continue; // released between our two calls
       throw e;
     }
-    if (pid && alive(pid)) {
-      console.log(`FAIL another agent-check is running on ${branch} (pid ${pid}): wait for its result`);
+    // An empty or unreadable lock is a run between creating and writing it: live.
+    if (!pid || alive(pid)) {
+      console.log(`FAIL another agent-check is running on ${branch} (pid ${pid || "unknown"}): wait for its result`);
       process.exit(1);
     }
     reclaimStale(lock, pid);
@@ -157,7 +158,8 @@ function reclaimStale(lock, stalePid) {
     } catch {
       return;
     }
-    if (current === stalePid) rmSync(lock, { force: true });
+    // Alive is re-checked: the pid may have been reused since it was read.
+    if (current && current === stalePid && !alive(current)) rmSync(lock, { force: true });
   } finally {
     rmSync(guard, { force: true });
   }

@@ -2,10 +2,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { spawn, spawnSync } = require("node:child_process");
+const { spawnSync } = require("node:child_process");
 const { existsSync, mkdirSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
-const { bin, commitFile, git, makeRepo, script } = require("./helpers.js");
+const { commitFile, git, makeRepo, script } = require("./helpers.js");
 const { git: libGit } = require("../scripts/orch-lib.js");
 
 // A worktree of the user's at `rel` (relative to the repo), locked, with an
@@ -82,22 +82,35 @@ test("the git runner sets GIT_OPTIONAL_LOCKS=0", () => {
   assert.match(libGit(["showlocks"], dir).out, /locks=0/);
 });
 
-test("two agent-check runs reclaiming a stale lock: one winner", async () => {
-  const slow = `node -e "setTimeout(()=>{},2500)"`;
-  const { dir, wt } = makeRepo({ checks: [{ name: "slow", run: slow }] });
-  const gitDir = git(wt, "rev-parse", "--absolute-git-dir").out.trim();
+function lockedRepo(content, guard) {
+  const { dir, wt } = makeRepo({});
+  const lock = join(git(wt, "rev-parse", "--absolute-git-dir").out.trim(), "microverse-agent-check.lock");
+  writeFileSync(lock, content);
+  if (guard !== undefined) writeFileSync(`${lock}.reclaim`, guard);
+  return { dir, lock };
+}
+
+test("agent-check treats an empty lock file as a live run", () => {
+  const { dir, lock } = lockedRepo("");
+  const r = script("agent-check", ["feat/x", "--no-checks"], dir);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /another agent-check/);
+  assert.ok(existsSync(lock));
+});
+
+test("agent-check refuses to reclaim a stale lock while a reclaim guard exists", () => {
   const dead = spawnSync(process.execPath, ["-e", ""]);
-  writeFileSync(join(gitDir, "microverse-agent-check.lock"), String(dead.pid ?? 999999));
-  const run = () =>
-    new Promise((res) => {
-      let out = "";
-      const p = spawn(process.execPath, [bin("agent-check"), "feat/x"], { cwd: dir });
-      p.stdout.on("data", (d) => (out += d));
-      p.stderr.on("data", (d) => (out += d));
-      p.on("close", (code) => res({ code, out }));
-    });
-  const results = await Promise.all([run(), run()]);
-  const codes = results.map((r) => r.code).sort();
-  assert.deepEqual(codes, [0, 1], results.map((r) => r.out).join("\n---\n"));
-  assert.match(results.find((r) => r.code === 1).out, /another agent-check/);
+  const { dir, lock } = lockedRepo(String(dead.pid), "1");
+  const r = script("agent-check", ["feat/x", "--no-checks"], dir);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /reclaiming/);
+  assert.ok(existsSync(lock));
+});
+
+test("agent-check reclaims a stale lock and removes its guard", () => {
+  const dead = spawnSync(process.execPath, ["-e", ""]);
+  const { dir, lock } = lockedRepo(String(dead.pid));
+  const r = script("agent-check", ["feat/x", "--no-checks"], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(!existsSync(`${lock}.reclaim`));
 });

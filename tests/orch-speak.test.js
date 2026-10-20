@@ -25,6 +25,7 @@ if (mode === "ok") { fs.writeFileSync(out, Buffer.from("fake-mp3-bytes")); proce
 if (mode === "empty") process.exit(0);
 if (mode === "hang") { fs.writeFileSync(out, ""); setInterval(() => {}, 1000); return; }
 fs.writeFileSync(out, "");
+if (mode === "hostile") { console.error("Error: bad " + String.fromCharCode(27, 93) + "52;c;QQ" + String.fromCharCode(7, 0x2028, 0xe9) + "end"); process.exit(1); }
 console.error("Traceback (most recent call last):");
 console.error("edge_tts.exceptions.NoAudioReceived: No audio was received. Please verify that your parameters are correct.");
 console.error("Exception ignored in: <function _ProactorBasePipeTransport.__del__>");
@@ -76,7 +77,7 @@ test("stdin text goes to the engine through -f and the path is printed", () => {
 test("--file with a BOM and --out in a new folder", () => {
   const t = setup();
   const file = join(t.dir, "in.txt");
-  writeFileSync(file, `﻿${TEXT}`);
+  writeFileSync(file, `\ufeff${TEXT}`);
   const out = join(t.dir, "deep", "sub", "a.mp3");
   const r = t.speak(["--file", file, "--out", out]);
   assert.equal(r.code, 0, r.err);
@@ -130,6 +131,14 @@ test("engine failure: one line ending on the real error, no file left", () => {
   assert.match(lines[0], /^orch-speak: edge-tts failed: edge_tts\.exceptions\.NoAudioReceived: /);
   assert.ok(!r.err.includes("RuntimeError"));
   assert.deepEqual(leftovers(t.speakDir), []);
+});
+
+test("engine stderr is cleaned of terminal control sequences", () => {
+  const t = setup();
+  const r = t.speak([], { input: TEXT, env: { FAKE_MODE: "hostile" } });
+  assert.equal(r.code, 1);
+  assert.doesNotMatch(r.err, /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u2028]/);
+  assert.match(r.err, /Error: bad \]52;c;QQéend/);
 });
 
 test("engine that writes nothing: no audio, no file left", () => {

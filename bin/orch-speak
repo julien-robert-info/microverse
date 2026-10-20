@@ -18,7 +18,7 @@ const { spawnSync } = require("node:child_process");
 const { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { dirname, extname, join, resolve } = require("node:path");
-const { parseArgs, run } = require("../scripts/orch-lib.js");
+const { parseArgs, run, sanitize } = require("../scripts/orch-lib.js");
 
 const DEFAULTS = { voice: "fr-FR-HenriNeural", rate: "+10%", pitch: "+0Hz", volume: "+0%" };
 const KEEP_MS = 7 * 24 * 3600e3;
@@ -66,7 +66,7 @@ function readText(file) {
     if (file) throw new Exit(2, `orch-speak: cannot read ${file}: ${e.message}`);
     raw = "";
   }
-  return raw.replace(/^﻿/, "");
+  return raw.replace(/^\ufeff/, "");
 }
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -138,7 +138,7 @@ function errorLine(stderr) {
     if (l.startsWith("Exception ignored in")) break;
     if (l.trim()) lines.push(l.trim());
   }
-  return (lines.pop() ?? "no message").slice(0, 200);
+  return sanitize((lines.pop() ?? "no message").slice(0, 200));
 }
 
 // Writes the speech to `outFile` or throws; `outFile` is never left half-written.
@@ -196,6 +196,6 @@ try {
   main();
 } catch (e) {
   if (!(e instanceof Exit)) throw e;
-  console.error(e.message);
+  console.error(sanitize(e.message));
   process.exitCode = e.code;
 }
