@@ -14,8 +14,19 @@ function run(cmd, args, opts = {}) {
 
 // GIT_OPTIONAL_LOCKS=0: `git status` would otherwise refresh the index and take
 // index.lock in a worktree a live agent is committing in, failing its commit.
+// `core.fsmonitor=false`: a .git/config of a repository we only inspect may name
+// a fsmonitor command, which `git status` would run.
 function git(args, cwd) {
-  return run("git", args, { cwd, env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } });
+  return run("git", ["-c", "core.fsmonitor=false", ...args], { cwd, env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } });
+}
+
+// A branch name that git accepts and that stays inert when it reaches a
+// terminal or a cmd.exe command line: git allows `a&b` or `a%PATH%`, which cmd
+// would expand or split, and control characters.
+function validBranch(name) {
+  if (typeof name !== "string" || !name || name.startsWith("-")) return false;
+  if (/[&|<>^%!"\u0000-\u001f\u007f-\u009f]/.test(name)) return false;
+  return git(["check-ref-format", "--branch", name]).code === 0;
 }
 
 function fail(message) {
@@ -635,7 +646,7 @@ function sanitize(text, max) {
 }
 
 module.exports = {
-  sanitize,
+  sanitize, validBranch,
   listWorktrees, agentWorktrees,
   statuslineObservations, risingOnly, currentReading, fmtAge,
   COMPACT_OFFSET, run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses, lastContext, readTail, paceAdvice,

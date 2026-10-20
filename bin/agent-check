@@ -16,7 +16,14 @@
 const { spawnSync } = require("node:child_process");
 const { readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
-const { defaultBase, fail, git, loadProfile, parseArgs, repoRoot, worktreeFor } = require("../scripts/orch-lib.js");
+const { defaultBase, fail, git, loadProfile, parseArgs, repoRoot, sanitize, validBranch, worktreeFor } = require("../scripts/orch-lib.js");
+
+// One choke point for everything printed: branch names, commit subjects, file
+// names, check output and git errors come from the repository.
+for (const m of ["log", "error"]) {
+  const orig = console[m].bind(console);
+  console[m] = (...a) => orig(...a.map((x) => (typeof x === "string" ? sanitize(x) : x)));
+}
 
 const TAIL = 25;
 // UTF-8 text decoded as cp1252 then re-encoded: U+00E9 becomes U+00C3 U+00A9,
@@ -26,6 +33,7 @@ const BUILTIN = [{ pattern: "\\u00C3[\\u0080-\\u00BF\\u2018-\\u2030]|\\u00E2\\u2
 const opts = parseArgs(process.argv.slice(2), { flags: ["no-checks", "merged"] });
 const branch = opts._[0];
 if (!branch) fail("usage: agent-check <branch> [--base main] [--no-checks] [--merged]");
+if (!validBranch(branch)) fail("REFUSED: invalid branch name, nothing touched");
 const root = repoRoot();
 const base = typeof opts.base === "string" ? opts.base : defaultBase(root);
 const profile = loadProfile(root) ?? {};

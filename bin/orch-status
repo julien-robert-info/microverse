@@ -17,7 +17,7 @@
 
 const { existsSync, readFileSync } = require("node:fs");
 const { basename, join } = require("node:path");
-const { agentWorktrees, fail, git, listWorktrees, parseArgs, run, sanitize } = require("../scripts/orch-lib.js");
+const { agentWorktrees, fail, git, listWorktrees, parseArgs, run, sanitize, validBranch } = require("../scripts/orch-lib.js");
 
 // git status in the agents' worktrees would refresh and rewrite their index,
 // racing with the agents' own git commands.
@@ -201,7 +201,7 @@ function main() {
   section(
     "Agent worktrees",
     rows.length
-      ? rows.map((w) => `${w.branch ?? "(detached)"}  ${w.rel}  ${w.merged ? "merged" : "not merged"}, last commit ${w.last || "unknown"}, ${w.dirty ? "uncommitted changes" : "clean"}`)
+      ? rows.map((w) => `${w.branch == null ? "(detached)" : validBranch(w.branch) ? w.branch : "(invalid name)"}  ${w.rel}  ${w.merged ? "merged" : "not merged"}, last commit ${w.last || "unknown"}, ${w.dirty ? "uncommitted changes" : "clean"}`)
       : ["none"],
   );
 
