@@ -6,12 +6,12 @@
 // of the `servers` patterns of the project profile are stopped: an agent can
 // stop while its own tests or a long job still run, and those must survive.
 // Patterns are plain substrings, compared case-insensitively with "\" as the
-// path separator. Every run is logged in the plugin's data folder.
+// path separator. The profile must be approved (orch-trust). Every run is logged in the plugin's data folder.
 "use strict";
 
-const { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs");
+const { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
-const { run, listProcesses, normPath, sanitize } = require("./orch-lib.js");
+const { run, listProcesses, mainRoot, normPath, profileTrust, sanitize } = require("./orch-lib.js");
 
 const dataDir = process.env.CLAUDE_PLUGIN_DATA || __dirname;
 mkdirSync(dataDir, { recursive: true });
@@ -44,14 +44,17 @@ function main() {
   if (!agentId) return log("no agent_id");
 
   const projectDir = process.env.CLAUDE_PROJECT_DIR || payload.cwd;
-  const profilePath = join(projectDir, ".claude", "orchestration", "profile.json");
-  if (!existsSync(profilePath)) return log(`agent ${agentId}: no profile at ${profilePath}`);
+  const trust = profileTrust(mainRoot(projectDir));
+  if (trust.state === "none") return log(`agent ${agentId}: no profile at ${trust.file}`);
+  // Stopping processes is an action of the profile: not before the user approved it.
+  if (trust.state !== "approved") return log(`agent ${agentId}: profile not approved, nothing stopped`);
 
   let patterns;
   try {
-    patterns = (JSON.parse(readFileSync(profilePath, "utf8")).servers ?? []).filter(Boolean).map(normPath);
+    if (!trust.profile) throw new Error("invalid");
+    patterns = (trust.profile.servers ?? []).filter(Boolean).map(normPath);
   } catch {
-    return log(`agent ${agentId}: unreadable profile ${profilePath}`);
+    return log(`agent ${agentId}: unreadable profile ${trust.file}`);
   }
   if (!patterns.length) return log(`agent ${agentId}: no servers pattern in the profile`);
 
