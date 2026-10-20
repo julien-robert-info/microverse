@@ -201,7 +201,7 @@ function main() {
   section(
     "Agent worktrees",
     rows.length
-      ? rows.map((w) => `${w.branch == null ? "(detached)" : validBranch(w.branch) ? w.branch : "(invalid name)"}${w.rel}  ${w.merged ? "merged" : "not merged"}, last commit ${w.last || "unknown"}, ${w.dirty ? "uncommitted changes" : "clean"}`)
+      ? rows.map((w) => `${w.branch == null ? "(detached)" : validBranch(w.branch) ? w.branch : "(invalid name)"}  ${w.rel}  ${w.merged ? "merged" : "not merged"}, last commit ${w.last || "unknown"}, ${w.dirty ? "uncommitted changes" : "clean"}`)
       : ["none"],
   );
 
