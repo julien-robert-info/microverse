@@ -9,13 +9,25 @@
 // path separator. Every run is logged in the plugin's data folder.
 "use strict";
 
-const { appendFileSync, existsSync, mkdirSync, readFileSync } = require("node:fs");
+const { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
-const { run, listProcesses, normPath } = require("./orch-lib.js");
+const { run, listProcesses, normPath, sanitize } = require("./orch-lib.js");
 
 const dataDir = process.env.CLAUDE_PLUGIN_DATA || __dirname;
 mkdirSync(dataDir, { recursive: true });
-const log = (message) => appendFileSync(join(dataDir, "stop-agent-servers.log"), `${new Date().toISOString().slice(0, 19)} ${message}\n`);
+const logFile = join(dataDir, "stop-agent-servers.log");
+const LOG_MAX = 64 * 1024;
+const LOG_KEEP = 16 * 1024;
+const log = (message) => {
+  try {
+    // Bounded: past the cap only the newest lines are kept.
+    if (statSync(logFile).size > LOG_MAX) {
+      const tail = readFileSync(logFile, "utf8").slice(-LOG_KEEP);
+      writeFileSync(logFile, tail.slice(tail.indexOf("\n") + 1));
+    }
+  } catch {}
+  appendFileSync(logFile, `${new Date().toISOString().slice(0, 19)} ${sanitize(message, 300).replace(/\n/g, " ")}\n`);
+};
 
 // Shells are never taken for a server: their command line can mention the
 // worktree (this hook's caller, an agent's Bash) without serving anything.
@@ -64,7 +76,8 @@ function main() {
         } catch {}
       }
     }
-    log(`agent ${agentId}: stopped PID ${p.pid} ${p.line}`);
+    // The executable name only: arguments can carry passwords or tokens.
+    log(`agent ${agentId}: stopped PID ${p.pid} ${p.name}`);
   }
 }
 

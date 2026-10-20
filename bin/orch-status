@@ -17,7 +17,7 @@
 
 const { existsSync, readFileSync } = require("node:fs");
 const { basename, join } = require("node:path");
-const { agentWorktrees, fail, git, listWorktrees, parseArgs, run } = require("../scripts/orch-lib.js");
+const { agentWorktrees, fail, git, listWorktrees, parseArgs, run, sanitize } = require("../scripts/orch-lib.js");
 
 // git status in the agents' worktrees would refresh and rewrite their index,
 // racing with the agents' own git commands.
@@ -272,13 +272,9 @@ function agentsSection(agents) {
 
 main();
 
-// Control characters (ESC and the rest of C0 and C1, except newline) in what
-// was copied from files, commit subjects and branch names could drive the
-// terminal; tabs become spaces. Bidi and zero-width characters could make a
-// line read differently from what it says, and ▶ is the marker of the
-// orchestration skill's own trace lines.
-let text = out.join("\n").replace(/\r/g, "").replace(/\t/g, "  ");
-text = text.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff▶]/g, "");
+// Text copied from files, commit subjects and branch names is sanitized; ▶ is
+// the marker of the orchestration skill's own trace lines.
+let text = sanitize(out.join("\n")).replace(/▶/g, "");
 // No newline before the limit (one huge first line): cut in the line.
 if (text.length > TOTAL_MAX) {
   const cut = text.lastIndexOf("\n", TOTAL_MAX - 60);

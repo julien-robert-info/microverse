@@ -74,7 +74,7 @@ any other launch, and a launch with no `model`):
 
 - **Budget**: `orch-quota --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --file '${user_config.quota_file}'`
   (single quotes: an unset option stays literal and double quotes would make
-  bash fail on it). Do not pass `--running` or `--agent-cost`: without them it
+  bash fail on it; write an apostrophe inside a value as `'\''`). Do not pass `--running` or `--agent-cost`: without them it
   counts the agents running on the whole account and uses their learned cost,
   which several orchestrators need to share one room; they only override
   that. Follow its advice (speed up, normal, smooth out, no new
@@ -288,7 +288,7 @@ orch-speak --voice '${user_config.speak_voice}' --rate '${user_config.speak_rate
 EOF
 ```
 
-and `SendUserFile` with the path it prints. Off: no spoken text, no call.
+(same quoting rule for an apostrophe in a value), and `SendUserFile` with the path it prints. Off: no spoken text, no call.
 
 Each question is answered without having read the conversation:
 

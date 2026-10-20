@@ -13,6 +13,7 @@
 const { spawnSync } = require("node:child_process");
 const { readFileSync } = require("node:fs");
 const { join } = require("node:path");
+const { sanitize } = require("./orch-lib.js");
 
 const MAX = 9000;
 const COMMAND = "microverse:status";
@@ -27,7 +28,7 @@ const OPTIONS = [
 ];
 
 function clean(text) {
-  let s = text.replace(/\r/g, "").replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, "").trim();
+  let s = sanitize(text).trim();
   if (s.length > MAX) {
     const cut = s.lastIndexOf("\n", MAX - 60);
     s = `${s.slice(0, cut > 0 ? cut : MAX - 60)}\n… output truncated`;

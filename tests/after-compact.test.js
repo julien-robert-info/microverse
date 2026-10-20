@@ -226,3 +226,22 @@ test("without a transcript_path in the payload no transcript line is given", () 
   }
   assert.ok(!message(run(dir, { source: "compact", transcript_path: "" })).includes("Transcript"));
 });
+
+test("a hostile commit subject and branch name reach the context cleaned and bounded", () => {
+  const dir = tmp();
+  repoWith(dir);
+  const open = join(dir, ".claude", "worktrees", "agent-open");
+  // Git refuses ASCII controls in a ref name but accepts C1, U+2028 and tag characters.
+  git(dir, "worktree", "add", "-q", "-b", "feat/a\u009bb\u2028c\u{e0041}d", open);
+  const subject = `fix: x\r\u001b]0;PWNED\u0007\u001b[31m\u2028\u{e0049}${"y".repeat(300)}`;
+  commitFile(open, "open.txt", "open\n", subject);
+  for (const source of ["startup", "resume"]) {
+    const m = message(run(dir, { source }));
+    assert.doesNotMatch(m, /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029\u{e0000}-\u{e007f}]/u, source);
+    const row = m.split("\n").find((l) => l.startsWith("- feat/"));
+    assert.ok(row.startsWith("- feat/abcd (.claude/worktrees/agent-open): not merged, last commit "), row);
+    assert.match(row, /fix: x\]0;PWNED\[31m/);
+    assert.ok(row.length < 100 + 100 + 120, `row too long: ${row.length}`);
+    assert.ok(row.includes("…"));
+  }
+});

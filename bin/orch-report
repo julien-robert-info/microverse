@@ -13,7 +13,7 @@
 "use strict";
 
 const { join } = require("node:path");
-const { defaultBase, fail, git, parseArgs, repoRoot, run } = require("../scripts/orch-lib.js");
+const { defaultBase, fail, git, parseArgs, repoRoot, run, sanitize } = require("../scripts/orch-lib.js");
 
 const opts = parseArgs(process.argv.slice(2), { flags: ["no-write"] });
 const root = repoRoot();
@@ -81,4 +81,6 @@ const contextArgs = ["--context"];
 if (typeof opts.session === "string") contextArgs.push("--session", opts.session);
 out.push("", "## Context", "", "```", sibling("orch-usage", contextArgs).text, "```");
 
-console.log(out.join("\n"));
+// Commit subjects (merged upstream ones too) are repository text. The agents
+// table is tab-separated, so each cell is cleaned apart to keep its tabs.
+console.log(out.join("\n").split("\t").map((cell) => sanitize(cell)).join("\t"));
