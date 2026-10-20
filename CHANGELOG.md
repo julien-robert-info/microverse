@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.2.0] - 2026-10-20
+
 - The Windows `.cmd` wrappers of `bin/` are removed: cmd.exe expanded `& | % "` of an argument before Node started. Outside Git Bash and the Claude Code Bash tool, run a script as `node <plugin dir>\bin\<script> <args>`, and never give it text taken from a repository through cmd.exe or PowerShell.
 - `council`, `rick` and `meeseeks` never use `Artifact` or `SendUserFile`: a review or notes go in the repository file the prompt names.
 - Profile trust: `sanitize` also strips default-ignorable characters (variation selectors, soft hyphen, U+034F, U+3164…), so the approval screen and `orch-trust --commands` agree. The SessionStart hook tells the model to have an invalid profile fixed, or that the main worktree was not found, instead of asking for an approval; the README and the orchestration skill document both cases.
