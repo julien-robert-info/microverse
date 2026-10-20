@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Optional audio report: tell the orchestrator to turn it on and each report or question message also arrives as an mp3 (SendUserFile). The new orch-speak turns the spoken text into speech with edge-tts (installed separately); options speak_voice (default fr-FR-HenriNeural), speak_rate (default +10%), speak_pitch and speak_volume.
 - `/microverse:status` shows the orchestration at a glance in the terminal
   (missions and questions of `CLAUDE.local.md`, agent worktrees, branches
   without a worktree, merges since the last report, agent runs, quota,

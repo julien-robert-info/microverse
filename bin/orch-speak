@@ -1,0 +1,201 @@
+#!/usr/bin/env node
+// Turns a spoken text into an mp3 with edge-tts (installed separately) and
+// prints the absolute path of the file, one line.
+//
+// orch-speak [--file <text>] [--out <mp3>] [--name <prefix>] [--voice V] [--rate R] [--pitch P]
+//            [--volume V] [--timeout S]
+//
+// The text comes from --file (UTF-8) or, without it, from stdin. Without
+// --out the file goes to <tmpdir>/microverse-speak/<name>-<date>-<time>.mp3,
+// where mp3 and .part files older than 7 days are deleted at each run.
+// MICROVERSE_EDGE_TTS names the edge-tts command when it is not on PATH.
+// An option that is empty or still the literal `${user_config.…}` is unset.
+// Exit: 0 done, 1 engine failed or timed out or made no audio, 2 usage,
+// 3 engine not found.
+"use strict";
+
+const { spawnSync } = require("node:child_process");
+const { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } = require("node:fs");
+const { tmpdir } = require("node:os");
+const { dirname, extname, join, resolve } = require("node:path");
+const { parseArgs, run } = require("../scripts/orch-lib.js");
+
+const DEFAULTS = { voice: "fr-FR-HenriNeural", rate: "+10%", pitch: "+0Hz", volume: "+0%" };
+const KEEP_MS = 7 * 24 * 3600e3;
+const INSTALL = 'orch-speak: edge-tts not found; install it with "pip install --user edge-tts" (or "pipx install edge-tts"), or set MICROVERSE_EDGE_TTS';
+
+class Exit extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+  }
+}
+
+// An empty value or an unsubstituted plugin option counts as not given.
+function given(v, name) {
+  if (v === undefined) return undefined;
+  if (typeof v !== "string") throw new Exit(2, `orch-speak: --${name} needs a value`);
+  return v === "" || v.includes("${") ? undefined : v;
+}
+
+// Patterns are those edge-tts itself enforces; a sign-less number gets "+".
+function setting(opts, name, pattern, signed) {
+  const v = given(opts[name], name) ?? DEFAULTS[name];
+  if (!pattern.test(v)) throw new Exit(2, `orch-speak: invalid --${name}: ${v}`);
+  return signed && /^\d/.test(v) ? `+${v}` : v;
+}
+
+function parseOptions(argv) {
+  const opts = parseArgs(argv);
+  const voice = setting(opts, "voice", /^[a-z]{2,}-[A-Z]{2,}-\S+Neural$/, false);
+  const rate = setting(opts, "rate", /^[+-]?\d+%$/, true);
+  const pitch = setting(opts, "pitch", /^[+-]?\d+Hz$/, true);
+  const volume = setting(opts, "volume", /^[+-]?\d+%$/, true);
+  const timeout = given(opts.timeout, "timeout") ?? "60";
+  if (!/^\d+$/.test(timeout) || Number(timeout) < 1 || Number(timeout) > 600) throw new Exit(2, `orch-speak: invalid --timeout (1 to 600 seconds): ${timeout}`);
+  const name = given(opts.name, "name") ?? "report";
+  if (!/^[a-z0-9-]{1,40}$/.test(name)) throw new Exit(2, `orch-speak: invalid --name: ${name}`);
+  return { voice, rate, pitch, volume, timeout: Number(timeout), name, file: given(opts.file, "file"), out: given(opts.out, "out") };
+}
+
+function readText(file) {
+  let raw;
+  try {
+    raw = readFileSync(file ?? 0, "utf8");
+  } catch (e) {
+    if (file) throw new Exit(2, `orch-speak: cannot read ${file}: ${e.message}`);
+    raw = "";
+  }
+  return raw.replace(/^﻿/, "");
+}
+
+const pad = (n) => String(n).padStart(2, "0");
+
+function defaultOut(dir, name) {
+  const d = new Date();
+  const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  let file = join(dir, `${name}-${stamp}.mp3`);
+  for (let n = 2; existsSync(file) || existsSync(`${file}.part`); n++) file = join(dir, `${name}-${stamp}-${n}.mp3`);
+  return file;
+}
+
+function purge(dir) {
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  const limit = Date.now() - KEEP_MS;
+  for (const n of names) {
+    if (!/\.(mp3|part)$/.test(n)) continue;
+    try {
+      const f = join(dir, n);
+      const s = statSync(f);
+      if (s.isFile() && s.mtimeMs < limit) rmSync(f);
+    } catch {
+      // gone or busy: the next run tries again
+    }
+  }
+}
+
+// The only part that knows edge-tts: how to find it and how to call it.
+const ENGINES = {
+  "edge-tts": {
+    // Commands to try, first answer to --version wins.
+    candidates() {
+      const env = process.env.MICROVERSE_EDGE_TTS;
+      if (env && !env.includes("${")) {
+        if (!existsSync(env)) throw new Exit(3, `orch-speak: MICROVERSE_EDGE_TTS points to a missing file: ${env}`);
+        // A .js file is run by node: a .cmd cannot be spawned without a shell.
+        return [extname(env) === ".js" ? { cmd: process.execPath, pre: [resolve(env)] } : { cmd: env, pre: [] }];
+      }
+      const python = process.platform === "win32" ? ["py", "python"] : ["python3", "python"];
+      return [{ cmd: "edge-tts", pre: [] }, ...python.map((cmd) => ({ cmd, pre: ["-m", "edge_tts"] }))];
+    },
+    args: ({ textFile, outFile, voice, rate, pitch, volume }) => [
+      "-f", textFile,
+      // `=` form: a value starting with "-" is taken for an option otherwise.
+      `--voice=${voice}`, `--rate=${rate}`, `--pitch=${pitch}`, `--volume=${volume}`,
+      "--write-media", outFile,
+    ],
+  },
+};
+
+function findEngine(engine) {
+  const tried = engine.candidates();
+  for (const c of tried) {
+    const r = run(c.cmd, [...c.pre, "--version"], { timeout: 10000 });
+    if (r.code === 0 && /edge-tts \d/.test(r.out + r.err)) return c;
+  }
+  throw new Exit(3, process.env.MICROVERSE_EDGE_TTS && tried.length === 1 ? `orch-speak: MICROVERSE_EDGE_TTS is not a working edge-tts: ${process.env.MICROVERSE_EDGE_TTS}` : INSTALL);
+}
+
+// The last stderr line before Python's "Exception ignored in" noise.
+function errorLine(stderr) {
+  const lines = [];
+  for (const l of stderr.split(/\r?\n/)) {
+    if (l.startsWith("Exception ignored in")) break;
+    if (l.trim()) lines.push(l.trim());
+  }
+  return (lines.pop() ?? "no message").slice(0, 200);
+}
+
+// Writes the speech to `outFile` or throws; `outFile` is never left half-written.
+function synthesize(engine, found, params, timeoutS) {
+  const part = `${params.outFile}.part`;
+  try {
+    const env = { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" };
+    const r = spawnSync(found.cmd, [...found.pre, ...engine.args({ ...params, outFile: part })], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: timeoutS * 1000, env });
+    if (r.error?.code === "ETIMEDOUT") throw new Exit(1, `orch-speak: edge-tts timed out after ${timeoutS} s`);
+    if (r.error) throw new Exit(1, `orch-speak: edge-tts failed: ${r.error.message}`);
+    if (r.status !== 0) throw new Exit(1, `orch-speak: edge-tts failed: ${errorLine(r.stderr ?? "")}`);
+    if (!existsSync(part) || statSync(part).size === 0) throw new Exit(1, "orch-speak: edge-tts produced no audio");
+    renameSync(part, params.outFile);
+  } finally {
+    removeWhenFree(part);
+  }
+}
+
+// On Windows the Python child of a killed launcher holds the file a little
+// longer than the launcher lives (rmSync's own retry does not cover EPERM).
+function removeWhenFree(file) {
+  for (let i = 0; i < 40; i++) {
+    try {
+      rmSync(file, { force: true });
+      return;
+    } catch {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+    }
+  }
+}
+
+function main() {
+  const o = parseOptions(process.argv.slice(2));
+  const text = readText(o.file);
+  if (!text.trim()) throw new Exit(2, "orch-speak: empty text");
+  const dir = join(tmpdir(), "microverse-speak");
+  if (!o.out) mkdirSync(dir, { recursive: true });
+  purge(dir);
+  const outFile = resolve(o.out ?? defaultOut(dir, o.name));
+  const engine = ENGINES["edge-tts"];
+  const found = findEngine(engine);
+  mkdirSync(dirname(outFile), { recursive: true });
+  const scratch = mkdtempSync(join(tmpdir(), "microverse-speak-text-"));
+  try {
+    const textFile = join(scratch, "text.txt");
+    writeFileSync(textFile, text);
+    synthesize(engine, found, { textFile, outFile, voice: o.voice, rate: o.rate, pitch: o.pitch, volume: o.volume }, o.timeout);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+  console.log(outFile);
+}
+
+try {
+  main();
+} catch (e) {
+  if (!(e instanceof Exit)) throw e;
+  console.error(e.message);
+  process.exitCode = e.code;
+}

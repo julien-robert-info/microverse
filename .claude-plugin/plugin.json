@@ -49,6 +49,10 @@
       "type": "file",
       "title": "Quota counters file",
       "description": "quota-observations-v2.json of the VS Code extension \"Claude Code Usage\". Empty: the extension's default location."
-    }
+    },
+    "speak_voice": { "type": "string", "title": "Audio report voice", "description": "edge-tts voice of the audio report (edge-tts --list-voices). Empty: fr-FR-HenriNeural." },
+    "speak_rate": { "type": "string", "title": "Audio report rate", "description": "Speaking rate, such as +20% or -5%. Empty: +10%." },
+    "speak_pitch": { "type": "string", "title": "Audio report pitch", "description": "Pitch, such as -5Hz. Empty: +0Hz." },
+    "speak_volume": { "type": "string", "title": "Audio report volume", "description": "Volume, such as +20%. Empty: +0%." }
   }
 }

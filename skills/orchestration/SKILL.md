@@ -17,7 +17,7 @@ loss:
 - **state file** (`CLAUDE.local.md`, unversioned, loaded in every
   conversation): "missions in progress" table, reserved shared resources
   (migration number…), what is deployed, last report, questions awaiting the
-  user (§ 6);
+  user (§ 6), whether the audio report is on (§ 6);
 - **notes** (read on demand): design of each mission, measurements on real
   data, past decisions. One file per mission, `notes/<mission>.md`, and
   `NOTES.local.md` is only an index (one line per file). Read the index, then one
@@ -275,6 +275,20 @@ Two kinds of message, nothing else:
   user can skip every trace line without losing anything.
 - **For the user**: the series report (§ 4) and questions. They open with `▶`
   and a title in the user's language, so the user finds them by scrolling.
+
+**Audio report** (off by default). The user turns it on or off in any
+words: write or remove one line of the state file saying it is on, with any
+voice or rate they ask for. While it is on, each message for the user, once
+written, also goes as an mp3: a spoken text per
+`${CLAUDE_PLUGIN_ROOT}/skills/orchestration/audio.md`, then
+
+```
+orch-speak --voice '${user_config.speak_voice}' --rate '${user_config.speak_rate}' --pitch '${user_config.speak_pitch}' --volume '${user_config.speak_volume}' <<'EOF'
+<spoken text>
+EOF
+```
+
+and `SendUserFile` with the path it prints. Off: no spoken text, no call.
 
 Each question is answered without having read the conversation:
 
