@@ -19,6 +19,7 @@ cleans up; the launch pace follows the usage quota.
 | `orch-quota` | reads the quota counters (extension and terminal status line readings, merged; the status line also keeps a 15-day history that serves the period start and, without a recent extension reading, the calibration) and advises the launch pace, counting the agents running on the account and learning their cost (`--calibrate`); `--no-write` reads without refreshing, pruning or saving anything |
 | `orch-usage` | tokens and API-equivalent cost per model (advisor calls on their own `<model> (advisor)` rows) or per agent run, context size of a session |
 | `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown (`--no-write` is passed to `orch-quota`, `--session <id>` picks the conversation of the context line) |
+| `orch-speak` | turns a spoken text (stdin or `--file`) into an mp3 with edge-tts for the optional audio report and prints its path; `MICROVERSE_EDGE_TTS` names the edge-tts command when it is not on PATH |
 | `orch-status [<commit>]` | plain-text overview, read-only: missions and questions of `CLAUDE.local.md`, agent worktrees, merges since the last report, agent runs, quota, context (the command behind `/microverse:status`) |
 | `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (`--merged`: on the merge result), suspicious patterns in the diff; one run per worktree at a time |
 | `agent-cleanup [--keep-branch] <branch>` | removes an agent's worktree and merged branch; `--keep-branch` removes the worktree only, to resume an interrupted agent (refuses with uncommitted changes) |
@@ -39,6 +40,9 @@ cleans up; the launch pace follows the usage quota.
   `/microverse:init`; the VS Code panel runs no status line). `orch-quota`
   merges the readings of both. With neither,
   the orchestrator asks the user for the counters.
+- Optional, for the audio report: edge-tts (Python 3, "pip install --user
+  edge-tts" or "pipx install edge-tts"). It is an unofficial client of
+  Microsoft's online speech service: the spoken text leaves the computer.
 
 ## Installation
 
@@ -72,6 +76,10 @@ Plugin settings (`/config`):
 | `five_hour_limit` | 90 | beyond it, no new agent until the 5h counter resets; 5 points higher, no more resuming (%) |
 | `compact_window` | 150000 | context size (tokens, 100000 to 1000000) at which Claude Code compacts the orchestrating conversation; `/microverse:init` writes it + 33000 as `autoCompactWindow` in `.claude/settings.local.json`, because Claude Code compacts about 33K below that setting |
 | `quota_file` | — | readings file, if the extension is not at its default location |
+| `speak_voice` | fr-FR-HenriNeural | voice of the audio report, from `edge-tts --list-voices` |
+| `speak_rate` | +10% | speaking rate of the audio report, such as +20% or -5% |
+| `speak_pitch` | +0Hz | pitch of the audio report, such as -5Hz |
+| `speak_volume` | +0% | volume of the audio report, such as +20% |
 
 Per project, the `.claude/orchestration/` profile (versioned), written by
 `/microverse:init`:
@@ -123,6 +131,27 @@ word list.
 | "resume", in a new conversation | relaunches interrupted missions from their branches |
 | a reference to a message of the previous conversation | searched in its transcript |
 
+### Audio report
+
+Tell the orchestrator to turn the audio report on or off, in any words.
+While it is on, each message for you (series report, questions, ready to
+shut down) also arrives as an mp3 sent with `SendUserFile`, to play on the
+phone or the PC. The setting is one line of the state file, so it survives
+compaction and new conversations. A voice or rate asked for in the
+conversation applies at once; `/config` changes the defaults. The mp3 files
+go to `microverse-speak/` in the system temporary folder and are deleted
+after 7 days. It needs edge-tts (see Requirements).
+
+French voices (`edge-tts --list-voices`; set `speak_voice` for another
+language):
+
+| Locale | Voices |
+|---|---|
+| fr-FR | DeniseNeural, EloiseNeural, HenriNeural, RemyMultilingualNeural, VivienneMultilingualNeural |
+| fr-BE | CharlineNeural, GerardNeural |
+| fr-CA | AntoineNeural, JeanNeural, SylvieNeural, ThierryNeural |
+| fr-CH | ArianeNeural, FabriceNeural |
+
 Stopping and resuming. On an announced stop, each running `morty` commits its
 work as `wip:`, each `rick` writes its notes, and the state file lists per
 mission the branch, last commit and next step, with the open questions and the
@@ -172,7 +201,7 @@ Results land in `evals/results/` (ignored by git).
 
 ```
 .claude-plugin/   plugin.json (manifest, settings), marketplace.json (catalog)
-skills/           orchestration (SKILL.md, budget.md, brief.md, review.md, stop-resume.md), init, status
+skills/           orchestration (SKILL.md, budget.md, brief.md, review.md, stop-resume.md, audio.md), init, status
 agents/           rick, morty, council, meeseeks
 bin/              dependency-free Node scripts, added to the Bash tool's PATH;
                   the .cmd files make them callable from PowerShell
