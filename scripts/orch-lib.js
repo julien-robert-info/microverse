@@ -3,9 +3,10 @@
 "use strict";
 
 const { spawnSync } = require("node:child_process");
-const { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } = require("node:fs");
+const { createHash } = require("node:crypto");
+const { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } = require("node:fs");
 const { homedir } = require("node:os");
-const { join } = require("node:path");
+const { basename, dirname, join, resolve } = require("node:path");
 
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...opts });
@@ -638,14 +639,152 @@ function agentWorktrees(projectDir, { details = false } = {}) {
 // says (line separators, bidi and zero-width characters) nor carry instructions
 // the human cannot see (tag characters). Newline is kept, tabs become spaces,
 // accents and ordinary text are untouched. `max` caps the length in code points.
-const UNSAFE_TEXT = new RegExp("[\\u0000-\\u0009\\u000b-\\u001f\\u007f-\\u009f\\u061c\\u180e\\u200b-\\u200f\\u2028\\u2029\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u2069\\ufeff\\u{e0000}-\\u{e007f}]", "gu");
+const UNSAFE_TEXT = new RegExp("[\\u0000-\\u0009\\u000b-\\u001f\\u007f-\\u009f\\u061c\\u180e\\u200b-\\u200f\\u2028\\u2029\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u2069\\ufeff\\u{e0000}-\\u{e007f}\\p{Default_Ignorable_Code_Point}]", "gu");
 function sanitize(text, max) {
   let s = String(text ?? "").replace(/\t/g, "  ").replace(UNSAFE_TEXT, "");
   if (max && [...s].length > max) s = `${[...s].slice(0, max - 1).join("")}…`;
   return s;
 }
 
+// Profile trust. `profile.json` holds shell commands, so a cloned repository
+// must not get them run before the user has read them. Approval is the sha256
+// of the profile of the MAIN worktree (a branch's profile never counts), kept
+// per repository in a file under the user's home that hooks and bin scripts
+// both resolve the same way (CLAUDE_PLUGIN_DATA is not set for the Bash tool).
+const TRUST_MAX_COMMANDS = 20;
+const TRUST_MAX_CHARS = 200;
+
+// Root of the main worktree, from any of the repository's worktrees, or null
+// when it cannot be found; `cwd` itself outside a repository (a profile can exist there, e.g. in the hook).
+function mainRoot(cwd = process.cwd()) {
+  const r = git(["rev-parse", "--git-common-dir"], cwd);
+  const abs = r.code === 0 && r.out.trim() ? resolve(cwd, r.out.trim()) : null;
+  if (abs && basename(abs) === ".git") return dirname(abs);
+  // A git dir not named .git (--separate-git-dir): git lists the git dir itself
+  // as the first worktree and records the main worktree nowhere in it, but the
+  // main worktree holds a `.git` file pointing back, and agent worktrees live
+  // below it. Not found (bare repository, worktree outside the main tree):
+  // null, which profileTrust turns into "unapproved" rather than "none".
+  if (abs) {
+    const wtree = git(["config", "--file", join(abs, "config"), "core.worktree"], cwd);
+    if (wtree.code === 0 && wtree.out.trim()) return resolve(abs, wtree.out.trim());
+    const key = (p) => (process.platform === "win32" ? resolve(p).toLowerCase() : resolve(p));
+    const here = git(["rev-parse", "--show-toplevel"], cwd);
+    for (let d = here.code === 0 ? resolve(here.out.trim()) : resolve(cwd); ; d = dirname(d)) {
+      try {
+        const m = /^gitdir:\s*(.+)$/m.exec(readFileSync(join(d, ".git"), "utf8"));
+        if (m && key(resolve(d, m[1].trim())) === key(abs)) return d;
+      } catch {}
+      if (dirname(d) === d) break;
+    }
+    return null;
+  }
+  const top = git(["rev-parse", "--show-toplevel"], cwd);
+  return top.code === 0 ? top.out.trim() : resolve(cwd);
+}
+
+function trustFile() {
+  return join(homedir(), ".claude", "microverse", "trust.json");
+}
+
+function trustKey(root) {
+  const real = realpathSync.native(root);
+  return process.platform === "win32" ? real.toLowerCase() : real;
+}
+
+function readTrustStore() {
+  const file = trustFile();
+  if (!existsSync(file)) return {};
+  try {
+    const store = JSON.parse(readFileSync(file, "utf8"));
+    if (store && typeof store === "object" && !Array.isArray(store)) return store;
+  } catch {}
+  return {};
+}
+
+// { state: "none" | "approved" | "unapproved" | "invalid", reason, hash, file,
+// setup, checks, teardown, commands, profile }. Hash and parsed profile come
+// from the same read, so what is approved is what is run. "invalid" (unreadable
+// JSON or a wrong schema) has no commands and cannot be approved. Line ends are
+// normalized before hashing: a raw CR cannot occur in a JSON string, so a CRLF
+// rewrite (autocrlf) changes no command. A null root (main worktree not found)
+// fails safe as unapproved, never as "none".
+function profileTrust(root) {
+  if (root === null) {
+    return { state: "unapproved", reason: "main worktree not found", hash: null, file: null, setup: [], checks: [], teardown: [], commands: [], profile: null };
+  }
+  const file = join(root, ".claude", "orchestration", "profile.json");
+  if (!existsSync(file)) return { state: "none", hash: null, file, setup: [], checks: [], teardown: [], commands: [], profile: null };
+  const text = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+  const hash = createHash("sha256").update(text).digest("hex");
+  let profile = null;
+  try {
+    profile = JSON.parse(text);
+  } catch {}
+  const reason = profileProblem(profile);
+  if (reason) return { state: "invalid", reason, hash, file, setup: [], checks: [], teardown: [], commands: [], profile: null };
+  // Past the validation these are the only lists anything may run.
+  const setup = profile.setup ?? [];
+  const checks = (profile.checks ?? []).map((c) => c.run);
+  const teardown = profile.teardown ?? [];
+  const approved = readTrustStore()[trustKey(root)] === hash;
+  return { state: approved ? "approved" : "unapproved", hash, file, setup, checks, teardown, commands: [...setup, ...checks, ...teardown], profile };
+}
+
+// Why the profile cannot be trusted, or null. Strict on purpose: a value of
+// another type must never be run by a consumer that reads the raw profile.
+function profileProblem(p) {
+  if (p === null || typeof p !== "object" || Array.isArray(p)) return "not a JSON object";
+  const strings = (v) => Array.isArray(v) && v.every((s) => typeof s === "string");
+  for (const key of ["setup", "teardown", "servers"]) {
+    if (p[key] !== undefined && !strings(p[key])) return `"${key}" must be an array of strings`;
+  }
+  if (p.checks !== undefined) {
+    if (!Array.isArray(p.checks)) return '"checks" must be an array of objects';
+    for (const c of p.checks) {
+      if (c === null || typeof c !== "object" || Array.isArray(c) || typeof c.run !== "string") return 'each "checks" entry must be an object whose "run" is a string';
+      if (c.name !== undefined && typeof c.name !== "string") return 'a check "name" must be a string';
+      if (c.paths !== undefined && !strings(c.paths)) return 'a check "paths" must be an array of strings';
+    }
+  }
+  if (p.diffPatterns !== undefined) {
+    if (!Array.isArray(p.diffPatterns)) return '"diffPatterns" must be an array of objects';
+    for (const d of p.diffPatterns) {
+      if (d === null || typeof d !== "object" || typeof d.pattern !== "string") return 'each "diffPatterns" entry must be an object whose "pattern" is a string';
+      if (d.why !== undefined && typeof d.why !== "string") return 'a diffPatterns "why" must be a string';
+    }
+  }
+  return null;
+}
+
+// Only `orch-trust <sha256>` run by the user calls this.
+function approveProfile(root, hash) {
+  const store = readTrustStore();
+  store[trustKey(root)] = hash;
+  const file = trustFile();
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`);
+  renameSync(tmp, file);
+}
+
+// Lines showing the commands a profile would run, sanitized. `full` (what the
+// user reads before approving) shows every command whole; otherwise the list
+// is bounded and says how much it left out.
+function describeCommands(commands, { full = false } = {}) {
+  const shown = full ? commands : commands.slice(0, TRUST_MAX_COMMANDS);
+  let cut = commands.length - shown.length;
+  const lines = shown.map((c) => {
+    const s = sanitize(c, full ? 0 : TRUST_MAX_CHARS);
+    if (!full && [...sanitize(c)].length > TRUST_MAX_CHARS) cut++;
+    return `    ${s.replace(/\n/g, "\\n")}`;
+  });
+  if (cut) lines.push(`    (${cut} truncated or omitted, read them with orch-trust)`);
+  return lines;
+}
+
 module.exports = {
+  mainRoot, profileTrust, approveProfile, describeCommands,
   sanitize, validBranch,
   listWorktrees, agentWorktrees,
   statuslineObservations, risingOnly, currentReading, fmtAge,

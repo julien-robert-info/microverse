@@ -176,9 +176,11 @@ test("sanitize removes every class of control and invisible character", () => {
 });
 
 test("sanitize keeps newlines, accents, other scripts and emoji; tabs become spaces", () => {
-  const text = "Élève: ça marche\nlié – 日本語 ✓ 🙂 \u00ad";
+  const text = "Élève: ça marche\nlié – 日本語 ✓ 🙂";
   assert.equal(sanitize(text), text);
   assert.equal(sanitize("a\tb"), "a  b");
+  // Default-ignorable characters are invisible, like the zero-width ones.
+  assert.equal(sanitize(`a${String.fromCodePoint(0xad, 0x62, 0xfe0f, 0x63, 0x3164)}d`), "abcd");
   assert.equal(sanitize(undefined), "");
 });
 

@@ -1,9 +1,10 @@
 "use strict";
 
 const { spawnSync } = require("node:child_process");
-const { appendFileSync, mkdirSync, mkdtempSync, realpathSync, utimesSync, writeFileSync } = require("node:fs");
+const { createHash } = require("node:crypto");
+const { appendFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, utimesSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
-const { join, resolve } = require("node:path");
+const { dirname, join, resolve } = require("node:path");
 
 const ROOT = resolve(__dirname, "..");
 const bin = (name) => join(ROOT, "bin", name);
@@ -20,9 +21,26 @@ const emptyHome = mkdtempSync(join(tmpdir(), "microverse-nohome-"));
 const script = (name, args, cwd, env) =>
   sh(process.execPath, [bin(name), ...args], cwd, { HOME: emptyHome, USERPROFILE: emptyHome, CLAUDE_PLUGIN_DATA: "", ...env });
 
+// Records the approval of the profile of the repository at `dir` in the trust
+// store of `home`, as `orch-trust <sha256>` does: { "<realpath, lowercased on
+// Windows>": "<sha256 of profile.json>" } in <home>/.claude/microverse/trust.json.
+function approveProfile(home, dir) {
+  const bytes = readFileSync(join(dir, ".claude", "orchestration", "profile.json"), "utf8").replace(/\r\n/g, "\n");
+  const key = realpathSync.native(dir);
+  const file = join(home, ".claude", "microverse", "trust.json");
+  let store = {};
+  try {
+    store = JSON.parse(readFileSync(file, "utf8"));
+  } catch {}
+  store[process.platform === "win32" ? key.toLowerCase() : key] = createHash("sha256").update(bytes).digest("hex");
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify(store));
+}
+
 // A repository on `main` with one commit, a feature branch checked out in a
-// worktree with one commit, and the profile written as given.
-function makeRepo(profile) {
+// worktree with one commit, and the profile written as given. The profile is
+// approved in the scripts' default home unless `approve` is false.
+function makeRepo(profile, { approve = true } = {}) {
   // Long path form: on Windows the temp folder can be an 8.3 short name
   // (RUNNER~1), which git expands, so command-line matching would miss it.
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "microverse-")));
@@ -40,6 +58,7 @@ function makeRepo(profile) {
   writeFileSync(join(wt, "a.txt"), "a\n");
   git(wt, "add", "a.txt");
   git(wt, "commit", "-qm", "feat: a");
+  if (approve) approveProfile(emptyHome, dir);
   return { dir, wt };
 }
 
@@ -98,4 +117,4 @@ function makeAccount() {
 // `git merge-tree --write-tree` exists from git 2.38; the tests relying on it skip without.
 const hasMergeTree = sh("git", ["merge-tree", "--write-tree", "HEAD", "HEAD"], ROOT).code === 0;
 
-module.exports = { ROOT, bin, sh, git, script, makeRepo, makeAccount, commitFile, hasMergeTree };
+module.exports = { ROOT, bin, sh, git, script, emptyHome, approveProfile, makeRepo, makeAccount, commitFile, hasMergeTree };

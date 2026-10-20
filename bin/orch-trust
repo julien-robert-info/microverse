@@ -1,0 +1,62 @@
+#!/usr/bin/env node
+// Approval of the project's orchestration profile. `profile.json` holds shell
+// commands that agent-check and the agents run, so a cloned repository gets
+// none of them run until the user has read the profile and approved it here.
+//
+// orch-trust                 state, fingerprint and commands of the profile; writes nothing
+// orch-trust <sha256>        approves the profile if its fingerprint is that one
+// orch-trust --status        exit 0 when approved or without profile, 1 otherwise
+// orch-trust --commands setup|checks   the approved profile's commands, one per line
+//
+// The profile is the one of the main worktree, whatever the current directory.
+// Only the user runs `orch-trust <sha256>`, as `! orch-trust <sha256>`; an
+// agent never does, and it must not be put in a permission allow list.
+"use strict";
+
+const { approveProfile, describeCommands, fail, mainRoot, parseArgs, profileTrust, sanitize } = require("../scripts/orch-lib.js");
+
+const opts = parseArgs(process.argv.slice(2), { flags: ["status"] });
+const root = mainRoot();
+const trust = profileTrust(root);
+
+// The commands an agent may run, parsed from the approved profile of the main
+// worktree: an agent reading the profile file of its own branch could run
+// something else than what the user approved.
+if (opts.commands !== undefined) {
+  if (opts.commands !== "setup" && opts.commands !== "checks") fail("usage: orch-trust --commands setup|checks");
+  if (trust.state === "none") process.exit(0);
+  if (trust.state !== "approved") {
+    console.error(`profile ${trust.state === "invalid" ? `invalid (${trust.reason})` : "not approved"}: run no command of it`);
+    process.exit(1);
+  }
+  const list = trust[opts.commands];
+  // What would print differently once sanitized (line break, control, tag,
+  // zero-width or bidi character) is not what the user read: run none.
+  if (list.some((c) => sanitize(c) !== c || /[\p{Cc}\p{Zl}\p{Zp}]/u.test(c))) fail("a command holds a hidden or control character: read it with orch-trust, run none");
+  if (list.length) console.log(list.join("\n"));
+  process.exit(0);
+}
+
+if (opts.status) {
+  console.log(trust.state);
+  process.exit(trust.state === "none" || trust.state === "approved" ? 0 : 1);
+}
+
+const given = opts._[0];
+if (given === undefined) {
+  console.log(`profile: ${trust.state}${trust.reason ? ` (${trust.reason})` : ""}`);
+  if (trust.hash) {
+    console.log(`file: ${trust.file}`);
+    console.log(`fingerprint: ${trust.hash}`);
+    console.log(`commands (${trust.commands.length}):\n${describeCommands(trust.commands, { full: true }).join("\n")}`);
+    if (trust.state === "unapproved") console.log(`\nAsk the user to type: ! orch-trust ${trust.hash}`);
+  }
+  process.exit(0);
+}
+
+if (trust.state === "none") fail("no profile to approve");
+if (trust.state === "invalid") fail(`the profile is invalid and cannot be approved: ${trust.reason}`);
+if (!trust.hash) fail(`nothing to approve: ${trust.reason}`);
+if (given !== trust.hash) fail("profile changed or fingerprint wrong: rerun without argument and read it again");
+approveProfile(root, trust.hash);
+console.log(`approved ${trust.hash}`);

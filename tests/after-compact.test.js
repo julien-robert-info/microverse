@@ -6,7 +6,7 @@ const { spawnSync } = require("node:child_process");
 const { mkdirSync, mkdtempSync, realpathSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
-const { ROOT, git, commitFile } = require("./helpers.js");
+const { ROOT, git, commitFile, emptyHome, approveProfile } = require("./helpers.js");
 
 const HOOK = join(ROOT, "scripts", "after-compact.js");
 const HEADER =
@@ -17,16 +17,17 @@ const LOAD_SKILL =
 
 const tmp = () => realpathSync.native(mkdtempSync(join(tmpdir(), "microverse-compact-")));
 
-function withProfile(dir) {
+function withProfile(dir, { approve = true } = {}) {
   mkdirSync(join(dir, ".claude", "orchestration"), { recursive: true });
   writeFileSync(join(dir, ".claude", "orchestration", "profile.json"), "{}");
+  if (approve) approveProfile(emptyHome, dir);
 }
 
 const run = (dir, input) =>
   spawnSync(process.execPath, [HOOK], {
     input: typeof input === "string" ? input : JSON.stringify({ session_id: "s1", cwd: dir, source: "compact", ...input }),
     encoding: "utf8",
-    env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: dir, HOME: emptyHome, USERPROFILE: emptyHome },
   });
 
 const message = (r) => JSON.parse(r.stdout).hookSpecificOutput.additionalContext;

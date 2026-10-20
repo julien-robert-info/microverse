@@ -3,8 +3,9 @@
 The agent starts with no context. What holds for every task (worktree setup,
 conventions, generic traps, checks, report format) is in its definition; what
 holds for every task of the project is in `.claude/orchestration/rules.md` and
-`profile.json`, which it reads first. Do not copy it: write only what is
-specific to the task.
+`profile.json`, which it reads first (its commands it takes only from
+`orch-trust --commands`). Do not copy it: write only what is specific to the
+task.
 
 1. **Branch** (`<type>/<subject>`) and **shared resources**: "you own the
    schema, migration `00NN`" or nothing (the agent does not touch them).

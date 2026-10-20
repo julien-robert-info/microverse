@@ -6,16 +6,17 @@ const { spawn } = require("node:child_process");
 const { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
-const { ROOT } = require("./helpers.js");
+const { ROOT, emptyHome, approveProfile } = require("./helpers.js");
 const { spawnSync } = require("node:child_process");
 
 const HOOK = join(ROOT, "scripts", "stop-agent-servers.js");
 const idle = "setTimeout(() => {}, 60000)";
 
-function setup(profile) {
+function setup(profile, { approve = true } = {}) {
   const project = realpathSync.native(mkdtempSync(join(tmpdir(), "microverse-hook-")));
   mkdirSync(join(project, ".claude", "orchestration"), { recursive: true });
   if (profile) writeFileSync(join(project, ".claude", "orchestration", "profile.json"), JSON.stringify(profile));
+  if (profile && approve) approveProfile(emptyHome, project);
   return { project, data: join(project, "data") };
 }
 
@@ -23,7 +24,7 @@ const runHook = ({ project, data }, payload) =>
   spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify(payload),
     encoding: "utf8",
-    env: { ...process.env, CLAUDE_PROJECT_DIR: project, CLAUDE_PLUGIN_DATA: data },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: project, CLAUDE_PLUGIN_DATA: data, HOME: emptyHome, USERPROFILE: emptyHome },
   });
 
 const log = ({ data }) => readFileSync(join(data, "stop-agent-servers.log"), "utf8");
@@ -83,4 +84,19 @@ test("the journal is bounded and a logged line is cleaned", () => {
   assert.match(text, /nothing to stop\n$/);
   assert.match(text, /^2026-01-01T00:00:00 old line\n/);
   assert.doesNotMatch(text, /[\u0000-\u0009\u000b-\u001f]/);
+});
+
+test("the hook stops nothing while the profile is not approved", async () => {
+  const ctx = setup({ servers: ["fakeserver"] }, { approve: false });
+  const worktree = join(ctx.project, ".claude", "worktrees", "agent-abc123");
+  const server = spawn(process.execPath, ["-e", idle, join(worktree, "fakeserver")], { stdio: "ignore" });
+  try {
+    await wait(1500);
+    assert.equal(runHook(ctx, { agent_id: "abc123" }).status, 0);
+    await wait(500);
+    assert.ok(alive(server), "the server is left running");
+    assert.match(log(ctx), /profile not approved/);
+  } finally {
+    server.kill();
+  }
 });
