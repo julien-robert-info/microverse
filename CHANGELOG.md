@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `/microverse:status` shows the orchestration at a glance in the terminal
+  (missions and questions of `CLAUDE.local.md`, agent worktrees, branches
+  without a worktree, merges since the last report, agent runs, quota,
+  context) with no model request: a `UserPromptExpansion` hook runs the new
+  read-only `orch-status` and blocks the command with its output. The last
+  report is read from the `Last report` / `Dernier rapport` line of
+  `CLAUDE.local.md` or given as argument. The skill body is the fallback when
+  hooks are off.
+
 - `orch-quota` reads the counters from the terminal status line readings as
   well as from the VS Code extension, so a CLI-only session gets its pacing
   advice. Per counter it takes the latest window not yet reset and its highest
