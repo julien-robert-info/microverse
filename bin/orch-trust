@@ -1,0 +1,40 @@
+#!/usr/bin/env node
+// Approval of the project's orchestration profile. `profile.json` holds shell
+// commands that agent-check and the agents run, so a cloned repository gets
+// none of them run until the user has read the profile and approved it here.
+//
+// orch-trust                 state, fingerprint and commands of the profile; writes nothing
+// orch-trust <sha256>        approves the profile if its fingerprint is that one
+// orch-trust --status        exit 0 when approved or without profile, 1 otherwise
+//
+// The profile is the one of the main worktree, whatever the current directory.
+// Only the user runs `orch-trust <sha256>`, as `! orch-trust <sha256>`; an
+// agent never does, and it must not be put in a permission allow list.
+"use strict";
+
+const { approveProfile, describeCommands, fail, mainRoot, parseArgs, profileTrust } = require("../scripts/orch-lib.js");
+
+const opts = parseArgs(process.argv.slice(2), { flags: ["status"] });
+const root = mainRoot();
+const trust = profileTrust(root);
+
+if (opts.status) {
+  console.log(trust.state);
+  process.exit(trust.state === "unapproved" ? 1 : 0);
+}
+
+const given = opts._[0];
+if (given === undefined) {
+  console.log(`profile: ${trust.state}`);
+  if (trust.hash) {
+    console.log(`fingerprint: ${trust.hash}`);
+    console.log(`commands (${trust.commands.length}):\n${describeCommands(trust.commands).join("\n")}`);
+    if (trust.state === "unapproved") console.log(`\nAfter reading them, approve with: orch-trust ${trust.hash}`);
+  }
+  process.exit(0);
+}
+
+if (trust.state === "none") fail("no profile to approve");
+if (given !== trust.hash) fail("profile changed or fingerprint wrong: rerun without argument and read it again");
+approveProfile(root, trust.hash);
+console.log(`approved ${trust.hash}`);

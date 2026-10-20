@@ -32,7 +32,10 @@ does not settle blocks you; never for routine steps.
    asks.
 3. Read `.claude/orchestration/rules.md`: the project's rules and traps, which
    take precedence over the general rules below.
-4. Run each command of `setup` in `.claude/orchestration/profile.json`, in
+4. Run `orch-trust --status`. A non-zero exit means the user has not approved
+   the profile: run no command of it, say so in the report and stop. Never run
+   `orch-trust <sha256>` yourself: only the user approves a profile.
+5. Run each command of `setup` in `.claude/orchestration/profile.json`, in
    order. No profile: say so in the report and install what the project's
    manifests call for.
 

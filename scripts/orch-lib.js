@@ -3,9 +3,10 @@
 "use strict";
 
 const { spawnSync } = require("node:child_process");
-const { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } = require("node:fs");
+const { createHash } = require("node:crypto");
+const { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } = require("node:fs");
 const { homedir } = require("node:os");
-const { join } = require("node:path");
+const { basename, dirname, join, resolve } = require("node:path");
 
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...opts });
@@ -634,7 +635,86 @@ function sanitize(text, max) {
   return s;
 }
 
+// Profile trust. `profile.json` holds shell commands, so a cloned repository
+// must not get them run before the user has read them. Approval is the sha256
+// of the profile of the MAIN worktree (a branch's profile never counts), kept
+// per repository in a file under the user's home that hooks and bin scripts
+// both resolve the same way (CLAUDE_PLUGIN_DATA is not set for the Bash tool).
+const TRUST_MAX_COMMANDS = 20;
+const TRUST_MAX_CHARS = 200;
+
+// Root of the main worktree, from any of the repository's worktrees; `cwd`
+// itself outside a repository (a profile can exist there, e.g. in the hook).
+function mainRoot(cwd = process.cwd()) {
+  const r = git(["rev-parse", "--git-common-dir"], cwd);
+  const abs = r.code === 0 && r.out.trim() ? resolve(cwd, r.out.trim()) : null;
+  if (abs && basename(abs) === ".git") return dirname(abs);
+  const top = git(["rev-parse", "--show-toplevel"], cwd);
+  return top.code === 0 ? top.out.trim() : resolve(cwd);
+}
+
+function trustFile() {
+  return join(homedir(), ".claude", "microverse", "trust.json");
+}
+
+function trustKey(root) {
+  const real = realpathSync.native(root);
+  return process.platform === "win32" ? real.toLowerCase() : real;
+}
+
+function readTrustStore() {
+  const file = trustFile();
+  if (!existsSync(file)) return {};
+  try {
+    const store = JSON.parse(readFileSync(file, "utf8"));
+    if (store && typeof store === "object" && !Array.isArray(store)) return store;
+  } catch {}
+  return {};
+}
+
+// { state: "none" | "approved" | "unapproved", hash, commands, profile }.
+// Hash and parsed profile come from the same bytes, so what is approved is what
+// is run. `profile` is null when the file is not valid JSON.
+function profileTrust(root) {
+  const file = join(root, ".claude", "orchestration", "profile.json");
+  if (!existsSync(file)) return { state: "none", hash: null, commands: [], profile: null };
+  const bytes = readFileSync(file);
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  let profile = null;
+  try {
+    profile = JSON.parse(bytes.toString("utf8"));
+  } catch {}
+  const strings = (v) => (Array.isArray(v) ? v.filter((c) => typeof c === "string") : []);
+  const checks = Array.isArray(profile?.checks) ? profile.checks : [];
+  const commands = [
+    ...strings(profile?.setup),
+    ...checks.map((c) => c?.run).filter((c) => typeof c === "string"),
+    ...strings(profile?.teardown),
+  ];
+  const approved = readTrustStore()[trustKey(root)] === hash;
+  return { state: approved ? "approved" : "unapproved", hash, commands, profile };
+}
+
+// Only `orch-trust <sha256>` run by the user calls this.
+function approveProfile(root, hash) {
+  const store = readTrustStore();
+  store[trustKey(root)] = hash;
+  const file = trustFile();
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`);
+  renameSync(tmp, file);
+}
+
+// Lines showing the commands a profile would run: sanitized, bounded.
+function describeCommands(commands) {
+  const lines = commands.slice(0, TRUST_MAX_COMMANDS).map((c) => `    ${sanitize(c, TRUST_MAX_CHARS).replace(/\n/g, "\\n")}`);
+  if (commands.length > TRUST_MAX_COMMANDS) lines.push(`    ... and ${commands.length - TRUST_MAX_COMMANDS} more`);
+  return lines;
+}
+
 module.exports = {
+  mainRoot, profileTrust, approveProfile, describeCommands,
   sanitize,
   listWorktrees, agentWorktrees,
   statuslineObservations, risingOnly, currentReading, fmtAge,

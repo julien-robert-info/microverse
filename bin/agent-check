@@ -10,13 +10,17 @@
 // (done in the branch's worktree, then undone) instead of on the branch alone.
 // A second run on the same worktree is refused while the first is alive.
 //
-// Exit code: 0 when everything passes, 1 otherwise.
+// The profile is the main worktree's, and its commands run only after the user
+// approved it (orch-trust); otherwise nothing runs and the exit code is 2.
+// A diff touching .claude/orchestration/ fails the patterns.
+//
+// Exit code: 0 when everything passes, 1 otherwise, 2 when the profile is not approved.
 "use strict";
 
 const { spawnSync } = require("node:child_process");
 const { readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
-const { defaultBase, fail, git, loadProfile, parseArgs, repoRoot, worktreeFor } = require("../scripts/orch-lib.js");
+const { defaultBase, describeCommands, fail, git, mainRoot, parseArgs, profileTrust, repoRoot, worktreeFor } = require("../scripts/orch-lib.js");
 
 const TAIL = 25;
 // UTF-8 text decoded as cp1252 then re-encoded: U+00E9 becomes U+00C3 U+00A9,
@@ -28,7 +32,17 @@ const branch = opts._[0];
 if (!branch) fail("usage: agent-check <branch> [--base main] [--no-checks] [--merged]");
 const root = repoRoot();
 const base = typeof opts.base === "string" ? opts.base : defaultBase(root);
-const profile = loadProfile(root) ?? {};
+// The profile of the main worktree, never the branch's: the branch is what is
+// being reviewed. Its commands run only once the user has approved it.
+const trust = profileTrust(mainRoot(root));
+if (trust.state === "unapproved") {
+  fail(
+    `profile not approved: agent-check runs its commands and ran none.\n${describeCommands(trust.commands).join("\n")}\n` +
+      `Read it (orch-trust), then ask the user to run: ! orch-trust ${trust.hash}`,
+  );
+}
+if (trust.state === "approved" && !trust.profile) fail("unreadable profile: invalid JSON");
+const profile = trust.profile ?? {};
 let ok = true;
 const tail = (text) => text.trimEnd().split(/\r?\n/).slice(-TAIL).map((l) => `    ${l}`).join("\n");
 
@@ -201,10 +215,14 @@ function runChecks(wt, baseline) {
     }
   }
 }
+// A branch that edits the profile or the rules asks for commands to be run once
+// merged: the user reviews that change and approves the new profile again.
+const touched = changed.filter((f) => f.startsWith(".claude/orchestration/"));
+const profileHits = touched.map((f) => `    ${f} profile changed: review and re-approve`);
 // Patterns are matched on added lines only, reported as file:line.
 const patterns = [...BUILTIN, ...(profile.diffPatterns ?? [])].map((p) => ({ re: new RegExp(p.pattern), why: p.why ?? p.pattern }));
 const diff = git(["diff", "--unified=0", "--no-color", `${base}...${branch}`], root).out;
-const hits = [];
+const hits = [...profileHits];
 let file = null;
 let line = 0;
 // `+++` is a file header only before the first hunk; after it, an added line

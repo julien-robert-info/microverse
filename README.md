@@ -21,7 +21,8 @@ cleans up; the launch pace follows the usage quota.
 | `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown (`--no-write` is passed to `orch-quota`, `--session <id>` picks the conversation of the context line) |
 | `orch-speak` | turns a spoken text (stdin or `--file`) into an mp3 with edge-tts for the optional audio report and prints its path; `MICROVERSE_EDGE_TTS` names the edge-tts command when it is not on PATH |
 | `orch-status [<commit>]` | plain-text overview, read-only: missions and questions of `CLAUDE.local.md`, agent worktrees, merges since the last report, agent runs, quota, context (the command behind `/microverse:status`) |
-| `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (`--merged`: on the merge result), suspicious patterns in the diff; one run per worktree at a time |
+| `orch-trust [<sha256>]` | shows the fingerprint and commands of the project profile; `orch-trust <sha256>` approves it (the user runs it, never an agent); `--status` exits 0 when approved or without profile |
+| `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (only once the profile is approved; `--merged`: on the merge result), suspicious patterns in the diff; one run per worktree at a time |
 | `agent-cleanup [--keep-branch] <branch>` | removes an agent's worktree (only under `.claude/worktrees`) and merged branch; `--keep-branch` removes the worktree only, to resume an interrupted agent (refuses with uncommitted changes) |
 | `PreToolUse` hook (`agent-model-guard`, matcher `Agent\|Task`) | denies the launch of a `microverse:` agent with no model or a model its role does not allow; other agents pass |
 | `UserPromptExpansion` hook (`status-command`, matcher `^microverse:status$`) | answers `/microverse:status` by blocking the command with the output of `orch-status`; other commands are untouched |
@@ -173,10 +174,68 @@ orch-usage --context
 orch-usage --agents
 orch-report --since a0f5690 --target 98 --reserve 30
 orch-report --since a0f5690 --no-write --session <id>   # read-only; context of that conversation
+orch-trust                                     # fingerprint and commands of the profile
+! orch-trust <sha256>                          # you approve it, from the Claude Code prompt
 agent-check feat/subject
 agent-check feat/subject --merged
 agent-cleanup feat/subject
 ```
+
+## Trust model
+
+`.claude/orchestration/profile.json` is code, like the scripts of a
+`package.json`: review it on each pull. Nothing in it runs until you approve it
+on your machine. `orch-trust` shows its fingerprint (sha256) and commands, and
+`! orch-trust <sha256>` records the approval in
+`~/.claude/microverse/trust.json`, keyed by the real path of the main
+repository. The fingerprint is that of the main worktree's profile; a branch's
+profile never counts. Any edit to the file, including one brought by a merged
+branch, revokes the approval. Until it is approved, `agent-check` exits 2
+without running anything, `morty` stops, and the SessionStart hook does not
+tell the model to load the orchestration skill. A branch whose diff touches
+`.claude/orchestration/` fails `agent-check`. Never put `orch-trust` in a
+permission allow list: no agent ever runs `orch-trust <sha256>`.
+
+What the profile makes run:
+
+- `setup`: run by each `morty` in a new worktree.
+- `checks[].run` and `teardown`: run through a shell by `agent-check`, by the
+  agent before its report, and once by `/microverse:init`.
+- `servers`: patterns that decide which processes the SubagentStop hook kills.
+- `diffPatterns`: regular expressions evaluated on the diff.
+
+What also runs: the checks execute the agent's branch code (tests, scripts)
+with the rights of the session that launches them. In a repository with an
+approved profile, the SessionStart hook asks the model to load the
+orchestration skill and follow `CLAUDE.local.md`, so approving a profile
+entrusts the session to that repository.
+
+What is read:
+
+- Transcripts of `~/.claude/projects/` for all projects: token counts and the
+  agents' `.meta.json`, never message text in the output.
+- The quota file (`user_config.quota_file`, or the extension's default file).
+- `CLAUDE.local.md`, git data of the project and its worktrees, and the process
+  list with command lines.
+
+What is written:
+
+- `~/.claude/microverse/` (or `CLAUDE_PLUGIN_DATA`): `statusline/`,
+  `statusline-history/`, the copy of `statusline.js` that `orch-quota`
+  refreshes, and `calibration.json`; the approvals are always in
+  `~/.claude/microverse/trust.json`.
+- Plugin data: `context-guard/<session>.json` and `stop-agent-servers.log`,
+  which holds process command lines.
+- `.claude/settings.local.json`, written by `/microverse:init` with your consent
+  (`autoCompactWindow`, `statusLine`).
+- A `microverse-agent-check.lock` file in the worktree's git directory.
+
+What is deleted or stopped:
+
+- `agent-cleanup` removes the branch's worktree under `.claude/worktrees/`,
+  ignored files included, and the branch once merged.
+- The SubagentStop hook kills (`taskkill /T /F` or SIGTERM) processes whose
+  command line contains the agent's worktree and a `servers` pattern.
 
 ## Evaluation
 

@@ -105,3 +105,9 @@ Also check:
 - offer a `.worktreeinclude` for unversioned files a worktree needs (`.env`…);
 - run each `checks` command once on the current branch, to verify it passes
   before making it a criterion.
+- end by asking the user to approve the profile you wrote: run `orch-trust`
+  to show them its fingerprint and commands, then ask them to run
+  `! orch-trust <sha256>` themselves. Until then the hook, `agent-check` and
+  the agents run none of its commands. Never run `orch-trust <sha256>`
+  yourself, and do not rewrite the profile after they approved it without
+  asking again.
