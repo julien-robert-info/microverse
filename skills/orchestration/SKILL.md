@@ -77,7 +77,11 @@ any other launch, and a launch with no `model`):
   the fingerprint and commands, and ask the user to run
   `! orch-trust <sha256>` themselves. Never run `orch-trust <sha256>` (nor let
   an agent), and do not put it in an allow list. A profile edited since
-  (including by a merged branch) needs a new approval.
+  (including by a merged branch) needs a new approval. `orch-trust` printing
+  `invalid (reason)` means the profile has unreadable JSON or a value of the
+  wrong type: it cannot be approved, ask the user to fix it. `unapproved (main
+  worktree not found)` means there is nothing to approve from here: ask the
+  user to start from the main worktree.
 - **Budget**: `orch-quota --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --file '${user_config.quota_file}'`
   (single quotes: an unset option stays literal and double quotes would make
   bash fail on it; write an apostrophe inside a value as `'\''`). Do not pass `--running` or `--agent-cost`: without them it

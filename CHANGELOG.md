@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Profile trust: `sanitize` also strips default-ignorable characters (variation selectors, soft hyphen, U+034F, U+3164…), so the approval screen and `orch-trust --commands` agree. The SessionStart hook tells the model to have an invalid profile fixed, or that the main worktree was not found, instead of asking for an approval; the README and the orchestration skill document both cases.
+
 - Profile trust, strict schema: `setup`, `teardown` and `servers` must be arrays of strings and each check an object with a string `run`; anything else (or unreadable JSON) is state `invalid`: it cannot be approved, `--status` and `--commands` exit 1, `agent-check` exits 2 with the reason, and `agent-check` runs only the validated lists. `--commands` also refuses a command with hidden characters (tag, zero-width, bidi). A main worktree that cannot be found is unapproved, never `none`.
 
 - Profile trust, review fixes: `orch-trust --commands setup|checks` prints the approved main profile's commands (agents run these, not their branch's file; exit 1 unapproved, exit 2 for a command with a line break or control character); `orch-trust` shows every command whole and ends by asking the user to type the approval, while `agent-check` bounds its listing and says what was omitted; `agent-check` compares the protected folder case-insensitively and sees renames out of it; the SubagentStop hook stops nothing until the profile is approved; a git dir not named `.git` (`--separate-git-dir`) resolves its main worktree; the fingerprint ignores CRLF conversion.

@@ -639,7 +639,7 @@ function agentWorktrees(projectDir, { details = false } = {}) {
 // says (line separators, bidi and zero-width characters) nor carry instructions
 // the human cannot see (tag characters). Newline is kept, tabs become spaces,
 // accents and ordinary text are untouched. `max` caps the length in code points.
-const UNSAFE_TEXT = new RegExp("[\\u0000-\\u0009\\u000b-\\u001f\\u007f-\\u009f\\u061c\\u180e\\u200b-\\u200f\\u2028\\u2029\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u2069\\ufeff\\u{e0000}-\\u{e007f}]", "gu");
+const UNSAFE_TEXT = new RegExp("[\\u0000-\\u0009\\u000b-\\u001f\\u007f-\\u009f\\u061c\\u180e\\u200b-\\u200f\\u2028\\u2029\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u2069\\ufeff\\u{e0000}-\\u{e007f}\\p{Default_Ignorable_Code_Point}]", "gu");
 function sanitize(text, max) {
   let s = String(text ?? "").replace(/\t/g, "  ").replace(UNSAFE_TEXT, "");
   if (max && [...s].length > max) s = `${[...s].slice(0, max - 1).join("")}…`;

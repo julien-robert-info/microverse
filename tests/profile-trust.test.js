@@ -130,7 +130,8 @@ test("--commands outputs what the parser kept: the last duplicate key wins", () 
 
 // Each of these has a run-able string hidden behind a wrong type.
 const WRONG = {
-  "teardown as a string": { teardown: touch("witness-teardown") },
+  // The valid check beside it would leave its witness if the profile were run.
+  "teardown as a string": { checks: [{ name: "w", run: touch("witness-check") }], teardown: "echo restore" },
   "a check without run": { checks: [{ name: "w", command: touch("witness-check") }] },
   "setup as a string": { setup: touch("witness-setup") },
 };
@@ -154,7 +155,7 @@ for (const [label, profile] of Object.entries(WRONG)) {
     const check = script("agent-check", ["feat/x"], dir);
     assert.equal(check.code, 2, check.out);
     assert.match(check.out, /profile invalid/);
-    for (const w of ["witness-check", "witness-teardown", "witness-setup"]) assert.ok(!existsSync(join(wt, w)), w);
+    for (const w of ["witness-check", "witness-setup"]) assert.ok(!existsSync(join(wt, w)), w);
   });
 }
 
@@ -166,6 +167,81 @@ test("--commands refuses a command with a tag character or other hidden text", (
   assert.ok(!r.out.includes("echo hi"));
   const zw = makeRepo({ checks: [{ run: "echo a​b" }] });
   assert.equal(script("orch-trust", ["--commands", "checks"], zw.dir).code, 2);
+});
+
+test("--commands refuses invisible and bidi characters the approval screen strips", () => {
+  const hidden = {
+    "variation selector": 0xfe0f,
+    "soft hyphen": 0x00ad,
+    "combining grapheme joiner": 0x034f,
+    "hangul filler": 0x3164,
+    "bidi override": 0x202e,
+    "bidi isolate": 0x2066,
+    "word joiner": 0x2060,
+  };
+  for (const [label, cp] of Object.entries(hidden)) {
+    const { dir } = makeRepo({ setup: [`echo a${String.fromCodePoint(cp)}b`] });
+    const shown = script("orch-trust", [], dir);
+    assert.ok(shown.out.includes("echo ab"), `${label}: shown sanitized\n${shown.out}`);
+    assert.ok(!shown.out.includes(String.fromCodePoint(cp)), label);
+    const c = script("orch-trust", ["--commands", "setup"], dir);
+    assert.equal(c.code, 2, label);
+    assert.ok(!c.out.includes("echo"), `${label}: no command printed\n${c.out}`);
+  }
+});
+
+test("wrong types for servers and diffPatterns make the profile invalid", () => {
+  for (const profile of [{ servers: "vite" }, { servers: [1] }, { diffPatterns: "x" }, { diffPatterns: [{ why: "no pattern" }] }, { diffPatterns: [{ pattern: 5 }] }]) {
+    const { dir } = makeRepo(profile, { approve: false });
+    assert.equal(script("orch-trust", ["--status"], dir).out.trim(), "invalid", JSON.stringify(profile));
+    assert.equal(script("orch-trust", [sha(profileOf(dir))], dir).code, 2);
+  }
+});
+
+// A linked worktree outside the main tree of a repository with a separate git
+// dir: nothing points back to the main worktree.
+function orphanWorktree() {
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "microverse-sep-")));
+  const gitdir = mkdtempSync(join(tmpdir(), "microverse-sepgit-"));
+  git(dir, "init", "-q", "-b", "main", "--separate-git-dir", join(gitdir, "repo.git"), ".");
+  git(dir, "config", "user.name", "Test");
+  git(dir, "config", "user.email", "test@example.com");
+  mkdirSync(join(dir, ".claude", "orchestration"), { recursive: true });
+  writeFileSync(profileOf(dir), JSON.stringify({ servers: ["vite"] }));
+  git(dir, "add", "-A");
+  git(dir, "commit", "-qm", "chore: init");
+  const wt = join(mkdtempSync(join(tmpdir(), "microverse-out-")), "w");
+  git(dir, "worktree", "add", "-q", "-b", "feat/x", wt);
+  return wt;
+}
+
+function stopHook(project, h, data) {
+  return spawnSync(process.execPath, [join(ROOT, "scripts", "stop-agent-servers.js")], {
+    input: JSON.stringify({ agent_id: "a1", cwd: project }),
+    encoding: "utf8",
+    env: { ...process.env, CLAUDE_PROJECT_DIR: project, CLAUDE_PLUGIN_DATA: data, ...envOf(h) },
+  });
+}
+
+test("hooks refuse an invalid profile and a main worktree that is not found", () => {
+  const h = home();
+  const ctx = (m) => ({ message: m, data: mkdtempSync(join(tmpdir(), "microverse-data-")) });
+  const invalid = makeRepo({ setup: "echo hi" }, { approve: false }).dir;
+  const orphan = orphanWorktree();
+  const cases = [
+    [invalid, /invalid/, /fix the profile/],
+    [orphan, /main worktree .* not found/, /nothing to approve/],
+  ];
+  for (const [dir, , expected] of cases) {
+    const out = JSON.parse(hook(dir, h).stdout).hookSpecificOutput.additionalContext;
+    assert.doesNotMatch(out, /microverse:orchestration`, unless/);
+    assert.match(out, expected);
+    assert.doesNotMatch(out, /approve it with/);
+    const data = ctx().data;
+    const stop = stopHook(dir, h, data);
+    assert.equal(stop.status, 0);
+    assert.match(readFileSync(join(data, "stop-agent-servers.log"), "utf8"), /profile not approved, nothing stopped/);
+  }
 });
 
 test("an approved empty setup prints nothing and is approved, not 'none'", () => {

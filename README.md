@@ -203,7 +203,15 @@ Line-end conversion (CRLF) does not change the fingerprint; any other edit to th
 branch, revokes the approval. Until it is approved, `agent-check` exits 2
 without running anything, `morty` stops, and the SessionStart hook does not
 tell the model to load the orchestration skill. A branch whose diff touches
-`.claude/orchestration/` fails `agent-check`. Never put `orch-trust` in a
+`.claude/orchestration/` fails `agent-check`. A profile with unreadable JSON
+or a value of the wrong type (`setup`, `teardown`, `servers` and `paths` are
+arrays of strings, each check an object with a string `run`, each
+`diffPatterns` entry an object with a string `pattern`) is `invalid`: it cannot
+be approved, every script refuses it, and `orch-trust` says why; fix the file.
+When the main worktree of the repository cannot be found (a worktree outside
+the main tree of a repository with a separate git dir, or a bare repository),
+the state is `unapproved` with nothing to approve: start from the main
+worktree. Never put `orch-trust` in a
 permission allow list: no agent ever runs `orch-trust <sha256>`.
 
 What the profile makes run:

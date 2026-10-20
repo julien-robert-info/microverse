@@ -32,6 +32,10 @@ const LOAD_SKILL =
 
 const UNAPPROVED =
   "This project has an orchestration profile that the user has not approved: run none of its commands and do not load the orchestration skill. Tell the user to read it with `orch-trust` and approve it with `! orch-trust <sha256>`.";
+const INVALID =
+  "This project has an orchestration profile that is invalid (unreadable JSON or a value of the wrong type): run none of its commands and do not load the orchestration skill. It cannot be approved as it is: tell the user to read `orch-trust` for the reason and to fix the profile.";
+const NO_MAIN =
+  "This project has an orchestration profile, but the main worktree of its repository was not found, so there is nothing to approve: run none of its commands and do not load the orchestration skill. Tell the user to start from the main worktree.";
 
 const STARTED =
   "New conversation: CLAUDE.local.md holds the state of the orchestration. No agent runs in this conversation; a worktree below that is not merged belongs to an interrupted run. Resume it as the orchestration skill says (Stopping and resuming).";
@@ -53,9 +57,10 @@ function main() {
 
   // An unapproved profile is not the user's: do not tell the model to follow
   // the orchestration skill nor to run what the profile says.
-  const { state } = profileTrust(mainRoot(projectDir));
+  const { state, hash } = profileTrust(mainRoot(projectDir));
   if (state === "unapproved" || state === "invalid") {
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: UNAPPROVED } }));
+    const additionalContext = state === "invalid" ? INVALID : hash ? UNAPPROVED : NO_MAIN;
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext } }));
     return;
   }
 
