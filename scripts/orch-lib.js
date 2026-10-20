@@ -660,6 +660,26 @@ function mainRoot(cwd = process.cwd()) {
   const r = git(["rev-parse", "--git-common-dir"], cwd);
   const abs = r.code === 0 && r.out.trim() ? resolve(cwd, r.out.trim()) : null;
   if (abs && basename(abs) === ".git") return dirname(abs);
+  // A git dir not named .git (--separate-git-dir): git lists the git dir itself
+  // as the first worktree and records the main worktree nowhere in it, but the
+  // main worktree holds a `.git` file pointing back, and agent worktrees live
+  // below it. A bare repository with worktrees has no such file, and its first
+  // entry stands in.
+  if (abs) {
+    const wtree = git(["config", "--file", join(abs, "config"), "core.worktree"], cwd);
+    if (wtree.code === 0 && wtree.out.trim()) return resolve(abs, wtree.out.trim());
+    const key = (p) => (process.platform === "win32" ? resolve(p).toLowerCase() : resolve(p));
+    const here = git(["rev-parse", "--show-toplevel"], cwd);
+    for (let d = here.code === 0 ? resolve(here.out.trim()) : resolve(cwd); ; d = dirname(d)) {
+      try {
+        const m = /^gitdir:\s*(.+)$/m.exec(readFileSync(join(d, ".git"), "utf8"));
+        if (m && key(resolve(d, m[1].trim())) === key(abs)) return d;
+      } catch {}
+      if (dirname(d) === d) break;
+    }
+    const first = listWorktrees(cwd)[0];
+    if (first) return first.path;
+  }
   const top = git(["rev-parse", "--show-toplevel"], cwd);
   return top.code === 0 ? top.out.trim() : resolve(cwd);
 }
@@ -683,27 +703,26 @@ function readTrustStore() {
   return {};
 }
 
-// { state: "none" | "approved" | "unapproved", hash, commands, profile }.
-// Hash and parsed profile come from the same bytes, so what is approved is what
-// is run. `profile` is null when the file is not valid JSON.
+// { state: "none" | "approved" | "unapproved", hash, file, setup, checks,
+// teardown, commands, profile }. Hash and parsed profile come from the same
+// read, so what is approved is what is run. `profile` is null when the file is
+// not valid JSON. Line ends are normalized before hashing: a raw CR cannot
+// occur in a JSON string, so a CRLF rewrite (autocrlf) changes no command.
 function profileTrust(root) {
   const file = join(root, ".claude", "orchestration", "profile.json");
-  if (!existsSync(file)) return { state: "none", hash: null, commands: [], profile: null };
-  const bytes = readFileSync(file);
-  const hash = createHash("sha256").update(bytes).digest("hex");
+  if (!existsSync(file)) return { state: "none", hash: null, file, setup: [], checks: [], teardown: [], commands: [], profile: null };
+  const text = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+  const hash = createHash("sha256").update(text).digest("hex");
   let profile = null;
   try {
-    profile = JSON.parse(bytes.toString("utf8"));
+    profile = JSON.parse(text);
   } catch {}
   const strings = (v) => (Array.isArray(v) ? v.filter((c) => typeof c === "string") : []);
-  const checks = Array.isArray(profile?.checks) ? profile.checks : [];
-  const commands = [
-    ...strings(profile?.setup),
-    ...checks.map((c) => c?.run).filter((c) => typeof c === "string"),
-    ...strings(profile?.teardown),
-  ];
+  const setup = strings(profile?.setup);
+  const checks = (Array.isArray(profile?.checks) ? profile.checks : []).map((c) => c?.run).filter((c) => typeof c === "string");
+  const teardown = strings(profile?.teardown);
   const approved = readTrustStore()[trustKey(root)] === hash;
-  return { state: approved ? "approved" : "unapproved", hash, commands, profile };
+  return { state: approved ? "approved" : "unapproved", hash, file, setup, checks, teardown, commands: [...setup, ...checks, ...teardown], profile };
 }
 
 // Only `orch-trust <sha256>` run by the user calls this.
@@ -717,10 +736,18 @@ function approveProfile(root, hash) {
   renameSync(tmp, file);
 }
 
-// Lines showing the commands a profile would run: sanitized, bounded.
-function describeCommands(commands) {
-  const lines = commands.slice(0, TRUST_MAX_COMMANDS).map((c) => `    ${sanitize(c, TRUST_MAX_CHARS).replace(/\n/g, "\\n")}`);
-  if (commands.length > TRUST_MAX_COMMANDS) lines.push(`    ... and ${commands.length - TRUST_MAX_COMMANDS} more`);
+// Lines showing the commands a profile would run, sanitized. `full` (what the
+// user reads before approving) shows every command whole; otherwise the list
+// is bounded and says how much it left out.
+function describeCommands(commands, { full = false } = {}) {
+  const shown = full ? commands : commands.slice(0, TRUST_MAX_COMMANDS);
+  let cut = commands.length - shown.length;
+  const lines = shown.map((c) => {
+    const s = sanitize(c, full ? 0 : TRUST_MAX_CHARS);
+    if (!full && [...sanitize(c)].length > TRUST_MAX_CHARS) cut++;
+    return `    ${s.replace(/\n/g, "\\n")}`;
+  });
+  if (cut) lines.push(`    (${cut} truncated or omitted, read them with orch-trust)`);
   return lines;
 }
 

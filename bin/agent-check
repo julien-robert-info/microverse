@@ -81,7 +81,7 @@ if (behind > 0 && !opts.merged) {
   console.log(`--  base: ${behind} commit(s) on ${base} since the branch point; checks ran on the branch alone (rerun with --merged)`);
 }
 
-const changed = git(["diff", "--name-only", `${base}...${branch}`], root).out.trim().split("\n").filter(Boolean);
+const changed = git(["diff", "--name-only", "--no-renames", `${base}...${branch}`], root).out.trim().split("\n").filter(Boolean);
 const wt = worktreeFor(root, branch);
 if (!wt) console.log("worktree: none for this branch, checks not run");
 else {
@@ -223,9 +223,11 @@ function runChecks(wt, baseline) {
     }
   }
 }
-// A branch that edits the profile or the rules asks for commands to be run once
+// Case-insensitive (the folder resolves on case-insensitive file systems) and
+// on a diff without rename detection (a move out of the folder is a deletion
+// there). A branch that edits the profile or the rules asks for commands to be run once
 // merged: the user reviews that change and approves the new profile again.
-const touched = changed.filter((f) => f.startsWith(".claude/orchestration/"));
+const touched = changed.filter((f) => f.toLowerCase().startsWith(".claude/orchestration/"));
 const profileHits = touched.map((f) => `    ${f} profile changed: review and re-approve`);
 // Patterns are matched on added lines only, reported as file:line.
 const patterns = [...BUILTIN, ...(profile.diffPatterns ?? [])].map((p) => ({ re: new RegExp(p.pattern), why: p.why ?? p.pattern }));

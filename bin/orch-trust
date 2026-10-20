@@ -6,6 +6,7 @@
 // orch-trust                 state, fingerprint and commands of the profile; writes nothing
 // orch-trust <sha256>        approves the profile if its fingerprint is that one
 // orch-trust --status        exit 0 when approved or without profile, 1 otherwise
+// orch-trust --commands setup|checks   the approved profile's commands, one per line
 //
 // The profile is the one of the main worktree, whatever the current directory.
 // Only the user runs `orch-trust <sha256>`, as `! orch-trust <sha256>`; an
@@ -18,6 +19,22 @@ const opts = parseArgs(process.argv.slice(2), { flags: ["status"] });
 const root = mainRoot();
 const trust = profileTrust(root);
 
+// The commands an agent may run, parsed from the approved profile of the main
+// worktree: an agent reading the profile file of its own branch could run
+// something else than what the user approved.
+if (opts.commands !== undefined) {
+  if (opts.commands !== "setup" && opts.commands !== "checks") fail("usage: orch-trust --commands setup|checks");
+  if (trust.state === "none") process.exit(0);
+  if (trust.state === "unapproved") {
+    console.error("profile not approved: run no command of it");
+    process.exit(1);
+  }
+  const list = trust[opts.commands];
+  if (list.some((c) => /[\p{Cc}\p{Zl}\p{Zp}]/u.test(c))) fail("a command holds a line break or control character: read it with orch-trust, run none");
+  if (list.length) console.log(list.join("\n"));
+  process.exit(0);
+}
+
 if (opts.status) {
   console.log(trust.state);
   process.exit(trust.state === "unapproved" ? 1 : 0);
@@ -27,9 +44,10 @@ const given = opts._[0];
 if (given === undefined) {
   console.log(`profile: ${trust.state}`);
   if (trust.hash) {
+    console.log(`file: ${trust.file}`);
     console.log(`fingerprint: ${trust.hash}`);
-    console.log(`commands (${trust.commands.length}):\n${describeCommands(trust.commands).join("\n")}`);
-    if (trust.state === "unapproved") console.log(`\nAfter reading them, approve with: orch-trust ${trust.hash}`);
+    console.log(`commands (${trust.commands.length}):\n${describeCommands(trust.commands, { full: true }).join("\n")}`);
+    if (trust.state === "unapproved") console.log(`\nAsk the user to type: ! orch-trust ${trust.hash}`);
   }
   process.exit(0);
 }

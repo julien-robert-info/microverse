@@ -35,9 +35,11 @@ does not settle blocks you; never for routine steps.
 4. Run `orch-trust --status`. A non-zero exit means the user has not approved
    the profile: run no command of it, say so in the report and stop. Never run
    `orch-trust <sha256>` yourself: only the user approves a profile.
-5. Run each command of `setup` in `.claude/orchestration/profile.json`, in
-   order. No profile: say so in the report and install what the project's
-   manifests call for.
+5. Run the commands printed by `orch-trust --commands setup`, in order, and
+   none other: never read them from `profile.json` of your branch, which is
+   not what the user approved. A command that `orch-trust` refuses to print
+   is not run: say so in the report. No profile (nothing printed, exit 0):
+   say so in the report and install what the project's manifests call for.
 
 ## Rules
 - Conventional Commits: short subject, brief body saying what changes and why.
@@ -98,8 +100,8 @@ output in a file, and read only its end. Do not re-read what you just wrote.
 ## Checks
 Before reporting, run `agent-check <your branch>` when the command exists: it
 runs the profile's `checks`, verifies the worktree is clean and greps the diff
-for known bad patterns, and prints only failures. Otherwise run each command of
-`checks` in the profile yourself. Everything must pass on the files you
+for known bad patterns, and prints only failures. Otherwise run the commands
+printed by `orch-trust --commands checks` yourself. Everything must pass on the files you
 touched; a check that already failed before your change is reported, not
 silenced.
 

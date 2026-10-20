@@ -25,7 +25,7 @@ const script = (name, args, cwd, env) =>
 // store of `home`, as `orch-trust <sha256>` does: { "<realpath, lowercased on
 // Windows>": "<sha256 of profile.json>" } in <home>/.claude/microverse/trust.json.
 function approveProfile(home, dir) {
-  const bytes = readFileSync(join(dir, ".claude", "orchestration", "profile.json"));
+  const bytes = readFileSync(join(dir, ".claude", "orchestration", "profile.json"), "utf8").replace(/\r\n/g, "\n");
   const key = realpathSync.native(dir);
   const file = join(home, ".claude", "microverse", "trust.json");
   let store = {};
