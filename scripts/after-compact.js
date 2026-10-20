@@ -16,7 +16,7 @@
 
 const { existsSync, readFileSync } = require("node:fs");
 const { join } = require("node:path");
-const { agentWorktrees, sanitize } = require("./orch-lib.js");
+const { agentWorktrees, sanitize, validBranch } = require("./orch-lib.js");
 
 const FIELD_MAX = 100;
 
@@ -57,7 +57,7 @@ function main() {
       // Branch names and commit subjects are written by agents: data, not
       // instructions, so cleaned and bounded.
       const field = (s) => sanitize(s, FIELD_MAX).replace(/\n/g, " ");
-      let row = `- ${wt.branch == null ? "(detached)" : field(wt.branch)} (${field(wt.rel)}): ${wt.merged ? "merged" : "not merged"}`;
+      let row = `- ${wt.branch == null ? "(detached)" : validBranch(wt.branch) ? field(wt.branch) : "(invalid name)"} (${field(wt.rel)}): ${wt.merged ? "merged" : "not merged"}`;
       if (detailed) row += `, last commit ${wt.last ? field(wt.last) : "unknown"}, ${wt.dirty ? "UNCOMMITTED CHANGES" : "no uncommitted changes"}`;
       return row;
     });

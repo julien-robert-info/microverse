@@ -11,12 +11,20 @@
 
 const { realpathSync } = require("node:fs");
 const { join, resolve, sep } = require("node:path");
-const { fail, git, listProcesses, normPath, parseArgs, repoRoot, worktreeFor } = require("../scripts/orch-lib.js");
+const { fail, git, listProcesses, normPath, parseArgs, repoRoot, sanitize, validBranch, worktreeFor } = require("../scripts/orch-lib.js");
+
+// One choke point for everything printed: branch names, paths, process command
+// lines and git errors come from the repository or the system.
+for (const m of ["log", "error"]) {
+  const orig = console[m].bind(console);
+  console[m] = (...a) => orig(...a.map((x) => (typeof x === "string" ? sanitize(x) : x)));
+}
 
 const opts = parseArgs(process.argv.slice(2), { flags: ["keep-branch"] });
 const keepBranch = opts["keep-branch"] === true;
 const branch = opts._[0];
 if (!branch) fail("usage: agent-cleanup [--keep-branch] <branch>");
+if (!validBranch(branch)) fail("REFUSED: invalid branch name, nothing touched");
 const root = repoRoot();
 const wt = worktreeFor(root, branch);
 
