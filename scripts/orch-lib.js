@@ -27,7 +27,9 @@ function git(args, cwd) {
 function validBranch(name) {
   if (typeof name !== "string" || !name || name.startsWith("-")) return false;
   if (/[&|<>^%!"\u0000-\u001f\u007f-\u009f]/.test(name)) return false;
-  return git(["check-ref-format", "--branch", name]).code === 0;
+  // `--branch` expands `@{-1}` to the previous branch: the name must come back unchanged.
+  const r = git(["check-ref-format", "--branch", name]);
+  return r.code === 0 && r.out.trim() === name;
 }
 
 function fail(message) {
