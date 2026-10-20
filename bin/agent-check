@@ -43,14 +43,18 @@ const base = typeof opts.base === "string" ? opts.base : defaultBase(root);
 // The profile of the main worktree, never the branch's: the branch is what is
 // being reviewed. Its commands run only once the user has approved it.
 const trust = profileTrust(mainRoot(root));
+if (trust.state === "invalid") fail(`profile invalid (${trust.reason}): agent-check ran none of its commands`);
+if (trust.state === "unapproved" && !trust.hash) fail(`profile not approved (${trust.reason}): agent-check ran none of its commands`);
 if (trust.state === "unapproved") {
   fail(
     `profile not approved: agent-check runs its commands and ran none.\n${describeCommands(trust.commands).join("\n")}\n` +
       `Read it (orch-trust), then ask the user to run: ! orch-trust ${trust.hash}`,
   );
 }
-if (trust.state === "approved" && !trust.profile) fail("unreadable profile: invalid JSON");
+// Only the validated lists of profileTrust are run, never the raw profile.
 const profile = trust.profile ?? {};
+const checkList = profile.checks ?? [];
+const teardownList = trust.teardown;
 let ok = true;
 const tail = (text) => text.trimEnd().split(/\r?\n/).slice(-TAIL).map((l) => `    ${l}`).join("\n");
 
@@ -198,7 +202,7 @@ function alive(pid) {
 
 function runChecks(wt, baseline) {
   // A check with `paths` runs only when the diff touches one of these prefixes.
-  for (const check of opts["no-checks"] ? [] : (profile.checks ?? [])) {
+  for (const check of opts["no-checks"] ? [] : checkList) {
     const name = check.name ?? check.run;
     if (Array.isArray(check.paths) && !changed.some((f) => check.paths.some((p) => f.startsWith(p)))) {
       console.log(`--  ${name}: skipped (no file under ${check.paths.join(", ")})`);
@@ -215,7 +219,7 @@ function runChecks(wt, baseline) {
   // Checks can rewrite tracked files (generated code); `teardown` restores
   // them, so the worktree can still be removed afterwards.
   if (!opts["no-checks"]) {
-    for (const cmd of profile.teardown ?? []) spawnSync(cmd, { cwd: wt, shell: true, encoding: "utf8" });
+    for (const cmd of teardownList) spawnSync(cmd, { cwd: wt, shell: true, encoding: "utf8" });
     const left = git(["status", "--porcelain"], wt).out.trimEnd();
     if (left !== baseline) {
       ok = false;

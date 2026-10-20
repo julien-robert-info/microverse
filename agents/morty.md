@@ -33,13 +33,15 @@ does not settle blocks you; never for routine steps.
 3. Read `.claude/orchestration/rules.md`: the project's rules and traps, which
    take precedence over the general rules below.
 4. Run `orch-trust --status`. A non-zero exit means the user has not approved
-   the profile: run no command of it, say so in the report and stop. Never run
+   the profile (or it is invalid or its repository not found): run no command of it, say so in the report and stop. Never run
    `orch-trust <sha256>` yourself: only the user approves a profile.
 5. Run the commands printed by `orch-trust --commands setup`, in order, and
    none other: never read them from `profile.json` of your branch, which is
    not what the user approved. A command that `orch-trust` refuses to print
-   is not run: say so in the report. No profile (nothing printed, exit 0):
-   say so in the report and install what the project's manifests call for.
+   is not run: say so in the report. "No profile" means only that
+   `orch-trust --status` prints `none`: then say so in the report and install
+   what the project's manifests call for. An approved profile with an empty
+   `setup` is not "no profile": run nothing and install nothing on your own.
 
 ## Rules
 - Conventional Commits: short subject, brief body saying what changes and why.

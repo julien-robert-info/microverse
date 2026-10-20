@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -119,16 +119,91 @@ test("--commands exits 1 for an unapproved profile and prints nothing for no pro
   assert.equal(none.out, "");
 });
 
-test("--commands outputs what the parser kept: last duplicate key, no wrong type", () => {
-  const raw = '{"setup": ["echo first"], "checks": [{"run": "echo ok"}, {"command": "echo wrong"}], "setup": ["echo last"]}';
+test("--commands outputs what the parser kept: the last duplicate key wins", () => {
+  const raw = '{"setup": ["echo first"], "checks": [{"run": "echo ok"}], "setup": ["echo last"]}';
   const { dir } = makeRepo({}, { approve: false });
   writeFileSync(profileOf(dir), raw);
   approveProfile(emptyHome, dir);
   assert.equal(script("orch-trust", ["--commands", "setup"], dir).out.trim(), "echo last");
   assert.equal(script("orch-trust", ["--commands", "checks"], dir).out.trim(), "echo ok");
-  writeFileSync(profileOf(dir), '{"setup": "echo bare-string"}');
+});
+
+// Each of these has a run-able string hidden behind a wrong type.
+const WRONG = {
+  "teardown as a string": { teardown: touch("witness-teardown") },
+  "a check without run": { checks: [{ name: "w", command: touch("witness-check") }] },
+  "setup as a string": { setup: touch("witness-setup") },
+};
+for (const [label, profile] of Object.entries(WRONG)) {
+  test(`an invalid profile (${label}) cannot be approved and nothing of it runs`, () => {
+    const { dir, wt } = makeRepo(profile, { approve: false });
+    const hash = sha(profileOf(dir));
+    const shown = script("orch-trust", [], dir);
+    assert.match(shown.out, /profile: invalid \(/);
+    const approve = script("orch-trust", [hash], dir);
+    assert.equal(approve.code, 2, approve.out);
+    // Even an approval written into the store by other means does not make it run.
+    approveProfile(emptyHome, dir);
+    assert.equal(script("orch-trust", ["--status"], dir).code, 1);
+    assert.equal(script("orch-trust", ["--status"], dir).out.trim(), "invalid");
+    for (const kind of ["setup", "checks"]) {
+      const c = script("orch-trust", ["--commands", kind], dir);
+      assert.equal(c.code, 1, c.out);
+      assert.ok(!c.out.includes("witness"), c.out);
+    }
+    const check = script("agent-check", ["feat/x"], dir);
+    assert.equal(check.code, 2, check.out);
+    assert.match(check.out, /profile invalid/);
+    for (const w of ["witness-check", "witness-teardown", "witness-setup"]) assert.ok(!existsSync(join(wt, w)), w);
+  });
+}
+
+test("--commands refuses a command with a tag character or other hidden text", () => {
+  const hidden = String.fromCodePoint(0xe0041, 0xe0042);
+  const { dir } = makeRepo({ setup: [`echo hi${hidden}`] });
+  const r = script("orch-trust", ["--commands", "setup"], dir);
+  assert.equal(r.code, 2, r.out);
+  assert.ok(!r.out.includes("echo hi"));
+  const zw = makeRepo({ checks: [{ run: "echo a​b" }] });
+  assert.equal(script("orch-trust", ["--commands", "checks"], zw.dir).code, 2);
+});
+
+test("an approved empty setup prints nothing and is approved, not 'none'", () => {
+  const { dir } = makeRepo({ setup: [] });
+  const c = script("orch-trust", ["--commands", "setup"], dir);
+  assert.equal(c.code, 0);
+  assert.equal(c.out, "");
+  assert.equal(script("orch-trust", ["--status"], dir).out.trim(), "approved");
+});
+
+test("unreadable JSON is invalid: --status 1 and --commands 1, agent-check 2", () => {
+  const { dir } = makeRepo({}, { approve: false });
+  writeFileSync(profileOf(dir), "{ not json");
   approveProfile(emptyHome, dir);
-  assert.equal(script("orch-trust", ["--commands", "setup"], dir).out, "");
+  assert.equal(script("orch-trust", ["--status"], dir).code, 1);
+  assert.equal(script("orch-trust", ["--commands", "setup"], dir).code, 1);
+  assert.equal(script("agent-check", ["feat/x"], dir).code, 2);
+});
+
+test("a main worktree that cannot be found is unapproved, never 'none'", () => {
+  const h = home();
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "microverse-sep-")));
+  const gitdir = mkdtempSync(join(tmpdir(), "microverse-sepgit-"));
+  git(dir, "init", "-q", "-b", "main", "--separate-git-dir", join(gitdir, "repo.git"), ".");
+  git(dir, "config", "user.name", "Test");
+  git(dir, "config", "user.email", "test@example.com");
+  mkdirSync(join(dir, ".claude", "orchestration"), { recursive: true });
+  writeFileSync(profileOf(dir), JSON.stringify({ setup: ["echo hi"] }));
+  git(dir, "add", "-A");
+  git(dir, "commit", "-qm", "chore: init");
+  // A linked worktree outside the main tree: nothing points back to the main one.
+  const wt = join(mkdtempSync(join(tmpdir(), "microverse-out-")), "w");
+  git(dir, "worktree", "add", "-q", "-b", "feat/x", wt);
+  const s = script("orch-trust", ["--status"], wt, envOf(h));
+  assert.equal(s.code, 1, s.out);
+  assert.equal(s.out.trim(), "unapproved");
+  assert.equal(script("agent-check", ["feat/x"], wt, envOf(h)).code, 2);
+  assert.equal(script("orch-trust", ["--commands", "setup"], wt, envOf(h)).code, 1);
 });
 
 test("--commands refuses a command holding a line break", () => {

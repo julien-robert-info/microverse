@@ -175,7 +175,8 @@ tool, never from PowerShell or cmd.exe.
    `morty`; `review.md` says how they are checked.
 4. **Merge** without waiting for the user, who reviews afterwards:
    `git merge --no-ff <branch>` with the subject `merge: …`. The full check of
-   the main branch (build included) runs once, before a deployment.
+   the main branch (build included) runs once, before a deployment, with the
+   commands of `orch-trust --commands checks`, never read from `profile.json`.
 5. `agent-cleanup <branch>`: refuses while a process runs in the worktree or the
    branch is not merged.
 6. **State file**: the mission's line, merged commit, released reservation,

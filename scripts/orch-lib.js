@@ -654,8 +654,8 @@ function sanitize(text, max) {
 const TRUST_MAX_COMMANDS = 20;
 const TRUST_MAX_CHARS = 200;
 
-// Root of the main worktree, from any of the repository's worktrees; `cwd`
-// itself outside a repository (a profile can exist there, e.g. in the hook).
+// Root of the main worktree, from any of the repository's worktrees, or null
+// when it cannot be found; `cwd` itself outside a repository (a profile can exist there, e.g. in the hook).
 function mainRoot(cwd = process.cwd()) {
   const r = git(["rev-parse", "--git-common-dir"], cwd);
   const abs = r.code === 0 && r.out.trim() ? resolve(cwd, r.out.trim()) : null;
@@ -663,8 +663,8 @@ function mainRoot(cwd = process.cwd()) {
   // A git dir not named .git (--separate-git-dir): git lists the git dir itself
   // as the first worktree and records the main worktree nowhere in it, but the
   // main worktree holds a `.git` file pointing back, and agent worktrees live
-  // below it. A bare repository with worktrees has no such file, and its first
-  // entry stands in.
+  // below it. Not found (bare repository, worktree outside the main tree):
+  // null, which profileTrust turns into "unapproved" rather than "none".
   if (abs) {
     const wtree = git(["config", "--file", join(abs, "config"), "core.worktree"], cwd);
     if (wtree.code === 0 && wtree.out.trim()) return resolve(abs, wtree.out.trim());
@@ -677,8 +677,7 @@ function mainRoot(cwd = process.cwd()) {
       } catch {}
       if (dirname(d) === d) break;
     }
-    const first = listWorktrees(cwd)[0];
-    if (first) return first.path;
+    return null;
   }
   const top = git(["rev-parse", "--show-toplevel"], cwd);
   return top.code === 0 ? top.out.trim() : resolve(cwd);
@@ -703,12 +702,17 @@ function readTrustStore() {
   return {};
 }
 
-// { state: "none" | "approved" | "unapproved", hash, file, setup, checks,
-// teardown, commands, profile }. Hash and parsed profile come from the same
-// read, so what is approved is what is run. `profile` is null when the file is
-// not valid JSON. Line ends are normalized before hashing: a raw CR cannot
-// occur in a JSON string, so a CRLF rewrite (autocrlf) changes no command.
+// { state: "none" | "approved" | "unapproved" | "invalid", reason, hash, file,
+// setup, checks, teardown, commands, profile }. Hash and parsed profile come
+// from the same read, so what is approved is what is run. "invalid" (unreadable
+// JSON or a wrong schema) has no commands and cannot be approved. Line ends are
+// normalized before hashing: a raw CR cannot occur in a JSON string, so a CRLF
+// rewrite (autocrlf) changes no command. A null root (main worktree not found)
+// fails safe as unapproved, never as "none".
 function profileTrust(root) {
+  if (root === null) {
+    return { state: "unapproved", reason: "main worktree not found", hash: null, file: null, setup: [], checks: [], teardown: [], commands: [], profile: null };
+  }
   const file = join(root, ".claude", "orchestration", "profile.json");
   if (!existsSync(file)) return { state: "none", hash: null, file, setup: [], checks: [], teardown: [], commands: [], profile: null };
   const text = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
@@ -717,12 +721,40 @@ function profileTrust(root) {
   try {
     profile = JSON.parse(text);
   } catch {}
-  const strings = (v) => (Array.isArray(v) ? v.filter((c) => typeof c === "string") : []);
-  const setup = strings(profile?.setup);
-  const checks = (Array.isArray(profile?.checks) ? profile.checks : []).map((c) => c?.run).filter((c) => typeof c === "string");
-  const teardown = strings(profile?.teardown);
+  const reason = profileProblem(profile);
+  if (reason) return { state: "invalid", reason, hash, file, setup: [], checks: [], teardown: [], commands: [], profile: null };
+  // Past the validation these are the only lists anything may run.
+  const setup = profile.setup ?? [];
+  const checks = (profile.checks ?? []).map((c) => c.run);
+  const teardown = profile.teardown ?? [];
   const approved = readTrustStore()[trustKey(root)] === hash;
   return { state: approved ? "approved" : "unapproved", hash, file, setup, checks, teardown, commands: [...setup, ...checks, ...teardown], profile };
+}
+
+// Why the profile cannot be trusted, or null. Strict on purpose: a value of
+// another type must never be run by a consumer that reads the raw profile.
+function profileProblem(p) {
+  if (p === null || typeof p !== "object" || Array.isArray(p)) return "not a JSON object";
+  const strings = (v) => Array.isArray(v) && v.every((s) => typeof s === "string");
+  for (const key of ["setup", "teardown", "servers"]) {
+    if (p[key] !== undefined && !strings(p[key])) return `"${key}" must be an array of strings`;
+  }
+  if (p.checks !== undefined) {
+    if (!Array.isArray(p.checks)) return '"checks" must be an array of objects';
+    for (const c of p.checks) {
+      if (c === null || typeof c !== "object" || Array.isArray(c) || typeof c.run !== "string") return 'each "checks" entry must be an object whose "run" is a string';
+      if (c.name !== undefined && typeof c.name !== "string") return 'a check "name" must be a string';
+      if (c.paths !== undefined && !strings(c.paths)) return 'a check "paths" must be an array of strings';
+    }
+  }
+  if (p.diffPatterns !== undefined) {
+    if (!Array.isArray(p.diffPatterns)) return '"diffPatterns" must be an array of objects';
+    for (const d of p.diffPatterns) {
+      if (d === null || typeof d !== "object" || typeof d.pattern !== "string") return 'each "diffPatterns" entry must be an object whose "pattern" is a string';
+      if (d.why !== undefined && typeof d.why !== "string") return 'a diffPatterns "why" must be a string';
+    }
+  }
+  return null;
 }
 
 // Only `orch-trust <sha256>` run by the user calls this.

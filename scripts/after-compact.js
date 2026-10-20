@@ -53,7 +53,8 @@ function main() {
 
   // An unapproved profile is not the user's: do not tell the model to follow
   // the orchestration skill nor to run what the profile says.
-  if (profileTrust(mainRoot(projectDir)).state === "unapproved") {
+  const { state } = profileTrust(mainRoot(projectDir));
+  if (state === "unapproved" || state === "invalid") {
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: UNAPPROVED } }));
     return;
   }
