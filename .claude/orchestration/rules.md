@@ -42,7 +42,9 @@ Run by the orchestrator, never by an agent, at the end of a series when
 2. Move the `Unreleased` entries under `## [x.y.z] - YYYY-MM-DD` and leave an
    empty `## Unreleased` on top.
 3. Set `version` in `.claude-plugin/plugin.json` to `x.y.z`.
-4. `claude plugin validate --strict .`, then `npm test` with a temporary `HOME`
-   and `USERPROFILE`.
+4. `npm test` with a temporary `HOME` and `USERPROFILE`; after the commit,
+   `claude plugin validate --strict .` run in an export of it (`git archive HEAD`
+   into a temporary folder): an unversioned `CLAUDE.local.md` at the root of the
+   working tree is a warning.
 5. Commit `chore(release): vX.Y.Z`, then tag it: `git tag -a vX.Y.Z -m "vX.Y.Z"`.
 6. Push the commit and the tag. The scripts create no GitHub Release.
