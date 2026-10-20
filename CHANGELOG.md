@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Output hygiene: one shared `sanitize` strips terminal control sequences, line separators, bidi, zero-width and tag characters from commit subjects, branch names, agent descriptions and tool errors before `orch-status`, `orch-report`, `orch-usage`, `orch-speak`, the status hook and the SessionStart context print them (length-capped there). The stop-agent-servers journal is size-bounded and no longer records command-line arguments. The skills say how to write an apostrophe in a quoted option value.
 - Optional audio report: tell the orchestrator to turn it on and each report or question message also arrives as an mp3 (SendUserFile). The new orch-speak turns the spoken text into speech with edge-tts (installed separately); options speak_voice (default fr-FR-HenriNeural), speak_rate (default +10%), speak_pitch and speak_volume.
 - `/microverse:status` shows the orchestration at a glance in the terminal
   (missions and questions of `CLAUDE.local.md`, agent worktrees, branches

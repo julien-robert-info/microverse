@@ -188,3 +188,12 @@ test("a missing or unknown --since is a usage error", () => {
   assert.equal(script("orch-report", [], dir, emptyHome()).code, 2);
   assert.equal(script("orch-report", ["--since", "does-not-exist"], dir, emptyHome()).code, 2);
 });
+
+test("commit subjects are printed without control or invisible characters", () => {
+  const { dir, since } = series();
+  commit(dir, "evil.txt", "fix: a\u001b]52;c;QQ\u0007b\u009bc\u2028d\u{e0041}e");
+  const r = script("orch-report", ["--since", since, "--file", quotaFile(0.1, 0.1)], dir, emptyHome());
+  assert.equal(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u{e0000}-\u{e007f}]/u);
+  assert.match(r.out, /fix: a\]52;c;QQbcde/);
+});

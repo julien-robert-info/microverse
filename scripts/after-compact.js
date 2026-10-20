@@ -16,7 +16,9 @@
 
 const { existsSync, readFileSync } = require("node:fs");
 const { join } = require("node:path");
-const { agentWorktrees } = require("./orch-lib.js");
+const { agentWorktrees, sanitize } = require("./orch-lib.js");
+
+const FIELD_MAX = 100;
 
 const HEADER =
   "Conversation compacted: CLAUDE.local.md is reloaded and is the state of reference; agents still running keep reporting here; continue with the orchestration skill.";
@@ -52,8 +54,11 @@ function main() {
   const lines = [LOAD_SKILL, orientation];
   try {
     const rows = agentWorktrees(projectDir, { details: detailed }).map((wt) => {
-      let row = `- ${wt.branch ?? "(detached)"} (${wt.rel}): ${wt.merged ? "merged" : "not merged"}`;
-      if (detailed) row += `, last commit ${wt.last || "unknown"}, ${wt.dirty ? "UNCOMMITTED CHANGES" : "no uncommitted changes"}`;
+      // Branch names and commit subjects are written by agents: data, not
+      // instructions, so cleaned and bounded.
+      const field = (s) => sanitize(s, FIELD_MAX).replace(/\n/g, " ");
+      let row = `- ${wt.branch == null ? "(detached)" : field(wt.branch)} (${field(wt.rel)}): ${wt.merged ? "merged" : "not merged"}`;
+      if (detailed) row += `, last commit ${wt.last ? field(wt.last) : "unknown"}, ${wt.dirty ? "UNCOMMITTED CHANGES" : "no uncommitted changes"}`;
       return row;
     });
     if (rows.length) lines.push("Agent worktrees:", ...rows);

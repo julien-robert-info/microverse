@@ -49,7 +49,8 @@ test("the hook stops a matching server of the agent and spares its other process
     assert.ok(!alive(server), "the server should be stopped");
     assert.ok(alive(tests), "the agent's other process should survive");
     assert.ok(alive(elsewhere), "another agent's server should survive");
-    assert.match(log(ctx), /agent abc123: stopped PID/);
+    assert.match(log(ctx), /agent abc123: stopped PID \d+ \S+\n/);
+    assert.ok(!log(ctx).includes("fakeserver"), "the command line stays out of the journal");
   } finally {
     for (const p of [server, tests, elsewhere]) p.kill();
   }
@@ -68,4 +69,18 @@ test("the hook logs and exits 0 when there is nothing to do", () => {
   runHook(empty, { agent_id: "x" });
   assert.match(log(empty), /nothing to stop/);
   assert.ok(existsSync(join(empty.data, "stop-agent-servers.log")));
+});
+
+test("the journal is bounded and a logged line is cleaned", () => {
+  const ctx = setup({ servers: ["fakeserver"] });
+  mkdirSync(ctx.data, { recursive: true });
+  const file = join(ctx.data, "stop-agent-servers.log");
+  writeFileSync(file, "2026-01-01T00:00:00 old line\n".repeat(5000));
+  const r = runHook(ctx, { agent_id: "bad\u001b]0;x\u0007id" });
+  assert.equal(r.status, 0);
+  const text = readFileSync(file, "utf8");
+  assert.ok(text.length < 20 * 1024, `journal is ${text.length} bytes`);
+  assert.match(text, /nothing to stop\n$/);
+  assert.match(text, /^2026-01-01T00:00:00 old line\n/);
+  assert.doesNotMatch(text, /[\u0000-\u0009\u000b-\u001f]/);
 });

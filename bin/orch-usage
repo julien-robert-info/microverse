@@ -13,7 +13,7 @@
 
 const { existsSync, readdirSync, readFileSync, statSync } = require("node:fs");
 const { join } = require("node:path");
-const { fail, parseArgs, lastContext, readRequests, executorCost, advisorSteps, priceOf, requestCost, agentInfo, projectSlug, projectsRoot } = require("../scripts/orch-lib.js");
+const { sanitize, fail, parseArgs, lastContext, readRequests, executorCost, advisorSteps, priceOf, requestCost, agentInfo, projectSlug, projectsRoot } = require("../scripts/orch-lib.js");
 
 // Same parsing as scripts/context-guard.js.
 const windowOption = process.env.CLAUDE_PLUGIN_OPTION_COMPACT_WINDOW;
@@ -77,7 +77,7 @@ if (opts.agents) {
   console.log(`Agents since ${since.toISOString().slice(0, 16)}Z (API-equivalent $)`);
   console.log("started	type	model	requests	$	description");
   for (const r of [...runs.values()].sort((a, b) => (a.ts < b.ts ? -1 : 1)))
-    console.log(`${r.ts.slice(0, 16)}	${r.agent.type}	${r.model}	${r.n}	${r.priced ? r.cost.toFixed(2) : "?"}	${r.agent.description}`);
+    console.log(`${r.ts.slice(0, 16)}	${r.agent.type}	${r.model}	${r.n}	${r.priced ? r.cost.toFixed(2) : "?"}	${sanitize(r.agent.description).replace(/\n/g, " ")}`);
   process.exit(0);
 }
 

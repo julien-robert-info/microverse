@@ -107,3 +107,15 @@ test("orch-usage --agents includes the advisor cost in the run", () => {
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /microverse:meeseeks\tclaude-haiku-5-5\t1\t0\.08\tLook it up/);
 });
+
+test("orch-usage --agents prints agent descriptions without control or invisible characters", () => {
+  const { env, project } = fixture();
+  const slug = project.replace(/[^A-Za-z0-9]/g, "-").toLowerCase();
+  const meta = join(env.HOME, ".claude", "projects", slug, "sess1", "subagents", "agent-a1.meta.json");
+  const hostile = `Add \u001b]52;c;QQ\u0007the\u2028thing\u{e0041}\nnext`;
+  writeFileSync(meta, JSON.stringify({ agentType: "microverse:morty", description: hostile }));
+  const r = script("orch-usage", ["--project", project, "--since", "2026-10-01", "--agents"], process.cwd(), env);
+  assert.equal(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u2028\u{e0000}-\u{e007f}]/u);
+  assert.match(r.out, /\tAdd \]52;c;QQthething next\n/);
+});

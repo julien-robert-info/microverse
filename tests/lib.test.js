@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const { mkdtempSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
-const { agentWorktrees, lastContext, listWorktrees, normPath, paceAdvice, parseArgs } = require("../scripts/orch-lib.js");
+const { sanitize, agentWorktrees, lastContext, listWorktrees, normPath, paceAdvice, parseArgs } = require("../scripts/orch-lib.js");
 const { git, makeRepo } = require("./helpers.js");
 
 const norm = (p) => p.replace(/\\/g, "/").toLowerCase();
@@ -145,4 +145,45 @@ test("agentWorktrees keeps the worktrees under .claude/worktrees, with merge sta
   assert.equal(detailed.w.dirty, true);
   assert.equal(detailed.done.dirty, false);
   assert.deepEqual(agentWorktrees(mkdtempSync(join(tmpdir(), "microverse-nogit-"))), []);
+});
+
+test("sanitize removes every class of control and invisible character", () => {
+  const classes = {
+    "C0 ESC": "\u001b",
+    "C0 NUL": "\u0000",
+    "C0 BEL": "\u0007",
+    "C0 CR": "\r",
+    "DEL": "\u007f",
+    "C1 CSI": "\u009b",
+    "C1 NEL": "\u0085",
+    "Arabic letter mark": "\u061c",
+    "Mongolian vowel separator": "\u180e",
+    "zero-width space": "\u200b",
+    "LRM/RLM": "\u200f",
+    "line separator": "\u2028",
+    "paragraph separator": "\u2029",
+    "bidi embedding": "\u202e",
+    "word joiner": "\u2060",
+    "invisible operator": "\u2064",
+    "bidi isolate": "\u2066",
+    "pop isolate": "\u2069",
+    "BOM": "\ufeff",
+    "tag A": "\u{e0041}",
+    "tag cancel": "\u{e007f}",
+  };
+  for (const [name, ch] of Object.entries(classes)) assert.equal(sanitize(`a${ch}b`), "ab", name);
+  assert.equal(sanitize("x\u001b]52;c;QQ\u0007y"), "x]52;c;QQy");
+});
+
+test("sanitize keeps newlines, accents, other scripts and emoji; tabs become spaces", () => {
+  const text = "Élève: ça marche\nlié – 日本語 ✓ 🙂 \u00ad";
+  assert.equal(sanitize(text), text);
+  assert.equal(sanitize("a\tb"), "a  b");
+  assert.equal(sanitize(undefined), "");
+});
+
+test("sanitize caps the length in code points", () => {
+  assert.equal(sanitize("abcdef", 4), "abc…");
+  assert.equal(sanitize("abcd", 4), "abcd");
+  assert.equal(sanitize("🙂".repeat(5), 3), "🙂🙂…");
 });
