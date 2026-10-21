@@ -280,7 +280,7 @@ function main() {
   const stateFile = join(dir, "CLAUDE.local.md");
   let state = null;
   try {
-    state = readFileSync(stateFile, "utf8").replace(/^﻿/, "");
+    state = readFileSync(stateFile, "utf8").replace(/^\ufeff/, "");
   } catch {}
   if (state === null) stateOut.push("", "No CLAUDE.local.md (state file).");
   else stateSection(state);
