@@ -89,4 +89,5 @@ try {
 } catch (e) {
   log(`error: ${e.message}`);
 }
-process.exit(0);
+// Not process.exit: on a pipe stdout is flushed asynchronously and exit cuts it.
+process.exitCode = 0;

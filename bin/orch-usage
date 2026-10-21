@@ -47,7 +47,7 @@ if (opts.context) {
   const ctx = last.tokens;
   const verdict = ctx >= CONTEXT_LIMIT ? "over the threshold: auto-compaction should have run (autoCompactWindow), else ask the user for /compact" : "under the threshold";
   console.log(`Session ${s.id} (${last.model}): context ${k(ctx)} tokens, threshold ${k(CONTEXT_LIMIT)}; ${verdict}`);
-  process.exit(0);
+  return;
 }
 
 const since = typeof opts.since === "string" ? new Date(opts.since) : new Date(Date.now() - 7 * 24 * 3600e3);
@@ -78,7 +78,7 @@ if (opts.agents) {
   console.log("started	type	model	requests	$	description");
   for (const r of [...runs.values()].sort((a, b) => (a.ts < b.ts ? -1 : 1)))
     console.log(`${r.ts.slice(0, 16)}	${r.agent.type}	${r.model}	${r.n}	${r.priced ? r.cost.toFixed(2) : "?"}	${sanitize(r.agent.description).replace(/\n/g, " ")}`);
-  process.exit(0);
+  return;
 }
 
 const rows = new Map();

@@ -69,7 +69,8 @@ if (wt) {
     console.log(`REFUSED: processes still running in ${wt} (${busy.length}):`);
     for (const p of busy) console.log(`    ${p.pid} ${p.line.slice(0, 160)}`);
     console.log("Stop them (or wait for them to finish), then run again.");
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   // Agent worktrees are locked; unlocking one that is not fails harmlessly.
   git(["worktree", "unlock", wt], root);
@@ -80,7 +81,7 @@ if (wt) {
 
 if (keepBranch) {
   console.log(`OK branch kept: ${branch}`);
-  process.exit(0);
+  return;
 }
 const del = git(["branch", "-d", branch], root);
 if (del.code !== 0) fail(`git branch -d failed (unmerged branch?): ${del.err.trim()}`);

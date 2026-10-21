@@ -4,7 +4,7 @@
 
 const { spawnSync } = require("node:child_process");
 const { createHash } = require("node:crypto");
-const { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } = require("node:fs");
+const { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync, writeSync } =require("node:fs");
 const { homedir } = require("node:os");
 const { basename, dirname, join, resolve } = require("node:path");
 
@@ -33,7 +33,11 @@ function validBranch(name) {
 }
 
 function fail(message) {
-  console.error(message);
+  // Callers do not expect a return, so exit here; writeSync because console.error
+  // on a pipe may still be queued when process.exit cuts it.
+  try {
+    writeSync(2, `${message}\n`);
+  } catch {}
   process.exit(2);
 }
 
