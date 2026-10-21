@@ -94,8 +94,8 @@ Per project, the `.claude/orchestration/` profile (versioned), written by
   (`pattern`, `why`), `shared` (exclusive resources);
 - `rules.md`: the project's rules and traps, read first by the agents.
 
-The project ignores `CLAUDE.local.md`, `NOTES.local.md` and
-`.claude/worktrees/`.
+The project ignores `CLAUDE.local.md`, `NOTES.local.md`, `notes/` (the
+missions' design and measurements) and `.claude/worktrees/`.
 
 ## Usage
 
@@ -309,3 +309,7 @@ tests/            node:test suite, run with `npm test`
 hooks/hooks.json  hook declaration
 user/CLAUDE.md    global writing rules
 ```
+
+## License
+
+MIT, see `LICENSE`.

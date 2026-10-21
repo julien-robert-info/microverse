@@ -71,7 +71,7 @@ No generic procedure: it is already in the agents' definitions.
 Show both files to the user, integrate their corrections, then write them.
 Also check:
 
-- `.gitignore` contains `CLAUDE.local.md`, `NOTES.local.md` and
+- `.gitignore` contains `CLAUDE.local.md`, `NOTES.local.md`, `notes/` and
   `.claude/worktrees/`; offer to add what is missing;
 - offer to merge `"autoCompactWindow"` into `.claude/settings.local.json`
   (create it if missing, keep every existing key), set to

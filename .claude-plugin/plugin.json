@@ -1,11 +1,11 @@
 {
   "name": "microverse",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Run a project as missions delegated to background agents: one task, one branch, one worktree.",
   "author": {
     "name": "Julien Robert"
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "keywords": [
     "orchestration",
     "agents",

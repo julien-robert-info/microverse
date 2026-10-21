@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.3.1] - 2026-10-21
+
+- `notes/` is in the project's `.gitignore`, in the README and in the check of `/microverse:init`: the notes hold the design and the measurements of the missions and stay out of the repository.
+- MIT license (`LICENSE`, `license` of the manifest).
+- CI also runs the tests on macOS.
+
 ## [0.3.0] - 2026-10-21
 
 - `/microverse:status` is easier to read: a header and a three-line summary (quota gauges with the expected pace, advice, context), state file lines cut at 100 characters, `✔ ● ? !` markers where the data says it, merges without their sub-commits, one total line for the agents (`--agents` lists the runs, `--verbose` adds the Pace, Running, Agent cost and Advice lines).
