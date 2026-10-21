@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `/microverse:status` is easier to read: a header and a three-line summary (quota gauges with the expected pace, advice, context), state file lines cut at 100 characters, `✔ ● ? !` markers where the data says it, merges without their sub-commits, one total line for the agents (`--agents` lists the runs, `--verbose` adds the Pace, Running, Agent cost and Advice lines).
+- The terminal status line shows the 5h and 7d counters as five-cell gauges, coloured green below the expected pace, yellow up to the target and red above (none with `NO_COLOR` or `TERM=dumb`). Run `statusline.js --install` again to refresh the copy.
+
 ## [0.2.0] - 2026-10-20
 
 - The Windows `.cmd` wrappers of `bin/` are removed: cmd.exe expanded `& | % "` of an argument before Node started. Outside Git Bash and the Claude Code Bash tool, run a script as `node <plugin dir>\bin\<script> <args>`, and never give it text taken from a repository through cmd.exe or PowerShell.
