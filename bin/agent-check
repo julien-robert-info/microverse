@@ -63,7 +63,8 @@ if (log.code !== 0) fail(`branch not found: ${branch}\n${log.err.trim()}`);
 const commits = log.out.trim().split("\n").filter(Boolean);
 if (!commits.length) {
   console.log(`FAIL commits: no commit on ${branch} since ${base} (did the agent work, or delegate?)`);
-  process.exit(1);
+  process.exitCode = 1;
+  return;
 }
 console.log(`commits (${commits.length}):\n${commits.map((c) => `    ${c}`).join("\n")}`);
 
@@ -89,7 +90,10 @@ const changed = git(["diff", "--name-only", "--no-renames", `${base}...${branch}
 const wt = worktreeFor(root, branch);
 if (!wt) console.log("worktree: none for this branch, checks not run");
 else {
-  lockWorktree(wt);
+  if (!lockWorktree(wt)) {
+    process.exitCode = 1;
+    return;
+  }
   const status = git(["status", "--porcelain"], wt).out.trimEnd();
   if (status) {
     ok = false;
@@ -143,7 +147,7 @@ function lockWorktree(wt) {
     try {
       writeFileSync(lock, String(process.pid), { flag: "wx" });
       process.on("exit", () => rmSync(lock, { force: true }));
-      return;
+      return true;
     } catch (e) {
       if (e.code !== "EEXIST") throw e;
     }
@@ -157,9 +161,9 @@ function lockWorktree(wt) {
     // An empty or unreadable lock is a run between creating and writing it: live.
     if (!pid || alive(pid)) {
       console.log(`FAIL another agent-check is running on ${branch} (pid ${pid || "unknown"}): wait for its result`);
-      process.exit(1);
+      return false;
     }
-    reclaimStale(lock, pid);
+    if (!reclaimStale(lock, pid)) return false;
   }
   fail(`cannot take the lock ${lock}`);
 }
@@ -175,17 +179,18 @@ function reclaimStale(lock, stalePid) {
   } catch (e) {
     if (e.code !== "EEXIST") throw e;
     console.log(`FAIL another agent-check is reclaiming the lock of ${branch}: wait for its result (stuck? remove ${guard})`);
-    process.exit(1);
+    return false;
   }
   try {
     let current;
     try {
       current = Number(readFileSync(lock, "utf8").trim());
     } catch {
-      return;
+      return true;
     }
     // Alive is re-checked: the pid may have been reused since it was read.
     if (current && current === stalePid && !alive(current)) rmSync(lock, { force: true });
+    return true;
   } finally {
     rmSync(guard, { force: true });
   }
@@ -259,4 +264,4 @@ if (hits.length) {
 } else console.log(`OK  patterns (${patterns.length})`);
 
 console.log(ok ? `\n${branch}: all green` : `\n${branch}: needs fixes`);
-process.exit(ok ? 0 : 1);
+process.exitCode = ok ? 0 : 1;

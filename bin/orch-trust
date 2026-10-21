@@ -24,22 +24,24 @@ const trust = profileTrust(root);
 // something else than what the user approved.
 if (opts.commands !== undefined) {
   if (opts.commands !== "setup" && opts.commands !== "checks") fail("usage: orch-trust --commands setup|checks");
-  if (trust.state === "none") process.exit(0);
+  if (trust.state === "none") return;
   if (trust.state !== "approved") {
     console.error(`profile ${trust.state === "invalid" ? `invalid (${trust.reason})` : "not approved"}: run no command of it`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   const list = trust[opts.commands];
   // What would print differently once sanitized (line break, control, tag,
   // zero-width or bidi character) is not what the user read: run none.
   if (list.some((c) => sanitize(c) !== c || /[\p{Cc}\p{Zl}\p{Zp}]/u.test(c))) fail("a command holds a hidden or control character: read it with orch-trust, run none");
   if (list.length) console.log(list.join("\n"));
-  process.exit(0);
+  return;
 }
 
 if (opts.status) {
   console.log(trust.state);
-  process.exit(trust.state === "none" || trust.state === "approved" ? 0 : 1);
+  process.exitCode = trust.state === "none" || trust.state === "approved" ? 0 : 1;
+  return;
 }
 
 const given = opts._[0];
@@ -51,7 +53,7 @@ if (given === undefined) {
     console.log(`commands (${trust.commands.length}):\n${describeCommands(trust.commands, { full: true }).join("\n")}`);
     if (trust.state === "unapproved") console.log(`\nAsk the user to type: ! orch-trust ${trust.hash}`);
   }
-  process.exit(0);
+  return;
 }
 
 if (trust.state === "none") fail("no profile to approve");

@@ -88,7 +88,8 @@ if (!observations.length && !statuslineObs.length && !historyObs.length) {
   console.log(fileProblem ? `${fileProblem}, and no status line reading exists.` : `Counters not found: ${file} has no reading, and no status line reading exists.`);
   console.log("The extension is read in VS Code; in a terminal session the status line is set up by /microverse:init.");
   console.log("Ask the user for both counters (5h and week, in %).");
-  process.exit(1);
+  process.exitCode = 1;
+  return;
 }
 
 const extensionObs = observations.filter((o) => (o.provider ?? "claude") === "claude");
@@ -100,7 +101,8 @@ const f = lib.currentReading(five, now);
 const w = lib.currentReading(week, now);
 if (!w) {
   console.log("No current weekly reading: ask the user for the counters.");
-  process.exit(1);
+  process.exitCode = 1;
+  return;
 }
 
 // Agents running and cost of one agent: given, else detected / learned.
