@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.3.0] - 2026-10-21
+
 - `/microverse:status` is easier to read: a header and a three-line summary (quota gauges with the expected pace, advice, context), state file lines cut at 100 characters, `✔ ● ? !` markers where the data says it, merges without their sub-commits, one total line for the agents (`--agents` lists the runs, `--verbose` adds the Pace, Running, Agent cost and Advice lines).
 - The terminal status line shows the 5h and 7d counters as five-cell gauges, coloured green below the expected pace, yellow up to the target and red above (none with `NO_COLOR` or `TERM=dumb`). Run `statusline.js --install` again to refresh the copy.
 

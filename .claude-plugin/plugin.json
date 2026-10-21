@@ -1,6 +1,6 @@
 {
   "name": "microverse",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Run a project as missions delegated to background agents: one task, one branch, one worktree.",
   "author": {
     "name": "Julien Robert"
