@@ -15,11 +15,12 @@ const envOf = (home) => ({ HOME: home, USERPROFILE: home, CLAUDE_PLUGIN_DATA: ""
 const dataOf = (home) => join(home, ".claude", "microverse");
 const dirOf = (home) => join(dataOf(home), "statusline");
 
-function run(home, input, args = [], script = SCRIPT) {
+// NO_COLOR by default: the printed line is then plain text whatever the terminal.
+function run(home, input, args = [], script = SCRIPT, env = {}) {
   const r = require("node:child_process").spawnSync(process.execPath, [script, ...args], {
     encoding: "utf8",
     input,
-    env: { ...process.env, ...envOf(home) },
+    env: { ...process.env, NO_COLOR: "1", ...envOf(home), ...env },
   });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
@@ -47,7 +48,7 @@ test("T1 full payload: reading written, seconds turned to ms, percentage kept, l
   const home = newHome();
   const r = run(home, JSON.stringify(payload()));
   assert.equal(r.code, 0);
-  assert.equal(r.out, "Test Model · ctx 12 % · 5h 37 % · 7d 65 %\n");
+  assert.equal(r.out, "Test Model · ctx 12 % · 5h ██░░░ 37 % · 7d ███░░ 65 %\n");
   const got = JSON.parse(readFileSync(join(dirOf(home), "sess-1.json"), "utf8"));
   assert.deepEqual(Object.keys(got).sort(), ["at", "five", "v", "week"]);
   assert.equal(got.v, 1);
@@ -72,7 +73,7 @@ test("T3 only seven_day: week without five", () => {
   const p = payload();
   delete p.rate_limits.five_hour;
   const r = run(home, JSON.stringify(p));
-  assert.equal(r.out, "Test Model · ctx 12 % · 7d 65 %\n");
+  assert.equal(r.out, "Test Model · ctx 12 % · 7d ███░░ 65 %\n");
   const got = JSON.parse(readFileSync(join(dirOf(home), "sess-1.json"), "utf8"));
   assert.ok(got.week);
   assert.equal("five" in got, false);
@@ -85,6 +86,36 @@ test("a window with a missing or non-finite number is not written", () => {
   p.rate_limits.seven_day.resets_at = "soon";
   run(home, JSON.stringify(p));
   assert.deepEqual(files(home), []);
+});
+
+test("T6 gauge cells and colour: green below the pace, yellow up to the target, red above", () => {
+  const { formatLine } = require(SCRIPT);
+  const now = 1800000000000;
+  // 7d window half elapsed: pace 49 % of the 98 % target; 5h window half elapsed: pace 45 % of 90.
+  const at = (frac, span) => (now + (1 - frac) * span) / 1000;
+  const line = (five, week) =>
+    formatLine(
+      { rate_limits: { five_hour: { used_percentage: five, resets_at: at(0.5, 5 * 3600e3) }, seven_day: { used_percentage: week, resets_at: at(0.5, 7 * DAY) } } },
+      { now, color: true },
+    );
+  const paint = (code, text) => `\u001b[${code}m${text}\u001b[0m`;
+  assert.equal(line(10, 20), `${paint(32, "5h █░░░░ 10 %")} · ${paint(32, "7d █░░░░ 20 %")}`);
+  assert.equal(line(60, 70), `${paint(33, "5h ███░░ 60 %")} · ${paint(33, "7d ████░ 70 %")}`);
+  assert.equal(line(95, 99), `${paint(31, "5h █████ 95 %")} · ${paint(31, "7d █████ 99 %")}`);
+  assert.equal(line(0, 100), `${paint(32, "5h ░░░░░ 0 %")} · ${paint(31, "7d █████ 100 %")}`);
+  // Mixed: each counter has its own colour; a window without reset time stays plain.
+  assert.equal(line(10, 99), `${paint(32, "5h █░░░░ 10 %")} · ${paint(31, "7d █████ 99 %")}`);
+  assert.equal(formatLine({ rate_limits: { five_hour: { used_percentage: 50 } } }, { now, color: true }), "5h ███░░ 50 %");
+  assert.equal(formatLine({ rate_limits: { five_hour: { used_percentage: 99 }, seven_day: { used_percentage: 99, resets_at: at(0.5, 7 * DAY) } } }, { now, color: false }), "5h █████ 99 % · 7d █████ 99 %");
+});
+
+test("T6 the process colours the line unless NO_COLOR is set or the terminal is dumb", () => {
+  const home = newHome();
+  const input = JSON.stringify(payload());
+  const colored = run(home, input, [], SCRIPT, { NO_COLOR: "", TERM: "xterm-256color" });
+  assert.match(colored.out, /\u001b\[\d+m5h /);
+  assert.doesNotMatch(run(home, input, [], SCRIPT, { NO_COLOR: "1", TERM: "xterm-256color" }).out, /\u001b/);
+  assert.doesNotMatch(run(home, input, [], SCRIPT, { NO_COLOR: "", TERM: "dumb" }).out, /\u001b/);
 });
 
 test("T4 empty and non-JSON stdin: no data, exit 0, no file", () => {
