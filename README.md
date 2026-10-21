@@ -206,68 +206,32 @@ before Node starts, which validation inside Node cannot undo.
 
 `.claude/orchestration/profile.json` is code, like the scripts of a
 `package.json`: review it on each pull. Nothing in it runs until you approve it
-on your machine. `orch-trust` shows its fingerprint (sha256) and commands, and
+on your machine: `orch-trust` shows its fingerprint (sha256) and commands, and
 `! orch-trust <sha256>` records the approval in
-`~/.claude/microverse/trust.json`, keyed by the real path of the main
-repository. The fingerprint is that of the main worktree's profile, and
-`agent-check` and `orch-trust --commands setup|checks` take the commands from
-it: what an agent runs is what you approved, never the profile of its branch.
-Line-end conversion (CRLF) does not change the fingerprint; any other edit to the file, including one brought by a merged
-branch, revokes the approval. Until it is approved, `agent-check` exits 2
-without running anything, `morty` stops, and the SessionStart hook does not
-tell the model to load the orchestration skill. A branch whose diff touches
-`.claude/orchestration/` fails `agent-check`. A profile with unreadable JSON
-or a value of the wrong type (`setup`, `teardown`, `servers` and `paths` are
-arrays of strings, each check an object with a string `run`, each
-`diffPatterns` entry an object with a string `pattern`) is `invalid`: it cannot
-be approved, every script refuses it, and `orch-trust` says why; fix the file.
-When the main worktree of the repository cannot be found (a worktree outside
-the main tree of a repository with a separate git dir, or a bare repository),
-the state is `unapproved` with nothing to approve: start from the main
-worktree. Never put `orch-trust` in a
-permission allow list: no agent ever runs `orch-trust <sha256>`.
+`~/.claude/microverse/trust.json`. No agent ever runs it, so never put
+`orch-trust` in a permission allow list.
 
-What the profile makes run:
+The approval covers the profile of the main worktree, and `agent-check` and
+`orch-trust --commands setup|checks` take the commands from it: what an agent
+runs is what you approved, never the profile of its branch. Any edit to the
+file, including one brought by a merged branch, revokes the approval. Until it
+is approved, `agent-check` exits 2, `morty` stops and the SessionStart hook
+does not load the orchestration skill. Edge cases are in
+[SECURITY.md](SECURITY.md#details).
 
-- `setup`: run by each `morty` in a new worktree.
-- `checks[].run` and `teardown`: run through a shell by `agent-check`, by the
-  agent before its report, and once by `/microverse:init`.
-- `servers`: patterns that decide which processes the SubagentStop hook kills;
-  the hook stops nothing until the profile is approved.
-- `diffPatterns`: regular expressions evaluated on the diff.
-
-What also runs: the checks execute the agent's branch code (tests, scripts)
-with the rights of the session that launches them. In a repository with an
-approved profile, the SessionStart hook asks the model to load the
-orchestration skill and follow `CLAUDE.local.md`, so approving a profile
-entrusts the session to that repository.
-
-What is read:
-
-- Transcripts of `~/.claude/projects/` for all projects: token counts and the
-  agents' `.meta.json`, never message text in the output.
-- The quota file (`user_config.quota_file`, or the extension's default file).
-- `CLAUDE.local.md`, git data of the project and its worktrees, and the process
-  list with command lines.
-
-What is written:
-
-- `~/.claude/microverse/` (or `CLAUDE_PLUGIN_DATA`): `statusline/`,
-  `statusline-history/`, the copy of `statusline.js` that `orch-quota`
-  refreshes, and `calibration.json`; the approvals are always in
-  `~/.claude/microverse/trust.json`.
-- Plugin data: `context-guard/<session>.json` and `stop-agent-servers.log`,
-  which holds the names and PIDs of the processes stopped.
-- `.claude/settings.local.json`, written by `/microverse:init` with your consent
-  (`autoCompactWindow`, `statusLine`).
-- A `microverse-agent-check.lock` file in the worktree's git directory.
-
-What is deleted or stopped:
-
-- `agent-cleanup` removes the branch's worktree under `.claude/worktrees/`,
-  ignored files included, and the branch once merged.
-- The SubagentStop hook kills (`taskkill /T /F` or SIGTERM) processes whose
-  command line contains the agent's worktree and a `servers` pattern.
+- Runs: `setup` (each `morty`, in its worktree); `checks[].run` and `teardown`
+  (`agent-check`, the agent, `/microverse:init`), which execute the branch's
+  code with your session's rights; `servers` patterns, to decide which
+  processes the SubagentStop hook kills.
+- Reads: transcripts of `~/.claude/projects/` (token counts and agent metadata,
+  never message text), the quota file, `CLAUDE.local.md`, git data and the
+  process list.
+- Writes: `~/.claude/microverse/` (or `CLAUDE_PLUGIN_DATA`) for status line
+  data, calibration, approvals and logs; `.claude/settings.local.json` with
+  your consent (`/microverse:init`); a lock file in the worktree's git directory.
+- Deletes or stops: `agent-cleanup` removes a merged branch's worktree under
+  `.claude/worktrees/` and the branch; the SubagentStop hook kills the processes
+  of a finished agent that match a `servers` pattern.
 
 ## Evaluation
 
@@ -287,13 +251,6 @@ It calls the API on your own credential (a few dollars at 3 runs), so it is
 not part of the CI workflow. `--ablation none` skips the no-plugin baseline arm:
 the skill graders are scored directly instead of being treated as indicators.
 Results land in `evals/results/` (ignored by git).
-
-## Releasing
-
-Versions follow SemVer, in the 0.x range (a new feature raises the minor, a fix
-the patch). `CHANGELOG.md` follows Keep a Changelog: `## Unreleased` on top,
-then `## [x.y.z] - YYYY-MM-DD` sections. The version is the `version` field of
-`.claude-plugin/plugin.json`, and a release is the annotated tag `vX.Y.Z`.
 
 ## Architecture
 
