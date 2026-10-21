@@ -65,7 +65,7 @@ test("T17: plugin options reach the quota, and a commit argument gives Merged si
   const first = git(dir, "rev-parse", "HEAD").out.trim();
   const file = quotaFile(0.4, 0.1);
   const week = JSON.parse(hook(payload(dir), { CLAUDE_PLUGIN_OPTION_WEEK_TARGET: "30", CLAUDE_PLUGIN_OPTION_QUOTA_FILE: file }).stdout).reason;
-  assert.match(week, /Advice: stop/);
+  assert.match(week, /^advice {3}stop/m);
   // An unexpanded placeholder is ignored.
   const holder = JSON.parse(hook(payload(dir), { CLAUDE_PLUGIN_OPTION_WEEK_TARGET: "${user_config.week_target}", CLAUDE_PLUGIN_OPTION_QUOTA_FILE: file }).stdout).reason;
   assert.doesNotMatch(holder, /target 30/);
@@ -82,11 +82,23 @@ test("T17: CLAUDE_PLUGIN_DATA does not reach orch-status", () => {
   writeFileSync(join(data, "calibration.json"), JSON.stringify({ at: Date.now(), n5: 8, n7: 8, since: null, change: null, ratio5: 10, roles: { rick: role, morty: role, council: role } }));
   const file = quotaFile(0.1, 0.1);
   // Control: the calibration is used when orch-status does see the folder.
-  const direct = script("orch-status", ["--file", file], dir, { CLAUDE_PLUGIN_DATA: data });
+  const direct = script("orch-status", ["--verbose", "--file", file], dir, { CLAUDE_PLUGIN_DATA: data });
   assert.match(direct.out, /Agent cost: ~\d+ points of 5h \(learned from/);
-  const r = JSON.parse(hook(payload(dir), { CLAUDE_PLUGIN_DATA: data, CLAUDE_PLUGIN_OPTION_QUOTA_FILE: file }).stdout);
+  const r = JSON.parse(hook(payload(dir, { command_args: "--verbose" }), { CLAUDE_PLUGIN_DATA: data, CLAUDE_PLUGIN_OPTION_QUOTA_FILE: file }).stdout);
   assert.match(r.reason, /Agent cost: 15 points of 5h \(default\)/);
   assert.equal(readFileSync(join(data, "calibration.json"), "utf8").includes('"ratio5":10'), true, "calibration untouched");
+});
+
+test("--verbose and --agents reach orch-status, alone or with a commit; other options are refused", () => {
+  const { dir } = makeRepo({});
+  const file = quotaFile(0.1, 0.1);
+  const env = { CLAUDE_PLUGIN_OPTION_QUOTA_FILE: file };
+  const reason = (args) => JSON.parse(hook(payload(dir, { command_args: args }), env).stdout).reason;
+  assert.doesNotMatch(reason(""), /Agent cost:/);
+  assert.match(reason("--verbose"), /Agent cost:/);
+  assert.match(reason("HEAD --verbose"), /Agent cost:/);
+  assert.match(reason("--agents --verbose HEAD"), /^Merged since /m);
+  assert.match(reason("--verbose --file /etc/passwd"), /^not a commit: --file/);
 });
 
 test("T17: an argument that looks like an option is refused before anything runs", () => {

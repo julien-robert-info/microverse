@@ -125,7 +125,7 @@ test("T4: the history line is appended even when the session file cannot be writ
   mkdirSync(join(sessionDir(home), "sess-1.json"), { recursive: true });
   const r1 = render(home, [37, 1800000000], [60, 1800500000]);
   assert.equal(r1.code, 0);
-  assert.match(r1.out, /5h 37 %/);
+  assert.match(r1.out, /5h ██░░░ 37 %/);
   assert.equal(lines(home).length, 2);
   const r2 = render(home, [37, 1800000000], [60, 1800500000]);
   assert.equal(r2.code, 0);

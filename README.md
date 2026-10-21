@@ -40,7 +40,10 @@ cleans up; the launch pace follows the usage quota.
   (growthjack), or the microverse status line in a terminal session (set up by
   `/microverse:init`; the VS Code panel runs no status line). `orch-quota`
   merges the readings of both. With neither,
-  the orchestrator asks the user for the counters.
+  the orchestrator asks the user for the counters. The status bar shows the 5h
+  and 7d counters as five-cell gauges, green below the expected pace, yellow up
+  to the target (defaults 90 and 98 %), red above; `NO_COLOR` or `TERM=dumb`
+  gives plain text.
 - Optional, for the audio report: edge-tts (Python 3, "pip install --user
   edge-tts" or "pipx install edge-tts"). It is an unofficial client of
   Microsoft's online speech service: the spoken text leaves the computer.
@@ -110,7 +113,15 @@ size. It sends no request to the model: a `UserPromptExpansion` hook runs
 as a warning preceded by `UserPromptExpansion operation blocked by hook:`. The
 last report is the commit on the first `Last report` / `Dernier rapport` line
 of `CLAUDE.local.md`, or the commit given as argument
-(`/microverse:status a0f5690`). Nothing is written. With hooks disabled, the
+(`/microverse:status a0f5690`). Nothing is written. The output is plain
+Unicode for a code block: a header, a summary of three lines (the 5h and week
+counters as ten-cell gauges, the week with a `|` at the expected pace, then the
+advice and the context size), then the state file lines cut at 100 characters
+(`?` marks a question), the worktrees (`●` to merge, `✔` merged, `!` merged but
+with uncommitted changes), the merges of the first-parent line only, the agents
+total and the quota and context detail. `--agents` lists each agent run and
+`--verbose` adds the Pace, Running, Agent cost and Advice lines of the quota
+(`/microverse:status --agents --verbose`). With hooks disabled, the
 skill asks the model to run `orch-status` instead, which costs one request.
 
 ### Talking to the orchestrator
@@ -169,6 +180,7 @@ orch-quota --running 1 --agent-cost 15         # overrides, rarely needed
 orch-quota --calibrate                         # recompute the calibration now
 orch-quota --no-write                          # read-only: no refresh, no pruning, no saved calibration
 orch-status --target 98 --reserve 30           # what /microverse:status prints
+orch-status --agents --verbose                 # one line per agent run, the full quota detail
 orch-usage --since 2026-01-01
 orch-usage --context
 orch-usage --agents

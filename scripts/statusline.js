@@ -62,7 +62,31 @@ function readingOf(input, now = Date.now()) {
 
 const pct = (n) => `${Math.round(n)} %`;
 
-function formatLine(input) {
+// Five cells for a percent.
+function gauge(p) {
+  const n = Math.round((Math.min(100, Math.max(0, p)) / 100) * 5);
+  return "█".repeat(n) + "░".repeat(5 - n);
+}
+
+// Defaults of the plugin options five_hour_limit and week_target: the line
+// cannot read the options, so the colour follows the defaults.
+const TARGET = { five_hour: 90, seven_day: 98 };
+const SPAN = { five_hour: 5 * HOUR, seven_day: 7 * DAY };
+
+// ANSI colour of a counter: green below the expected pace (the target spread
+// evenly over the window), yellow up to the target, red above. A window
+// without a reset time has no pace and stays uncoloured.
+function shade(key, w, now) {
+  if (!isNum(w.resets_at)) return null;
+  const elapsed = Math.min(1, Math.max(0, 1 - (w.resets_at * 1000 - now) / SPAN[key]));
+  if (w.used_percentage < TARGET[key] * elapsed) return 32;
+  return w.used_percentage <= TARGET[key] ? 33 : 31;
+}
+
+// NO_COLOR (no-color.org) and a dumb terminal get plain text.
+const colorWanted = (env = process.env) => !(env.NO_COLOR || env.TERM === "dumb");
+
+function formatLine(input, { now = Date.now(), color = colorWanted() } = {}) {
   if (!input || typeof input !== "object") return "microverse: no data";
   const parts = [];
   const model = input.model && input.model.display_name;
@@ -70,8 +94,13 @@ function formatLine(input) {
   const ctx = input.context_window && input.context_window.used_percentage;
   if (isNum(ctx)) parts.push(`ctx ${pct(ctx)}`);
   const limits = input.rate_limits || {};
-  if (limits.five_hour && isNum(limits.five_hour.used_percentage)) parts.push(`5h ${pct(limits.five_hour.used_percentage)}`);
-  if (limits.seven_day && isNum(limits.seven_day.used_percentage)) parts.push(`7d ${pct(limits.seven_day.used_percentage)}`);
+  for (const [key, label] of [["five_hour", "5h"], ["seven_day", "7d"]]) {
+    const w = limits[key];
+    if (!w || !isNum(w.used_percentage)) continue;
+    const text = `${label} ${gauge(w.used_percentage)} ${pct(w.used_percentage)}`;
+    const code = color ? shade(key, w, now) : null;
+    parts.push(code ? `\u001b[${code}m${text}\u001b[0m` : text);
+  }
   return parts.length ? parts.join(" · ") : "microverse: no data";
 }
 
