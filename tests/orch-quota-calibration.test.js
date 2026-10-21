@@ -70,6 +70,75 @@ test("running agents are counted on the whole account, meeseeks and idle ones le
   assert.match(r.out, /Running: 3 agents \(2 in other projects\)/);
 });
 
+// The "Running:" line of orch-quota run in proj-a of an account where `setup(acc)` added agents.
+function runningLine(setup) {
+  const acc = makeAccount();
+  const cwd = acc.project("proj-a");
+  acc.project("proj-b");
+  setup(acc, Date.now());
+  const file = join(acc.home, "quota.json");
+  const t = Date.now();
+  writeFileSync(file, JSON.stringify({ observations: [{ periodType: "seven-day", usedFraction: 0.1, resetAt: t + 48 * HOUR, observedAt: t }] }));
+  const r = script("orch-quota", ["--file", file], cwd, acc.env);
+  return /Running: [^\n]*/.exec(r.out)?.[0];
+}
+
+const req = (t) => [{ ts: t, dollars: 1 }];
+const MIN = 60e3;
+
+test("an agent that has just finished is not running", () => {
+  const line = runningLine((acc, t) => acc.agent("proj-a", "a1", "microverse:morty", req(t), 20e3, { finished: true }));
+  assert.equal(line, "Running: 0 agents (0 in other projects)");
+});
+
+test("two agents finished a moment ago in two projects are not running", () => {
+  const line = runningLine((acc, t) => {
+    acc.agent("proj-a", "a1", "microverse:morty", req(t), 20e3, { finished: true });
+    acc.agent("proj-b", "b1", "microverse:council", req(t), 40e3, { finished: true });
+  });
+  assert.equal(line, "Running: 0 agents (0 in other projects)");
+});
+
+test("a silent agent without the finished mark counts for ten minutes only", () => {
+  assert.equal(runningLine((acc, t) => acc.agent("proj-a", "a1", "microverse:morty", req(t), 8 * MIN)), "Running: 1 agent (0 in other projects)");
+  assert.equal(runningLine((acc, t) => acc.agent("proj-a", "a1", "microverse:morty", req(t), 11 * MIN)), "Running: 0 agents (0 in other projects)");
+});
+
+test("an interrupted agent keeps the old behaviour: running for ten minutes after its last write", () => {
+  assert.equal(runningLine((acc, t) => acc.agent("proj-a", "a1", "microverse:morty", req(t), 3 * MIN)), "Running: 1 agent (0 in other projects)");
+  assert.equal(runningLine((acc, t) => acc.agent("proj-a", "a1", "microverse:morty", req(t), 12 * MIN)), "Running: 0 agents (0 in other projects)");
+});
+
+test("an agent resumed after it finished is running again", () => {
+  const line = runningLine((acc, t) => acc.agent("proj-a", "a1", "microverse:morty", req(t), 20e3, { finished: true, metaAgeMs: 5 * MIN }));
+  assert.equal(line, "Running: 1 agent (0 in other projects)");
+});
+
+test("a transcript written within the slack after the finished mark is still finished", () => {
+  // The transcript is 1.5 s newer than the meta file, inside FINISH_SLACK.
+  const line = runningLine((acc, t) => acc.agent("proj-a", "a1", "microverse:morty", req(t), 20e3, { finished: true, metaAgeMs: 21.5e3 }));
+  assert.equal(line, "Running: 0 agents (0 in other projects)");
+});
+
+test("mixed account: finished, running, meeseeks and another project's agent", () => {
+  const line = runningLine((acc, t) => {
+    acc.agent("proj-a", "a1", "microverse:morty", req(t), 0, { finished: true });
+    acc.agent("proj-a", "a2", "microverse:morty", req(t), 30e3);
+    acc.agent("proj-a", "a3", "microverse:meeseeks", req(t), 30e3);
+    acc.agent("proj-b", "b1", "microverse:rick", req(t), 30e3);
+  });
+  assert.equal(line, "Running: 2 agents (1 in other projects)");
+});
+
+test("finished: false and an unreadable meta file count as running", () => {
+  const line = runningLine((acc, t) => {
+    acc.agent("proj-a", "a1", "microverse:morty", req(t), 20e3, { finished: false });
+    acc.agent("proj-a", "a2", "microverse:morty", req(t), 20e3, { raw: "{not json" });
+    acc.agent("proj-a", "a3", "microverse:morty", req(t), 20e3, { raw: JSON.stringify({ agentType: "microverse:morty", finished: "true" }) });
+  });
+  assert.equal(line, "Running: 3 agents (0 in other projects)");
+});
+
 test("an explicit --running overrides the detection", () => {
   const acc = makeAccount();
   const cwd = acc.project("proj-a");

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `orch-quota` no longer counts an agent that has just finished as running: it reads the `finished` mark Claude Code writes to the agent's `.meta.json` (an agent resumed afterwards still counts). Agents without the mark keep the ten-minute window.
+
 ## [0.3.1] - 2026-10-21
 
 - `notes/` is in the project's `.gitignore`, in the README and in the check of `/microverse:init`: the notes hold the design and the measurements of the missions and stay out of the repository.

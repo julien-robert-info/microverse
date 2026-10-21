@@ -257,14 +257,23 @@ function requestCost(r) {
   return { cost, priced };
 }
 
-// The transcript's sibling .meta.json names the agent type and its task.
+// The transcript's sibling .meta.json names the agent type and its task. Claude
+// Code adds `"finished": true` to it when the agent hands back; `metaMtime` lets
+// the caller tell that write from a later resumption of the transcript.
 function agentInfo(file) {
   const id = file.replace(/^.*agent-/, "").replace(/.jsonl$/, "");
+  const meta = file.replace(/.jsonl$/, ".meta.json");
   try {
-    const m = JSON.parse(readFileSync(file.replace(/.jsonl$/, ".meta.json"), "utf8"));
-    return { id, file, type: m.agentType ?? "?", description: m.description ?? "" };
+    const m = JSON.parse(readFileSync(meta, "utf8"));
+    let metaMtime = null;
+    try {
+      metaMtime = statSync(meta).mtimeMs;
+    } catch {
+      // vanished after the read
+    }
+    return { id, file, type: m.agentType ?? "?", description: m.description ?? "", finished: m.finished === true, metaMtime };
   } catch {
-    return { id, file, type: "?", description: "" };
+    return { id, file, type: "?", description: "", finished: false, metaMtime: null };
   }
 }
 
@@ -308,15 +317,24 @@ function walkTranscripts(root = projectsRoot()) {
 
 const RUNNING_WINDOW = 10 * 60e3;
 
+// The `finished` mark is written within a second of the transcript's last
+// line; a transcript newer than that by more than this slack was written to
+// again, so the agent was resumed.
+const FINISH_SLACK = 2000;
+
 // Agents working now on the account: subagent transcripts written in the last
-// ten minutes, `meeseeks` left out (they cost little and do not take a slot).
+// ten minutes and not marked finished, `meeseeks` left out (they cost little
+// and do not take a slot). An agent without the mark (interrupted, or from a
+// Claude Code that does not write it) counts for the whole window.
 // `others` are those of projects other than `currentSlug`.
 function countRunning(files, { now = Date.now(), currentSlug = null } = {}) {
   let total = 0;
   let others = 0;
   for (const f of files) {
     if (f.kind !== "agent" || f.mtime < now - RUNNING_WINDOW) continue;
-    if (agentInfo(f.path).type.endsWith("meeseeks")) continue;
+    const info = agentInfo(f.path);
+    if (info.type.endsWith("meeseeks")) continue;
+    if (info.finished && info.metaMtime !== null && f.mtime <= info.metaMtime + FINISH_SLACK) continue;
     total++;
     if (f.project.toLowerCase() !== currentSlug) others++;
   }
