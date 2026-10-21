@@ -86,7 +86,8 @@ test("T1: a French state file shows Missions and Questions, tables as a · b, no
   assert.match(r.out, /^ {2}Id · Branche · État$/m);
   assert.match(r.out, /^ {2}E1 · feat\/a · mergé \| poussé$/m);
   assert.match(r.out, /^ {2}E2 · feat\/b · en cours$/m);
-  assert.match(r.out, /^ {2}- Une question sans numéro \?$/m);
+  assert.match(r.out, /^ {2}\? Une question sans numéro \?$/m);
+  assert.match(r.out, /^ {2}\? Q2 : une autre$/m);
   assert.doesNotMatch(r.out, /\|---|\|\s*---/);
   assert.doesNotMatch(r.out, /Texte du but|But$|Compact instructions|Ne pas afficher/m);
 });
@@ -158,9 +159,12 @@ test("T6: agent worktrees and branches without one", () => {
   git(dir, "branch", "feat/done");
   const out = script("orch-status", [], dir).out;
   const agents = sectionOf(out, "Agent worktrees");
-  assert.match(agents, /^ {2}feat\/x {2}\.claude\/worktrees\/w {2}not merged, last commit \w+ feat: a, uncommitted changes$/m);
-  assert.match(agents, /^ {2}feat\/merged {2}\.claude\/worktrees\/m {2}merged, last commit .*, clean$/m);
-  assert.match(agents, /^ {2}\(detached\) {2}\.claude\/worktrees\/d {2}merged/m);
+  // ● work to merge (dirty or not), ✔ merged and clean, ! merged but dirty.
+  assert.match(agents, /^ {2}● feat\/x {2}\.claude\/worktrees\/w {2}not merged, last commit \w+ feat: a, uncommitted changes$/m);
+  assert.match(agents, /^ {2}✔ feat\/merged {2}\.claude\/worktrees\/m {2}merged, last commit .*, clean$/m);
+  assert.match(agents, /^ {2}✔ \(detached\) {2}\.claude\/worktrees\/d {2}merged/m);
+  writeFileSync(join(wts, "m", "dirty.txt"), "x\n");
+  assert.match(sectionOf(script("orch-status", [], dir).out, "Agent worktrees"), /^ {2}! feat\/merged {2}.*merged, last commit .*, uncommitted changes$/m);
   assert.doesNotMatch(agents, /outside/);
   const free = sectionOf(out, "Branches not merged into main, without a worktree");
   assert.match(free, /^ {2}feat\/free {2}\w+ {2}feat: free work$/m);
@@ -203,7 +207,7 @@ test("T10: quota options reach orch-quota; without a reading, its three lines", 
   assert.equal(none.code, 0, none.out);
   assert.equal(sectionOf(none.out, "Quota").split("\n").filter(Boolean).length, 3, none.out);
   const stop = script("orch-status", ["--file", quotaFile(0.99, 0.1)], dir);
-  assert.match(stop.out, /Advice: stop/);
+  assert.match(stop.out, /^advice {3}stop/m);
 });
 
 test("T11: seven agent runs: count, total, five rows and the earlier ones", () => {
@@ -221,10 +225,13 @@ test("T11: seven agent runs: count, total, five rows and the earlier ones", () =
   for (let i = 0; i < 7; i++) acc.agent("proj", `a${i}`, "microverse:morty", [{ ts: t0 + i * 1000, dollars: 1 + i }], i * 1000);
   const r = script("orch-status", ["HEAD", "--file", quotaFile(0.2, 0.1)], dir, acc.env);
   assert.equal(r.code, 0, r.out);
-  const agents = sectionOf(r.out, "Agents since");
   assert.match(r.out, /^Agents since \S+: 7 runs, \$28\.00 \(API-equivalent\)$/m);
-  assert.equal(agents.split("\n").filter((l) => l.includes("microverse:morty")).length, 5);
-  assert.match(agents, /… 2 earlier runs/);
+  assert.doesNotMatch(r.out, /microverse:morty/, "no per-run line by default");
+  // T5: --agents lists the runs.
+  const all = script("orch-status", ["HEAD", "--agents", "--file", quotaFile(0.2, 0.1)], dir, acc.env);
+  assert.equal(all.code, 0, all.out);
+  assert.match(all.out, /^Agents since \S+: 7 runs, \$28\.00 \(API-equivalent\)$/m);
+  assert.equal(sectionOf(all.out, "Agents since").split("\n").filter((l) => l.includes("microverse:morty")).length, 7);
   // Read-only: the calibration orch-quota would save is not written.
   assert.equal(existsSync(join(acc.data, "calibration.json")), false);
 });
@@ -267,7 +274,7 @@ test("orch-status leaves the calibration and the readings alone", () => {
   // No commit to report from: the quota section comes from orch-quota directly.
   const r = script("orch-status", ["--file", quotaFile(0.2, 0.1)], dir, acc.env);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /Advice:/);
+  assert.match(r.out, /^advice /m);
   assert.equal(existsSync(join(acc.data, "calibration.json")), false, "no calibration saved");
 });
 
@@ -288,9 +295,10 @@ test("bidi and zero-width characters are stripped", () => {
 });
 
 test("a huge single line is still cut to the bound", () => {
-  const { dir } = makeRepo(PROFILE);
-  commitFile(dir, "big.txt", "x\n", `feat: ${"y".repeat(12000)}`);
-  const r = script("orch-status", ["HEAD~1"], dir);
+  // The merged lines are cut at 100 characters; the worktree line shows the whole subject.
+  const { dir, wt } = makeRepo(PROFILE);
+  commitFile(wt, "big.txt", "x\n", `feat: ${"y".repeat(12000)}`);
+  const r = script("orch-status", [], dir);
   assert.equal(r.code, 0, r.out);
   assert.ok(r.out.length <= 9100, String(r.out.length));
   assert.match(r.out, /… output truncated\n?$/);
@@ -309,7 +317,7 @@ test("no base branch: a given commit keeps the Agents section and says Merged is
   const t0 = Date.now() + 60000;
   acc.conversation("proj3", t0, 0.5);
   acc.agent("proj3", "a0", "microverse:morty", [{ ts: t0, dollars: 3 }], 1000);
-  const r = script("orch-status", ["HEAD", "--file", quotaFile(0.2, 0.1)], dir, acc.env);
+  const r = script("orch-status", ["HEAD", "--agents", "--file", quotaFile(0.2, 0.1)], dir, acc.env);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /^Merged since \w+: not listed, no base branch/m);
   assert.match(r.out, /^Agents since \S+: 1 runs, \$3\.00 \(API-equivalent\)$/m);
@@ -328,7 +336,83 @@ test("the index of an agent worktree is not rewritten", () => {
   assert.equal(statSync(index).mtimeMs, before);
 });
 
-test("the scripts are executable in git", { skip: !existsSync(join(ROOT, ".git")) }, () => {
+test("T1 gauge: ten cells for 0, 50 and 100 percent, no data without a reading", () => {
+  const { dir } = makeRepo(PROFILE);
+  for (const [five, text] of [[0, "░░░░░░░░░░ 0 %"], [0.5, "█████░░░░░ 50 %"], [0.55, "██████░░░░ 55 %"], [1, "██████████ 100 %"]]) {
+    const r = script("orch-status", ["--file", quotaFile(0.2, five)], dir);
+    assert.match(r.out, new RegExp(`^quota {4}5h ${text}   week [█░|]{10,11} 20 % \\(pace \\d+ %\\)$`, "m"), r.out);
+  }
+  const none = script("orch-status", [], dir);
+  assert.match(none.out, /^quota {4}5h no data {3}week no data$/m, none.out);
+  assert.match(none.out, /^context {2}no data$/m);
+  assert.doesNotMatch(none.out, /░|█/);
+});
+
+test("the week gauge carries a | at the expected pace, the five-hour one does not", () => {
+  const { dir } = makeRepo(PROFILE);
+  const line = script("orch-status", ["--file", quotaFile(0.5, 0.5)], dir).out.split("\n").find((l) => l.startsWith("quota"));
+  const [five, week] = line.split("   week ");
+  assert.doesNotMatch(five, /\|/);
+  assert.match(week, /^[█░]*\|[█░]* 50 % \(pace \d+ %\)$/);
+});
+
+test("T2 a long mission or question line is cut at 100 characters with …, on a code point", () => {
+  const { dir } = makeRepo(PROFILE);
+  const long = "é".repeat(60) + "😀".repeat(60);
+  writeFileSync(join(dir, "CLAUDE.local.md"), `## Missions\n\n| E1 | feat/a | ${long} |\n| E2 | feat/b | short |\n\n## Questions\n\n- ${long}\n- x \`${"c".repeat(120)}\`\n`);
+  const r = script("orch-status", [], dir);
+  const shown = r.out.split("\n").filter((l) => l.includes("E1 · feat/a") || l.startsWith("  ? "));
+  assert.equal(shown.length, 3, r.out);
+  for (const l of shown) {
+    assert.ok(Array.from(l.trim()).length <= 100, l);
+    assert.match(l, /…$/);
+    assert.doesNotMatch(l, /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/, "no lone surrogate");
+  }
+  assert.match(r.out, /^ {2}E2 · feat\/b · short$/m);
+  // The cut inside an inline code span drops the span: no lone backtick.
+  assert.doesNotMatch(shown[2], /`/);
+});
+
+test("T3 only the merge commits and the direct commits are listed, not the sub-commits", () => {
+  const { dir } = makeRepo(PROFILE);
+  const first = head(dir);
+  git(dir, "checkout", "-q", "-b", "feat/many");
+  commitFile(dir, "m1.txt", "1\n", "feat: sub one");
+  commitFile(dir, "m2.txt", "2\n", "feat: sub two");
+  git(dir, "checkout", "-q", "main");
+  git(dir, "merge", "--no-ff", "-q", "-m", "merge: many", "feat/many");
+  commitFile(dir, "direct.txt", "d\n", "docs: direct note");
+  const merged = sectionOf(script("orch-status", [first.slice(0, 7)], dir).out, "Merged since");
+  assert.match(merged, /^ {2}✔ \w+ merge: many$/m);
+  assert.match(merged, /^ {2}✔ \w+ docs: direct note$/m);
+  assert.doesNotMatch(merged, /sub one|sub two/);
+});
+
+test("T4 the Pace, Running, Agent cost and Advice lines appear with --verbose only", () => {
+  const { dir } = makeRepo(PROFILE);
+  const file = quotaFile(0.2, 0.1);
+  const plain = sectionOf(script("orch-status", ["--file", file], dir).out, "Quota");
+  assert.match(plain, /Counters:/);
+  assert.match(plain, /Period:/);
+  assert.doesNotMatch(plain, /Pace:|Running:|Agent cost:|Advice:/);
+  const verbose = sectionOf(script("orch-status", ["--verbose", "--file", file], dir).out, "Quota");
+  for (const l of ["Counters:", "Period:", "Pace:", "Running:", "Agent cost:", "Advice:"]) assert.match(verbose, new RegExp(l));
+});
+
+test("the summary comes right after the header, before the state file", () => {
+  const { dir } = makeRepo(PROFILE);
+  writeFileSync(join(dir, "CLAUDE.local.md"), "## Reprise\n\nr1\n\n## Questions\n\nq1\n\n## Missions\n\nm1\n");
+  const out = script("orch-status", ["--file", quotaFile(0.2, 0.1)], dir).out.split("\n");
+  assert.match(out[0], /^microverse status: .* · main \w{7}$/);
+  assert.match(out[2], /^quota /);
+  assert.match(out[3], /^advice /);
+  assert.match(out[4], /^context /);
+  const at = (t) => out.indexOf(t);
+  assert.ok(at("Missions") > 4 && at("Missions") < at("Questions") && at("Questions") < at("Reprise") && at("Reprise") < at("Agent worktrees"), out.join("\n"));
+  assert.ok(at("Agent worktrees") < at("Quota") && at("Quota") < at("Context"));
+});
+
+test("the scripts are executable in git",{ skip: !existsSync(join(ROOT, ".git")) }, () => {
   for (const f of ["bin/orch-status", "bin/orch-report"]) {
     const r = spawnSync("git", ["ls-files", "-s", f], { cwd: ROOT, encoding: "utf8" });
     assert.match(r.stdout, /^100755 /, f);

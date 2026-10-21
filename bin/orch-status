@@ -1,11 +1,17 @@
 #!/usr/bin/env node
-// Overview of the orchestration in plain text: the missions and questions of
-// CLAUDE.local.md, the agent worktrees, what was merged since the last report,
-// the agent runs, the quota and the context size. Reads only; it is the
-// command behind /microverse:status.
+// Overview of the orchestration in plain text (made for a terminal code block,
+// no colour): a header, a summary of the quota (gauges, pace, advice) and the
+// context, then the missions and questions of CLAUDE.local.md, the agent
+// worktrees, what was merged since the last report, the agent runs, the quota
+// and the context size. Reads only; it is the command behind /microverse:status.
 //
-// orch-status [<commit>] [--base B] [--session id] [--target N] [--reserve N]
-//             [--five-hour N] [--file F]
+// orch-status [<commit>] [--agents] [--verbose] [--base B] [--session id]
+//             [--target N] [--reserve N] [--five-hour N] [--file F]
+//
+// --agents lists each agent run (by default only their count and cost);
+// --verbose adds the Pace, Running, Agent cost and Advice lines of orch-quota
+// to the Quota section (the summary already shows the pace and the advice).
+// Lines of the state file are cut at 100 characters.
 //
 // <commit> is the previous report; without it the commit is taken from the
 // first line of CLAUDE.local.md that says "last report" or "dernier rapport".
@@ -26,10 +32,12 @@ process.env.GIT_OPTIONAL_LOCKS = "0";
 const STATE_MAX = 4000;
 const TOTAL_MAX = 9000;
 const MERGED_MAX = 20;
-const AGENT_ROWS = 5;
+const AGENT_ROWS = 15;
+// Missions and questions are lines to read at a glance: one line each.
+const LINE_MAX = 100;
 const SECTION_TITLE = /^(missions?|questions?|resume|reprise)/;
 
-const opts = parseArgs(process.argv.slice(2));
+const opts = parseArgs(process.argv.slice(2), { flags: ["agents", "verbose"] });
 const given = opts._.map((a) => a.trim()).find(Boolean);
 const cwd = process.cwd();
 
@@ -47,23 +55,98 @@ function sibling(name, args, dir) {
 }
 
 const lines = (s) => s.split(/\r?\n/);
+// The output is built in blocks, put together at the end in a fixed order:
+// header, summary, state file, then the rest (`out`), then quota and context.
 const out = [];
 function section(title, body) {
   if (out.length) out.push("");
   out.push(title, ...body.map((l) => (l === "" ? "" : `  ${l}`)));
 }
+function note(message) {
+  if (out.length) out.push("");
+  out.push(message);
+}
 const more = (body, max, what) => (body.length > max ? [...body.slice(0, max), `… ${body.length - max} ${what}`] : body);
 
-function quotaSection(dir) {
-  section("Quota", lines(sibling("orch-quota", ["--no-write", ...common], dir).text));
-}
-function contextSection(dir) {
-  section("Context", lines(sibling("orch-usage", ["--context", ...session], dir).text));
+// Cut on a code point at `max` characters with "…". A cut inside an inline code
+// span drops the span, so that no lone backtick is left.
+function cut(s, max = LINE_MAX) {
+  const cps = Array.from(s);
+  if (cps.length <= max) return s;
+  let head = cps.slice(0, max - 1);
+  if (head.filter((c) => c === "`").length % 2) {
+    const i = head.lastIndexOf("`");
+    if (i > 0) head = head.slice(0, i);
+  }
+  return `${head.join("").trimEnd()}…`;
 }
 
+// Ten cells for a percent; the optional marker (the expected pace) is a "|"
+// between two cells. No percent is "no data", never an empty gauge.
+function gauge(pct, marker = null) {
+  if (typeof pct !== "number" || !Number.isFinite(pct)) return "no data";
+  const cells = Array.from({ length: 10 }, (_, i) => (i < Math.round(Math.min(100, Math.max(0, pct)) / 10) ? "█" : "░"));
+  if (typeof marker === "number" && Number.isFinite(marker)) cells.splice(Math.round(Math.min(100, Math.max(0, marker)) / 10), 0, "|");
+  return cells.join("");
+}
+
+// What the summary block takes from the text of orch-quota; the rest of the
+// text stays in the Quota section. A text without the counters (an error
+// message) gives no figures.
+function quotaView(text) {
+  const ls = lines(text);
+  const num = (re, l) => {
+    const m = re.exec(l ?? "");
+    return m ? Number(m[1]) : null;
+  };
+  const counters = ls.find((l) => l.startsWith("Counters:"));
+  const advice = /^Advice: (.*)$/.exec(ls.find((l) => l.startsWith("Advice:")) ?? "")?.[1];
+  return {
+    ok: Boolean(counters),
+    five: num(/\b5h (\d+) %/, counters),
+    week: num(/\bweek (\d+) %/, counters),
+    pace: num(/\bexpected (\d+) %/, ls.find((l) => l.startsWith("Pace:"))),
+    advice: advice?.replace(/\s*\(morty on distinct zones[^)]*\)/, ""),
+    detail: ls.filter((l) => opts.verbose || !/^(Pace|Running|Agent cost|Advice):/.test(l)),
+  };
+}
+
+function contextView(text) {
+  const m = /context (\d+)K tokens, threshold (\d+)K/.exec(text ?? "");
+  return m ? { used: Number(m[1]), limit: Number(m[2]) } : null;
+}
+
+// Two or three lines: both quota counters as gauges (the week with the
+// expected pace), the advice, the context size.
+function summary(q, ctx) {
+  const res = [];
+  const w = q.week === null ? "week no data" : `week ${gauge(q.week, q.pace)} ${q.week} %${q.pace === null ? "" : ` (pace ${q.pace} %)`}`;
+  const f = q.five === null ? "5h no data" : `5h ${gauge(q.five)} ${q.five} %`;
+  res.push(`quota    ${f}   ${w}`);
+  if (q.advice) res.push(`advice   ${cut(q.advice, 90)}`);
+  if (ctx !== undefined) {
+    const c = contextView(ctx);
+    res.push(`context  ${c ? `${gauge((c.used / c.limit) * 100)} ${c.used}K of ${c.limit}K` : "no data"}`);
+  }
+  return res;
+}
+
+let quotaText = null;
+let contextText;
+// Direct readings, for the paths where orch-report does not provide them.
+function readQuota(dir) {
+  quotaText = sibling("orch-quota", ["--no-write", ...common], dir).text;
+}
+function readContext(dir) {
+  contextText = sibling("orch-usage", ["--context", ...session], dir).text;
+}
+
+const stateOut = [];
+const header = [];
+
 function notOrchestrated(message) {
-  out.push(message);
-  quotaSection(cwd);
+  header.push(message);
+  readQuota(cwd);
 }
 
 // Sections of the state file whose title is about missions, questions or
@@ -82,7 +165,7 @@ function stateSections(text) {
     if (h && h[1].length <= 2) {
       current = null;
       const key = h[2].normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-      if (h[1].length === 2 && SECTION_TITLE.test(key)) found.push((current = { title: h[2], body: [] }));
+      if (h[1].length === 2 && SECTION_TITLE.test(key)) found.push((current = { title: h[2], body: [], kind: key.slice(0, 2) }));
       continue;
     }
     // Sub-headings and "##" lines inside code blocks lose their marker.
@@ -99,19 +182,27 @@ function row(raw) {
   return cells.join(" · ");
 }
 
+// Missions, then questions, then the rest (resume), each in file order.
+const KIND_ORDER = { mi: 0, qu: 1 };
+
 // Lines of the state file to show, cut at STATE_MAX characters on a line end.
+// A question line starts with "?" in place of its bullet; no line is marked
+// otherwise, the state is whatever the file says.
 function stateLines(text) {
-  const wanted = stateSections(text);
+  const wanted = stateSections(text).sort((a, b) => (KIND_ORDER[a.kind] ?? 2) - (KIND_ORDER[b.kind] ?? 2));
   const flat = [];
-  const push = (title, body) => {
+  const push = (title, body, kind) => {
     flat.push({ title });
     let b = body.filter((l) => l !== null);
     while (b.length && !b[0].trim()) b.shift();
     while (b.length && !b[b.length - 1].trim()) b.pop();
-    for (const l of b) flat.push({ text: l.trimEnd() });
+    for (const l of b) {
+      const t = l.trimEnd();
+      flat.push({ text: cut(kind === "qu" && t.trim() ? `? ${t.trim().replace(/^([-*+]|\d+[.)])\s+/, "")}` : t) });
+    }
   };
-  if (wanted.length) for (const s of wanted) push(s.title, s.body);
-  else flat.push(...text.split(/\r?\n/).filter((l) => !/^\s*(```|~~~)/.test(l)).map((l) => ({ text: (row(l) ?? "").replace(/^#{1,6}\s+/, "") })));
+  if (wanted.length) for (const s of wanted) push(s.title, s.body, s.kind);
+  else flat.push(...text.split(/\r?\n/).filter((l) => !/^\s*(```|~~~)/.test(l)).map((l) => ({ text: cut((row(l) ?? "").replace(/^#{1,6}\s+/, "")) })));
   const res = [];
   let size = 0;
   let i = 0;
@@ -127,10 +218,10 @@ function stateLines(text) {
 function stateSection(text) {
   const { shown, hidden } = stateLines(text);
   for (const l of shown) {
-    if (l.title !== undefined) out.push("", l.title);
-    else out.push(l.text === "" ? "" : `  ${l.text}`);
+    if (l.title !== undefined) stateOut.push("", l.title);
+    else stateOut.push(l.text === "" ? "" : `  ${l.text}`);
   }
-  if (hidden) out.push(`  … ${hidden} more lines in CLAUDE.local.md`);
+  if (hidden) stateOut.push(`  … ${hidden} more lines in CLAUDE.local.md`);
 }
 
 // First commit-looking token of the "last report" line that git accepts.
@@ -182,26 +273,32 @@ function main() {
 
   const name = basename(dir);
   if (base) {
-    const tip = git(["log", "-1", "--format=%h %s", base], dir).out.trim();
-    out.push(`microverse status: ${name} · ${base} ${tip}`);
-  } else out.push(`microverse status: ${name} · base unknown (neither main nor master; pass --base)`);
+    const tip = git(["rev-parse", "--short", base], dir).out.trim();
+    header.push(`microverse status: ${name} · ${base} ${tip}`);
+  } else header.push(`microverse status: ${name} · base unknown (neither main nor master; pass --base)`);
 
   const stateFile = join(dir, "CLAUDE.local.md");
   let state = null;
   try {
-    state = readFileSync(stateFile, "utf8").replace(/^\ufeff/, "");
+    state = readFileSync(stateFile, "utf8").replace(/^﻿/, "");
   } catch {}
-  if (state === null) out.push("", "No CLAUDE.local.md (state file).");
+  if (state === null) stateOut.push("", "No CLAUDE.local.md (state file).");
   else stateSection(state);
 
   let rows = [];
   try {
     rows = agentWorktrees(dir, { details: true });
   } catch {}
+  // ✔ merged, ! merged but with uncommitted changes (worth a look), ● the
+  // branch still has work to merge.
   section(
     "Agent worktrees",
     rows.length
-      ? rows.map((w) => `${w.branch == null ? "(detached)" : validBranch(w.branch) ? w.branch : "(invalid name)"}  ${w.rel}  ${w.merged ? "merged" : "not merged"}, last commit ${w.last || "unknown"}, ${w.dirty ? "uncommitted changes" : "clean"}`)
+      ? rows.map((w) => {
+          const mark = w.merged ? (w.dirty ? "!" : "✔") : "●";
+          const branch = w.branch == null ? "(detached)" : validBranch(w.branch) ? w.branch : "(invalid name)";
+          return `${mark} ${branch}  ${w.rel}  ${w.merged ? "merged" : "not merged"}, last commit ${w.last || "unknown"}, ${w.dirty ? "uncommitted changes" : "clean"}`;
+        })
       : ["none"],
   );
 
@@ -219,11 +316,11 @@ function main() {
   const commit = base ? given_ ?? (state === null ? null : reportCommit(state, dir)) : null;
   if (!commit) {
     if (base) {
-      out.push("", 'Last report: no commit found (a "Last report"/"Dernier rapport" line with a commit in CLAUDE.local.md, or /microverse:status <commit>)');
+      note('Last report: no commit found (a "Last report"/"Dernier rapport" line with a commit in CLAUDE.local.md, or /microverse:status <commit>)');
     } else if (given_) {
       // Merges cannot be listed without a base, but the runs since the commit can.
       const short = git(["rev-parse", "--short", given_], dir).out.trim();
-      out.push("", `Merged since ${short}: not listed, no base branch to compare with (pass --base)`);
+      note(`Merged since ${short}: not listed, no base branch to compare with (pass --base)`);
       const date = git(["log", "-1", "--format=%cI", given_], dir).out.trim();
       const u = sibling("orch-usage", ["--agents", "--since", date], dir);
       const ls = lines(u.text).filter((l) => l.trim());
@@ -233,38 +330,43 @@ function main() {
       }
       agentsSection(ls);
     }
-    quotaSection(dir);
-    contextSection(dir);
+    readQuota(dir);
+    readContext(dir);
     return;
   }
 
   const rep = sibling("orch-report", ["--since", commit, "--base", base, "--no-write", ...common, ...session], dir);
   if (!rep.ok) {
     section("Report", lines(rep.text));
+    readQuota(dir);
+    readContext(dir);
     return;
   }
   const sec = reportSections(rep.text);
   const short = git(["rev-parse", "--short", commit], dir).out.trim();
-  const merged = sec.Merged ?? [];
+  // The first-parent line only: a merge is one line, its sub-commits (the
+  // indented ones of the report) are left out.
+  const merged = (sec.Merged ?? []).filter((l) => !l.startsWith(" ")).map((l) => (l.startsWith("- ") ? cut(`✔ ${l.slice(2)}`) : l));
   section(`Merged since ${short} (last report)`, more(merged.length ? merged : ["nothing"], MERGED_MAX, "more"));
 
   agentsSection(sec.Agents ?? []);
-  section("Quota", sec.Quota ?? ["no output"]);
-  section("Context", sec.Context ?? ["no output"]);
+  quotaText = (sec.Quota ?? ["no output"]).join("\n");
+  contextText = (sec.Context ?? ["no output"]).join("\n");
 }
 
 // `agents`: orch-usage --agents lines (title, columns, runs), then the Total
-// and Advisor lines; without a Total line they are an error message.
+// and Advisor lines; without a Total line they are an error message. The runs
+// are listed only with --agents.
 function agentsSection(agents) {
   const total = agents.find((l) => l.startsWith("Total:"));
   const advisor = agents.find((l) => l.startsWith("Advisor:"));
-  const header = /^Agents since (\S+)/.exec(agents[0] ?? "");
-  if (!total || !header) return section("Agents", agents.length ? agents : ["no output"]);
+  const title = /^Agents since (\S+)/.exec(agents[0] ?? "");
+  if (!total || !title) return section("Agents", agents.length ? agents : ["no output"]);
   const runs = agents.slice(2, agents.indexOf(total)).map((l) => l.replace(/\t/g, "  "));
   const cost = /\$([\d.]+)/.exec(total)?.[1] ?? "?";
-  const shown = runs.slice(-AGENT_ROWS);
-  section(`Agents since ${header[1]}: ${runs.length} runs, $${cost} (API-equivalent)`, [
-    ...(runs.length > shown.length ? [`… ${runs.length - shown.length} earlier runs`] : []),
+  const shown = opts.agents ? runs.slice(-AGENT_ROWS) : [];
+  section(`Agents since ${title[1]}: ${runs.length} runs, $${cost} (API-equivalent)`, [
+    ...(opts.agents && runs.length > shown.length ? [`… ${runs.length - shown.length} earlier runs`] : []),
     ...shown,
     ...(advisor ? [advisor] : []),
   ]);
@@ -272,12 +374,28 @@ function agentsSection(agents) {
 
 main();
 
+// Blocks separated by an empty line; a block starts without one.
+const blocks = [];
+const add = (b) => {
+  const l = [...b];
+  while (l.length && l[0] === "") l.shift();
+  if (l.length) blocks.push(l);
+};
+const q = quotaView(quotaText ?? "");
+const quotaLines = quotaText === null ? [] : q.ok ? q.detail : lines(quotaText);
+add(header);
+add(summary(q.ok ? q : { ...q, advice: undefined }, contextText));
+add(stateOut);
+add(out);
+if (quotaLines.length) add(["Quota", ...quotaLines.map((l) => `  ${l}`)]);
+if (contextText !== undefined) add(["Context", ...lines(contextText).map((l) => `  ${l}`)]);
+
 // Text copied from files, commit subjects and branch names is sanitized; ▶ is
 // the marker of the orchestration skill's own trace lines.
-let text = sanitize(out.join("\n")).replace(/▶/g, "");
+let text = sanitize(blocks.map((b) => b.join("\n")).join("\n\n")).replace(/▶/g, "");
 // No newline before the limit (one huge first line): cut in the line.
 if (text.length > TOTAL_MAX) {
-  const cut = text.lastIndexOf("\n", TOTAL_MAX - 60);
-  text = `${text.slice(0, cut > 0 ? cut : TOTAL_MAX - 60)}\n… output truncated`;
+  const cutAt = text.lastIndexOf("\n", TOTAL_MAX - 60);
+  text = `${text.slice(0, cutAt > 0 ? cutAt : TOTAL_MAX - 60)}\n… output truncated`;
 }
 console.log(text);

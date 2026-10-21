@@ -17,6 +17,7 @@ const { sanitize } = require("./orch-lib.js");
 
 const MAX = 9000;
 const COMMAND = "microverse:status";
+const FLAGS = ["--agents", "--verbose"];
 
 // The plugin options reach a hook as CLAUDE_PLUGIN_OPTION_<KEY>; an unset one
 // can be empty or still hold its `${user_config.KEY}` placeholder.
@@ -43,7 +44,11 @@ function main() {
   if (!cwd) return;
 
   const args = [];
-  const token = typeof payload.command_args === "string" ? payload.command_args.trim().split(/\s+/)[0] : "";
+  // --agents and --verbose are the only options a user may give; the first
+  // other token is the commit, and it never starts an option.
+  const tokens = typeof payload.command_args === "string" ? payload.command_args.trim().split(/\s+/).filter(Boolean) : [];
+  const token = tokens.find((t) => !FLAGS.includes(t)) ?? "";
+  args.push(...FLAGS.filter((f) => tokens.includes(f)));
   if (token) {
     if (token.startsWith("-")) return block(`not a commit: ${token}`);
     args.push(token);
