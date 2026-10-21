@@ -102,14 +102,21 @@ function makeAccount() {
       appendFileSync(join(folder(project), "main.jsonl"), line(ts, dollars));
     },
     // A subagent transcript last written `ageMs` ago, with one request per `requests` item { ts, dollars }.
-    agent(project, id, type, requests, ageMs = 0) {
+    // `meta.finished` sets the `finished` field of the .meta.json (a boolean), `meta.raw`
+    // replaces its text, `meta.metaAgeMs` ages it (default: as old as the transcript).
+    agent(project, id, type, requests, ageMs = 0, meta = {}) {
       const dir = join(folder(project), "main", "subagents");
       mkdirSync(dir, { recursive: true });
       const file = join(dir, `agent-${id}.jsonl`);
+      const metaFile = join(dir, `agent-${id}.meta.json`);
       writeFileSync(file, requests.map((r) => line(r.ts, r.dollars)).join(""));
-      writeFileSync(join(dir, `agent-${id}.meta.json`), JSON.stringify({ agentType: type, description: "task" }));
+      const body = { agentType: type, description: "task" };
+      if (meta.finished !== undefined) body.finished = meta.finished;
+      writeFileSync(metaFile, meta.raw ?? JSON.stringify(body));
       const t = new Date(Date.now() - ageMs);
       utimesSync(file, t, t);
+      const mt = new Date(Date.now() - (meta.metaAgeMs ?? ageMs));
+      utimesSync(metaFile, mt, mt);
     },
   };
 }
