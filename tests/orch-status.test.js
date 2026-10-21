@@ -58,7 +58,7 @@ const FR_STATE = [
   "",
   "Dernier rapport : 2026-10-18, commit `LAST` (E1).",
   "",
-  "## Questions à Julien",
+  "## Questions à l'utilisateur",
   "",
   "- Une question sans numéro ?",
   "- Q2 : une autre",
@@ -82,7 +82,7 @@ test("T1: a French state file shows Missions and Questions, tables as a · b, no
   const r = script("orch-status", [], dir);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /^Missions \(séries du jour\)$/m);
-  assert.match(r.out, /^Questions à Julien$/m);
+  assert.match(r.out, /^Questions à l'utilisateur$/m);
   assert.match(r.out, /^ {2}Id · Branche · État$/m);
   assert.match(r.out, /^ {2}E1 · feat\/a · mergé \| poussé$/m);
   assert.match(r.out, /^ {2}E2 · feat\/b · en cours$/m);

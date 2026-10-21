@@ -19,7 +19,7 @@ test("parseArgs splits options, flags and positionals", () => {
 });
 
 test("normPath ignores separator and case", () => {
-  assert.equal(normPath("D:/Dev/Perso"), normPath("d:\\dev\\perso"));
+  assert.equal(normPath("D:/Dev/Projects"), normPath("d:\\dev\\projects"));
 });
 
 test("parseArgs: a listed flag never takes the next token", () => {
