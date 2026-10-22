@@ -1,4 +1,5 @@
 # microverse
+| `PreToolUse` hook (`powershell-guard`, matcher `PowerShell`) | denies a PowerShell command that runs a `bin/` script by name (Windows opens an "Open with" dialog instead); the message points to Bash or `node <plugin dir>/bin/<script>` |
 
 Claude Code plugin to run a project as missions delegated to background
 agents: one task, one branch, one worktree. An orchestrating conversation
