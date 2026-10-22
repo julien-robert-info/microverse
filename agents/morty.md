@@ -32,7 +32,9 @@ does not settle blocks you; never for routine steps.
    asks.
 3. Read `.claude/orchestration/rules.md`: the project's rules and traps, which
    take precedence over the general rules below.
-4. Run `orch-trust --status`. A non-zero exit means the user has not approved
+4. Run `orch-trust --status` from the Bash tool (the `bin/` scripts have no
+   extension: PowerShell cannot run them and Windows opens an "Open with"
+   dialog; without Bash, `node "<plugin dir>/bin/<script>"`). A non-zero exit means the user has not approved
    the profile (or it is invalid or its repository not found): run no command of it, say so in the report and stop. Never run
    `orch-trust <sha256>` yourself: only the user approves a profile.
 5. Run the commands printed by `orch-trust --commands setup`, in order, and
