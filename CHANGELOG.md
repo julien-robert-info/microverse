@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.3.2] - 2026-10-24
+
 - The `orchestration` skill loads less text on every request: the series report format, the rules turning a defect into a mission and the design procedure with a `rick` moved to `report.md`, `series.md` and `design.md`, read when needed. The text is unchanged.
 - README: installation commands for the public repository, and a link to the GitHub Releases page.
 - README: the `powershell-guard` row was above the introduction; it is back in the Contents table.
