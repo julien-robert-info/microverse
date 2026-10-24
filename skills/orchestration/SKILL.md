@@ -99,32 +99,9 @@ any other launch, and a launch with no `model`):
   decide it badly. A mission whose rules are settled and need one or two
   measurements: one `meeseeks` per measurement (launched together when
   independent), then write the rules in the notes. A mission with open rules
-  or an investigation to run goes to a `rick`, in two phases chained by the
-  orchestrator (a `rick` cannot launch agents), so the Opus context stays
-  small:
-  1. a `meeseeks` (sonnet) writes the code map to the new file
-     `notes/<mission>.map.md`: entry points, functions with file:line, data
-     flow, tables, existing tests, about 150 lines at most;
-  2. the `rick` reads the map first, the code only where the map points or
-     falls short, and writes each measurement it needs as an exact recipe in
-     its notes (command or query, where and how to run it, the project skill
-     holding the recipe, expected output shape, what each outcome would
-     decide). It returns "measurements requested" and stops. A measurement
-     whose next step depends on its result it runs itself;
-  3. one `meeseeks` (haiku) per batch of at most 20 recipes runs them
-     literally and writes the results to the new file
-     `notes/<mission>.measures.md`; a recipe that fails or returns an
-     unexpected shape is reported as such, never rewritten;
-  4. resume the same `rick` with `SendMessage` (context and cache still warm):
-     it settles the rules, writes the draft brief in `notes/<mission>.md` and
-     returns the questions for the user. At most two measurement rounds, then
-     the `rick` runs what remains itself.
-
-  The `rick` has no worktree, so the `after-compact` hook does not list it:
-  the mission gets a line "design in progress (rick)" in the state file at
-  launch. Add its notes file to the `NOTES.local.md` index yourself, put its
-  questions in the state file's list, and launch its briefs once the questions
-  they depend on are answered.
+  or an investigation to run goes to a `rick`. Before launching a `rick` or a
+  measurement `meeseeks`, read
+  `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/design.md`.
 
 ## 2. Launch
 
@@ -192,69 +169,8 @@ tool, never from PowerShell or cmd.exe.
 ## 4. Series report
 
 Written at every stop of the chain (no planned task left, quota threshold,
-blocking question) and at every user request. It covers
-everything since the previous one, whose commit is noted in the state file.
-Start from `orch-report --since <last report commit>` (same quota options as
-§ 1): it prints the merges, the agent runs and their cost, the quota and the
-context size. Write on top of it the decisions, requests, open points and next
-steps.
-
-The report is short by its wording, not by leaving things out: one line per
-item, no restating of the brief or the diff. Nothing is dropped: an item that
-does not appear in full is written in the mission's notes before the report,
-and the report counts it and points to its section. Aim at 15 to 20 lines; a
-longer series takes more lines rather than losing an item. It opens with the
-`▶` marker (§ 6). In this order:
-
-1. **Merged**: one line per task, what changes for the user, with the commit,
-   and the `council` verdict with the fixes it led to when there was a review.
-2. **Incidents**: agent failures and retries, rejected reviews, anything
-   reverted or abandoned, one line each with its consequence. Left out when
-   there is none.
-3. **To confirm**: business decisions taken alone, each with the rule, the
-   alternative dropped and why. Technical choices taken alone (tolerances,
-   tests, `agent-check` false positives) are written in the notes and take one
-   line here: how many, where.
-4. **Requests to the user** (§ 6): what was verified since the previous
-   report, then what only they can do, questions in the § 6 form.
-5. **Open points**: defects found and not fixed, surprising measurements. In
-   full, the ones that change a decision or that the user will meet; the others
-   counted, with their notes section.
-6. **Next**: task in progress or next, what awaits a decision, and as **a single
-   question**: deploy and push what has been merged since the last deployment.
-   The deployment steps (migrations, restarts) come once the user says yes.
-7. **Quota and context**, on one line: `orch-quota`, the series' agent cost
-   from `orch-report` and `orch-usage --context`, summarized.
-
-An explanation stays when the user needs it to decide or to understand what
-changed for them. For example:
-
-```
-▶ Report
-Merged
-- D1 fees per position (abc1234): the screen shows fees net of rebates.
-- D2 CSV import (def5678): duplicates are skipped, counted in the summary.
-  council: approved with fixes (rounding of the totals, fixed in def5678).
-
-Incidents
-- D2: first run failed on the migration number, relaunched on 0042.
-
-To confirm
-- Positions opened before the import start at zero, not at their last known
-  value: the source gives no earlier balance.
-- Technical choices: 2 in notes/import.md § Decided rules.
-
-Open points
-- 3 rows of the sample have no date: left out, listed in notes/import.md.
-- +2 minor, notes/import.md § Open points.
-
-Next
-- D3 launched (alerts). Deploy and push D1 and D2?
-
-Quota 5h 40 %, week 52 % (normal) · agents $4.20 · context 90K
-```
-
-Then note the new "Last report" in the state file.
+blocking question) and at every user request. Read
+`${CLAUDE_PLUGIN_ROOT}/skills/orchestration/report.md` before writing it.
 
 ## 5. Compaction
 
@@ -350,25 +266,8 @@ when nothing is launchable, on the quota advice, or on the user's stop request
 (§ 8); it then ends with the series report (§ 4), which asks the questions that
 waited.
 
-A defect met in a review, a report or a measurement becomes a mission without
-asking only if all of these hold:
-
-- it needs no new business rule (otherwise it is a question, § 6);
-- it serves the series' goal;
-- its brief says in one line what it changes for the user;
-- it was not found by a mission itself generated from a defect (depth 1: those
-  go to the notes, or become questions);
-- the zone it touches holds fewer than three decisions taken alone and not yet
-  confirmed by the user;
-- the quota allows it.
-
-Cosmetic defects are grouped into one mission. Each generated mission gets a
-trace line and a state-file line marked `auto`.
-
-These guards prevent three drifts: a cascade where each fix uncovers the next
-defect and the series never ends; decisions stacked on decisions the user has
-not confirmed, so one wrong early choice spoils everything after it; and a
-budget spent on marginal fixes while the goal waits.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/series.md` before turning a
+defect met in a review, a report or a measurement into a mission.
 
 ## 8. Stopping and resuming
 
