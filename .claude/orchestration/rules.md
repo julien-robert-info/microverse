@@ -47,4 +47,5 @@ Run by the orchestrator, never by an agent, at the end of a series when
    into a temporary folder): an unversioned `CLAUDE.local.md` at the root of the
    working tree is a warning.
 5. Commit `chore(release): vX.Y.Z`, then tag it: `git tag -a vX.Y.Z -m "vX.Y.Z"`.
-6. Push the commit and the tag. The scripts create no GitHub Release.
+6. Push the commit and the tag.
+7. Publish the release: `gh release create vX.Y.Z --title vX.Y.Z --notes-file <file holding the version's CHANGELOG section> --verify-tag`.

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The `orchestration` skill loads less text on every request: the series report format, the rules turning a defect into a mission and the design procedure with a `rick` moved to `report.md`, `series.md` and `design.md`, read when needed. The text is unchanged.
+- README: installation commands for the public repository, and a link to the GitHub Releases page.
+- README: the `powershell-guard` row was above the introduction; it is back in the Contents table.
 - A `PreToolUse` hook denies a PowerShell command that runs a `bin/` script by name (`orch-*`, `agent-check`, `agent-cleanup`): the scripts have no extension and Windows opened an "Open with" dialog. `morty` is told to run them from Bash, or through `node`.
 - Hooks and scripts no longer cut their output on a pipe: stdout is flushed before the process ends (a hook's JSON was truncated at 8192 bytes on macOS).
 - `orch-quota` no longer counts an agent that has just finished as running: it reads the `finished` mark Claude Code writes to the agent's `.meta.json` (an agent resumed afterwards still counts). Agents without the mark keep the ten-minute window.
