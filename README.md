@@ -69,11 +69,17 @@ In the VS Code extension without the CLI, use `/plugin` in the chat panel
 A catalog added from a local path loads the plugin in place: a change takes
 effect in the next conversation or after `/reload-plugins`.
 
-Writing rules, in `~/.claude/CLAUDE.md`:
+Optional writing rules (README, comments, commit messages), imported in
+`~/.claude/CLAUDE.md`. With the plugin installed from GitHub, Claude Code keeps
+the catalog in `~/.claude/plugins/marketplaces/microverse/`:
 
 ```markdown
-@<path to the clone>/user/CLAUDE.md
+@~/.claude/plugins/marketplaces/microverse/user/CLAUDE.md
 ```
+
+From a clone, import `user/CLAUDE.md` of the clone instead. The folder of the
+catalog is the `installLocation` of `microverse` in
+`~/.claude/plugins/known_marketplaces.json`.
 
 ## Configuration
 
@@ -160,15 +166,8 @@ conversation applies at once; `/config` changes the defaults. The mp3 files
 go to `microverse-speak/` in the system temporary folder and are deleted
 after 7 days. It needs edge-tts (see Requirements).
 
-French voices (`edge-tts --list-voices`; set `speak_voice` for another
-language):
-
-| Locale | Voices |
-|---|---|
-| fr-FR | DeniseNeural, EloiseNeural, HenriNeural, RemyMultilingualNeural, VivienneMultilingualNeural |
-| fr-BE | CharlineNeural, GerardNeural |
-| fr-CA | AntoineNeural, JeanNeural, SylvieNeural, ThierryNeural |
-| fr-CH | ArianeNeural, FabriceNeural |
+Any edge-tts voice works: `edge-tts --list-voices` lists them, and
+`speak_voice` sets the one to use (the default is French).
 
 Stopping and resuming. On an announced stop, each running `morty` commits its
 work as `wip:`, each `rick` writes its notes, and the state file lists per
