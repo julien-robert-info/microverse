@@ -1,5 +1,4 @@
 # microverse
-| `PreToolUse` hook (`powershell-guard`, matcher `PowerShell`) | denies a PowerShell command that runs a `bin/` script by name (Windows opens an "Open with" dialog instead); the message points to Bash or `node <plugin dir>/bin/<script>` |
 
 Claude Code plugin to run a project as missions delegated to background
 agents: one task, one branch, one worktree. An orchestrating conversation
@@ -26,6 +25,7 @@ cleans up; the launch pace follows the usage quota.
 | `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (only once the profile is approved; `--merged`: on the merge result), suspicious patterns in the diff; one run per worktree at a time |
 | `agent-cleanup [--keep-branch] <branch>` | removes an agent's worktree (only under `.claude/worktrees`) and merged branch; `--keep-branch` removes the worktree only, to resume an interrupted agent (refuses with uncommitted changes) |
 | `PreToolUse` hook (`agent-model-guard`, matcher `Agent\|Task`) | denies the launch of a `microverse:` agent with no model or a model its role does not allow; other agents pass |
+| `PreToolUse` hook (`powershell-guard`, matcher `PowerShell`) | denies a PowerShell command that runs a `bin/` script by name (Windows opens an "Open with" dialog instead); the message points to Bash or `node <plugin dir>/bin/<script>` |
 | `UserPromptExpansion` hook (`status-command`, matcher `^microverse:status$`) | answers `/microverse:status` by blocking the command with the output of `orch-status`; other commands are untouched |
 | `SubagentStop` hook | stops servers left running by a finished agent |
 | `UserPromptSubmit` hook (`context-guard`) | once, when the context nears the auto-compaction window: update the state file; once, when it is past it (`autoCompactWindow` probably unset); once, when `autoCompactWindow` is below `compact_window` + 33000; once, when `CLAUDE.local.md` exceeds 60 lines; ignores a prompt starting with `/microverse:status` |
@@ -257,7 +257,7 @@ Results land in `evals/results/` (ignored by git).
 
 ```
 .claude-plugin/   plugin.json (manifest, settings), marketplace.json (catalog)
-skills/           orchestration (SKILL.md, budget.md, brief.md, review.md, stop-resume.md, audio.md), init, status
+skills/           orchestration (SKILL.md, budget.md, brief.md, review.md, stop-resume.md, audio.md; read on demand: report.md, series.md, design.md), init, status
 agents/           rick, morty, council, meeseeks
 bin/              dependency-free Node scripts, added to the Bash tool's PATH
 scripts/          orch-lib.js (shared by bin/ and the hooks), hooks (SubagentStop,
