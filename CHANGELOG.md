@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.4.0] - 2026-10-24
+
 - A `Stop` hook (`audio-guard`) makes the orchestrator send the mp3 of a `▶` message it showed without one while the audio report is on. The state file line is now written exactly `Audio report: on`.
 - README: the writing rules are imported from the catalog folder Claude Code keeps for a GitHub install; the table of French voices gives way to `edge-tts --list-voices`.
 
