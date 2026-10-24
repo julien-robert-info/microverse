@@ -36,6 +36,8 @@ test("T1 a ▶ message without mp3 blocks, naming orch-speak and SendUserFile", 
   assert.equal(out.decision, "block");
   assert.match(out.reason, /orch-speak/);
   assert.match(out.reason, /SendUserFile/);
+  assert.match(out.reason, /skills[\\/]orchestration[\\/]audio\.md/);
+  assert.doesNotMatch(out.reason, /<CLAUDE_PLUGIN_ROOT>/);
   assert.ok(out.reason.split("\n").length <= 3);
 });
 

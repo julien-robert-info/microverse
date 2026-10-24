@@ -20,7 +20,7 @@ function audioOn(projectDir) {
   } catch {
     return false;
   }
-  return text.split(/\r?\n/).some((line) => /^\s*(?:-\s+)?audio report: on/i.test(line) &&!/edge-tts missing/i.test(line));
+  return text.split(/\r?\n/).some((line) => /^\s*(?:-\s+)?audio report: on/i.test(line) && !/edge-tts missing/i.test(line));
 }
 
 // A real prompt: a user entry with a string, or text blocks and no tool_result.
@@ -65,7 +65,7 @@ function main() {
 
   const reason = [
     "The audio report is on in CLAUDE.local.md and this turn showed a `▶` message without its mp3.",
-    "Write the spoken text per <CLAUDE_PLUGIN_ROOT>/skills/orchestration/audio.md, run `orch-speak` from Bash (command in the skill § 6),",
+    `Write the spoken text per ${join(process.env.CLAUDE_PLUGIN_ROOT || join(__dirname, ".."), "skills", "orchestration", "audio.md")}, run \`orch-speak\` from Bash (command in the skill § 6),`,
     "and send the printed path with `SendUserFile` (load it with ToolSearch when deferred). Do not rewrite the message.",
   ].join("\n");
   process.stdout.write(JSON.stringify({ decision: "block", reason }));
