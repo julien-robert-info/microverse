@@ -51,12 +51,17 @@ cleans up; the launch pace follows the usage quota.
 
 ## Installation
 
-The repository is its own plugin catalog.
+The repository is its own plugin catalog. Claude Code fetches it itself: no
+manual clone.
 
 ```bash
-claude plugin marketplace add <path to the clone or owner/repo>
+claude plugin marketplace add julien-robert-info/microverse
 claude plugin install microverse@microverse
 ```
+
+From a clone, add `<path to the clone>` instead of `julien-robert-info/microverse`.
+The changes of each version are on the
+[GitHub Releases page](https://github.com/julien-robert-info/microverse/releases).
 
 In the VS Code extension without the CLI, use `/plugin` in the chat panel
 (Marketplaces, then Discover) for the same two steps.
