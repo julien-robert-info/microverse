@@ -27,6 +27,7 @@ cleans up; the launch pace follows the usage quota.
 | `PreToolUse` hook (`agent-model-guard`, matcher `Agent\|Task`) | denies the launch of a `microverse:` agent with no model or a model its role does not allow; other agents pass |
 | `PreToolUse` hook (`powershell-guard`, matcher `PowerShell`) | denies a PowerShell command that runs a `bin/` script by name (Windows opens an "Open with" dialog instead); the message points to Bash or `node <plugin dir>/bin/<script>` |
 | `UserPromptExpansion` hook (`status-command`, matcher `^microverse:status$`) | answers `/microverse:status` by blocking the command with the output of `orch-status`; other commands are untouched |
+| `Stop` hook (`audio-guard`) | with the audio report on and a `▶` message shown without its mp3, makes the orchestrator send it before the turn ends (blocks once per turn) |
 | `SubagentStop` hook | stops servers left running by a finished agent |
 | `UserPromptSubmit` hook (`context-guard`) | once, when the context nears the auto-compaction window: update the state file; once, when it is past it (`autoCompactWindow` probably unset); once, when `autoCompactWindow` is below `compact_window` + 33000; once, when `CLAUDE.local.md` exceeds 60 lines; ignores a prompt starting with `/microverse:status` |
 | `SessionStart` hook (matcher `compact\|startup\|resume\|clear`) | in a project with a profile, tells every conversation to load the orchestration skill first; after a compaction, restates that `CLAUDE.local.md` is the state of reference and lists the agent worktrees, merged or not; on a new, cleared or resumed conversation, lists them with their last commit and uncommitted changes to resume an interrupted series (silent without a profile) |
@@ -161,7 +162,9 @@ Tell the orchestrator to turn the audio report on or off, in any words.
 While it is on, each message for you (series report, questions, ready to
 shut down) also arrives as an mp3 sent with `SendUserFile`, to play on the
 phone or the PC. The setting is one line of the state file, so it survives
-compaction and new conversations. A voice or rate asked for in the
+compaction and new conversations; it reads exactly `Audio report: on` (any
+voice or rate after it), and the `Stop` hook `audio-guard` relies on it to make
+the orchestrator send the mp3 of a `▶` message it forgot. A voice or rate asked for in the
 conversation applies at once; `/config` changes the defaults. The mp3 files
 go to `microverse-speak/` in the system temporary folder and are deleted
 after 7 days. It needs edge-tts (see Requirements).
@@ -265,7 +268,7 @@ skills/           orchestration (SKILL.md, budget.md, brief.md, review.md, stop-
 agents/           rick, morty, council, meeseeks
 bin/              dependency-free Node scripts, added to the Bash tool's PATH
 scripts/          orch-lib.js (shared by bin/ and the hooks), hooks (SubagentStop,
-                  UserPromptSubmit, UserPromptExpansion, SessionStart on compaction,
+                  UserPromptSubmit, UserPromptExpansion, Stop, SessionStart on compaction,
                   startup, resume and clear)
 tests/            node:test suite, run with `npm test`
 hooks/hooks.json  hook declaration

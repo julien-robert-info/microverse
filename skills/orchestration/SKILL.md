@@ -207,8 +207,10 @@ Two kinds of message, nothing else:
   and a title in the user's language, so the user finds them by scrolling.
 
 **Audio report** (off by default). The user turns it on or off in any
-words: write or remove one line of the state file saying it is on, with any
-voice or rate they ask for. While it is on, each message for the user, once
+words, but the state file line is written exactly `Audio report: on`, in
+English whatever their language, with any voice or rate after it (`Audio report: on, voice fr-FR-DeniseNeural, rate +20%`),
+and removed to turn it off; a line saying it is on in other words is rewritten
+in this form. The `audio-guard` hook reads it. While it is on, each message for the user, once
 written, also goes as an mp3: a spoken text per
 `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/audio.md`, then
 
