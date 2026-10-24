@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- README: the writing rules are imported from the catalog folder Claude Code keeps for a GitHub install; the table of French voices gives way to `edge-tts --list-voices`.
+
 ## [0.3.2] - 2026-10-24
 
 - The `orchestration` skill loads less text on every request: the series report format, the rules turning a defect into a mission and the design procedure with a `rick` moved to `report.md`, `series.md` and `design.md`, read when needed. The text is unchanged.
