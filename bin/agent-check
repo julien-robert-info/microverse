@@ -20,7 +20,7 @@
 const { spawnSync } = require("node:child_process");
 const { readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
-const { defaultBase, describeCommands, fail, git, mainRoot, parseArgs, profileTrust, repoRoot, sanitize, validBranch, worktreeFor } = require("../scripts/orch-lib.js");
+const { approvalAsk, defaultBase, describeCommands, fail, git, mainRoot, parseArgs, profileTrust, repoRoot, sanitize, validBranch, worktreeFor } = require("../scripts/orch-lib.js");
 
 // One choke point for everything printed: branch names, commit subjects, file
 // names, check output and git errors come from the repository.
@@ -42,13 +42,14 @@ const root = repoRoot();
 const base = typeof opts.base === "string" ? opts.base : defaultBase(root);
 // The profile of the main worktree, never the branch's: the branch is what is
 // being reviewed. Its commands run only once the user has approved it.
-const trust = profileTrust(mainRoot(root));
+const main = mainRoot(root);
+const trust = profileTrust(main);
 if (trust.state === "invalid") fail(`profile invalid (${trust.reason}): agent-check ran none of its commands`);
 if (trust.state === "unapproved" && !trust.hash) fail(`profile not approved (${trust.reason}): agent-check ran none of its commands`);
 if (trust.state === "unapproved") {
   fail(
     `profile not approved: agent-check runs its commands and ran none.\n${describeCommands(trust.commands).join("\n")}\n` +
-      `Read it (orch-trust), then ask the user to run: ! orch-trust ${trust.hash}`,
+      `Read it (orch-trust).\n${approvalAsk(trust.hash, main)}`,
   );
 }
 // Only the validated lists of profileTrust are run, never the raw profile.

@@ -74,9 +74,10 @@ any other launch, and a launch with no `model`):
 
 - **Profile approval**: run `orch-trust --status`. A non-zero exit means the
   user has not approved the profile: launch nothing, run `orch-trust` to show
-  the fingerprint and commands, and ask the user to run
-  `! orch-trust <sha256>` themselves. Never run `orch-trust <sha256>` (nor let
-  an agent), and do not put it in an allow list. A profile edited since
+  the fingerprint and commands, and give the user, word for word,
+  the approval line `orch-trust` prints (its form depends on where they work:
+  `!` at the Claude Code CLI prompt, a terminal command elsewhere). Never run
+  that line (nor let an agent), and do not put it in an allow list. A profile edited since
   (including by a merged branch) needs a new approval. `orch-trust` printing
   `invalid (reason)` means the profile has unreadable JSON or a value of the
   wrong type: it cannot be approved, ask the user to fix it. `unapproved (main

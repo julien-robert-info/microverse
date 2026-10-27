@@ -8,15 +8,29 @@
 // orch-trust --status        exit 0 when approved or without profile, 1 otherwise
 // orch-trust --commands setup|checks   the approved profile's commands, one per line
 //
+// Every mode takes --project <dir>: the project is resolved from <dir> instead
+// of the current directory.
+//
 // The profile is the one of the main worktree, whatever the current directory.
-// Only the user runs `orch-trust <sha256>`, as `! orch-trust <sha256>`; an
-// agent never does, and it must not be put in a permission allow list.
+// Only the user approves, with the line this script prints (`node "<this
+// script>" <sha256> --project "<root>"`, prefixed with `! ` at the Claude Code
+// CLI prompt); an agent never does, and it must not be put in a permission
+// allow list.
 "use strict";
 
-const { approveProfile, describeCommands, fail, mainRoot, parseArgs, profileTrust, sanitize } = require("../scripts/orch-lib.js");
+const { existsSync, statSync } = require("node:fs");
+const { resolve } = require("node:path");
+const { approvalAsk, approveProfile, describeCommands, fail, git, mainRoot, parseArgs, profileTrust, sanitize } = require("../scripts/orch-lib.js");
 
 const opts = parseArgs(process.argv.slice(2), { flags: ["status"] });
-const root = mainRoot();
+let project = process.cwd();
+if (opts.project !== undefined) {
+  if (typeof opts.project !== "string") fail("usage: orch-trust --project <dir>");
+  project = resolve(opts.project);
+  if (!existsSync(project) || !statSync(project).isDirectory()) fail(`--project: no such directory: ${project}`);
+  if (git(["rev-parse", "--git-dir"], project).code !== 0) fail(`--project: not in a git repository: ${project}`);
+}
+const root = mainRoot(project);
 const trust = profileTrust(root);
 
 // The commands an agent may run, parsed from the approved profile of the main
@@ -51,7 +65,7 @@ if (given === undefined) {
     console.log(`file: ${trust.file}`);
     console.log(`fingerprint: ${trust.hash}`);
     console.log(`commands (${trust.commands.length}):\n${describeCommands(trust.commands, { full: true }).join("\n")}`);
-    if (trust.state === "unapproved") console.log(`\nAsk the user to type: ! orch-trust ${trust.hash}`);
+    if (trust.state === "unapproved" && root) console.log(`\n${approvalAsk(trust.hash, root)}`);
   }
   return;
 }

@@ -781,7 +781,41 @@ function profileProblem(p) {
   return null;
 }
 
-// Only `orch-trust <sha256>` run by the user calls this.
+// The line the user runs to approve the profile whose fingerprint is `hash`, for
+// the project whose main worktree is `root`. It names this very script by
+// absolute path, because the plugin's bin/ is not on the PATH of every shell
+// (marketplace install: the script lives in the plugin cache), and the project
+// explicitly, because a terminal opened elsewhere has another cwd. The `!`
+// prefix exists only at the Claude Code CLI prompt: the VS Code extension and
+// the desktop app send it to the model as a prompt, so there the bare command is
+// given, to run in a terminal.
+function approvalCommand(hash, root) {
+  // Forward slashes are accepted by node, PowerShell, cmd and bash alike; inside
+  // double quotes a POSIX shell still expands $, ` and \.
+  const quote = (p) => {
+    const s = resolve(p);
+    return `"${process.platform === "win32" ? s.replace(/\\/g, "/") : s.replace(/[\\$`"]/g, "\\$&")}"`;
+  };
+  return `node ${quote(join(__dirname, "..", "bin", "orch-trust"))} ${hash} --project ${quote(root)}`;
+}
+
+function approvalCli() {
+  return process.env.CLAUDE_CODE_ENTRYPOINT === "cli";
+}
+
+// The approval line as the user must type it: with `! ` in the CLI.
+function approvalLine(hash, root) {
+  return `${approvalCli() ? "! " : ""}${approvalCommand(hash, root)}`;
+}
+
+// The sentence for the model: which form to give, passed on verbatim.
+function approvalAsk(hash, root) {
+  return approvalCli()
+    ? `Ask the user to type at the Claude Code prompt: ${approvalLine(hash, root)}`
+    : `Ask the user to run in a terminal (the \`!\` prefix exists only in the Claude Code CLI): ${approvalLine(hash, root)}`;
+}
+
+// Only the approval line, run by the user, calls this.
 function approveProfile(root, hash) {
   const store = readTrustStore();
   store[trustKey(root)] = hash;
@@ -808,7 +842,7 @@ function describeCommands(commands, { full = false } = {}) {
 }
 
 module.exports = {
-  mainRoot, profileTrust, approveProfile, describeCommands,
+  mainRoot, profileTrust, approveProfile, approvalLine, approvalAsk, describeCommands,
   sanitize, validBranch,
   listWorktrees, agentWorktrees,
   statuslineObservations, risingOnly, currentReading, fmtAge,

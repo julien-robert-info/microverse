@@ -22,7 +22,7 @@ test("an unapproved profile stops agent-check before any command runs", () => {
   const { dir, wt } = makeRepo({ checks: [{ name: "w", run: touch("witness-check") }], teardown: [touch("witness-teardown")] }, { approve: false });
   const r = script("agent-check", ["feat/x"], dir);
   assert.equal(r.code, 2, r.out);
-  assert.ok(r.out.includes(`orch-trust ${sha(profileOf(dir))}`), r.out);
+  assert.ok(r.out.includes(` ${sha(profileOf(dir))} --project `), r.out);
   assert.ok(r.out.includes("witness-check"), "the commands are listed");
   assert.ok(!existsSync(join(wt, "witness-check")), "check did not run");
   assert.ok(!existsSync(join(wt, "witness-teardown")), "teardown did not run");
@@ -78,7 +78,7 @@ test("the commands are shown without escape sequences; agent-check bounds the li
     assert.ok(r.out.includes("PWNED"), "the text stays readable");
   }
   assert.match(check.out, /6 truncated or omitted, read them with orch-trust/);
-  assert.ok(check.out.split("\n").every((l) => [...l].length < 260), "line too long");
+  assert.ok(check.out.split("\n").every((l) => l.startsWith("Ask the user to ") || [...l].length < 260), "line too long");
   assert.ok(trust.out.includes("echo 24"), "orch-trust lists every command");
   assert.ok(trust.out.includes("y".repeat(400)), "and each one whole");
   assert.doesNotMatch(trust.out, /truncated/);
@@ -92,10 +92,98 @@ test("orch-trust shows a command padded beyond 200 characters whole", () => {
   assert.match(script("agent-check", ["feat/x"], dir).out, /1 truncated or omitted/);
 });
 
-test("the last line of orch-trust asks the user, not the model", () => {
+// The approval line the way the lib builds it: the script by absolute path,
+// forward slashes on Windows, both paths in double quotes.
+const slashes = (p) => (process.platform === "win32" ? p.replace(/\\/g, "/") : p);
+const expectedCommand = (dir) => `node "${slashes(join(ROOT, "bin", "orch-trust"))}" ${sha(profileOf(dir))} --project "${slashes(dir)}"`;
+const withEntry = (value) => ({ CLAUDE_CODE_ENTRYPOINT: value });
+const TERMINAL = "Ask the user to run in a terminal (the `!` prefix exists only in the Claude Code CLI): ";
+
+test("CLI: the last line of orch-trust gives the `!` form", () => {
   const { dir } = makeRepo({ setup: ["echo hi"] }, { approve: false });
-  const lines = script("orch-trust", [], dir).out.trimEnd().split("\n");
-  assert.equal(lines.at(-1), `Ask the user to type: ! orch-trust ${sha(profileOf(dir))}`);
+  const lines = script("orch-trust", [], dir, withEntry("cli")).out.trimEnd().split("\n");
+  assert.equal(lines.at(-1), `Ask the user to type at the Claude Code prompt: ! ${expectedCommand(dir)}`);
+  assert.ok(existsSync(join(ROOT, "bin", "orch-trust")));
+});
+
+test("VS Code extension: the last line gives the terminal form, and running it from another directory approves", () => {
+  const { dir } = makeRepo({ setup: ["echo hi"] }, { approve: false });
+  const h = home();
+  const env = { ...envOf(h), ...withEntry("claude-vscode") };
+  const last = script("orch-trust", [], dir, env).out.trimEnd().split("\n").at(-1);
+  assert.ok(last.startsWith(TERMINAL), last);
+  const cmd = last.slice(TERMINAL.length);
+  assert.equal(cmd, expectedCommand(dir));
+  const args = [...cmd.matchAll(/"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2]);
+  assert.equal(args[0], "node");
+  assert.ok(existsSync(args[1]), args[1]);
+  const elsewhere = mkdtempSync(join(tmpdir(), "microverse-elsewhere-"));
+  const r = spawnSync(process.execPath, args.slice(1), { cwd: elsewhere, encoding: "utf8", env: { ...process.env, ...env } });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(script("orch-trust", ["--status"], dir, env).out.trim(), "approved");
+});
+
+test("without CLAUDE_CODE_ENTRYPOINT the terminal form is given", () => {
+  const { dir } = makeRepo({ setup: ["echo hi"] }, { approve: false });
+  const last = script("orch-trust", [], dir, withEntry(undefined)).out.trimEnd().split("\n").at(-1);
+  assert.equal(last, `${TERMINAL}${expectedCommand(dir)}`);
+});
+
+test("approvalLine quotes a path holding a space", () => {
+  const { approvalLine } = require("../scripts/orch-lib.js");
+  const saved = process.env.CLAUDE_CODE_ENTRYPOINT;
+  process.env.CLAUDE_CODE_ENTRYPOINT = "claude-vscode";
+  try {
+    const root = process.platform === "win32" ? "C:\\My Projects\\app one" : "/home/some user/app one";
+    const line = approvalLine("abc123", root);
+    assert.ok(line.endsWith(` abc123 --project "${slashes(root)}"`), line);
+    assert.ok(line.startsWith(`node "${slashes(join(ROOT, "bin", "orch-trust"))}" `), line);
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CODE_ENTRYPOINT;
+    else process.env.CLAUDE_CODE_ENTRYPOINT = saved;
+  }
+});
+
+test("agent-check on an unapproved profile prints the line orch-trust prints", () => {
+  const { dir } = makeRepo({ setup: ["echo hi"] }, { approve: false });
+  for (const entry of ["cli", "claude-vscode"]) {
+    const shown = script("orch-trust", [], dir, withEntry(entry)).out.trimEnd().split("\n").at(-1);
+    const check = script("agent-check", ["feat/x"], dir, withEntry(entry));
+    assert.equal(check.code, 2, check.out);
+    assert.ok(check.out.split("\n").includes(shown), check.out);
+  }
+});
+
+test("--project works in every mode from another directory, an agent worktree resolving to the main one", () => {
+  const { dir, wt } = makeRepo({ setup: ["echo main-setup"], checks: [{ name: "c", run: "echo main-check" }] }, { approve: false });
+  writeFileSync(profileOf(wt), JSON.stringify({ setup: ["echo branch-setup"] }));
+  const env = envOf(home());
+  const elsewhere = mkdtempSync(join(tmpdir(), "microverse-elsewhere-"));
+  for (const project of [dir, wt]) {
+    const shown = script("orch-trust", ["--project", project], elsewhere, env).out;
+    assert.match(shown, /echo main-setup/);
+    assert.doesNotMatch(shown, /branch-setup/);
+    assert.ok(shown.includes(`--project "${slashes(dir)}"`), shown);
+    assert.equal(script("orch-trust", ["--status", "--project", project], elsewhere, env).code, 1);
+  }
+  const approve = script("orch-trust", [sha(profileOf(dir)), "--project", wt], elsewhere, env);
+  assert.equal(approve.code, 0, approve.out);
+  assert.equal(script("orch-trust", ["--status", "--project", dir], elsewhere, env).out.trim(), "approved");
+  assert.equal(script("orch-trust", ["--commands", "checks", "--project", wt], elsewhere, env).out.trim(), "echo main-check");
+});
+
+test("--project with a missing directory or outside a repository fails and writes nothing", () => {
+  const { dir } = makeRepo({ setup: ["echo hi"] }, { approve: false });
+  const h = home();
+  const plain = mkdtempSync(join(tmpdir(), "microverse-norepo-"));
+  for (const bad of [join(plain, "absent"), plain]) {
+    for (const args of [[], ["--status"], ["--commands", "setup"], [sha(profileOf(dir))]]) {
+      const r = script("orch-trust", [...args, "--project", bad], dir, envOf(h));
+      assert.notEqual(r.code, 0, args.join(" "));
+      assert.match(r.out, /--project/);
+    }
+  }
+  assert.ok(!existsSync(storeOf(h)), "nothing written to the trust store");
 });
 
 test("--commands prints the approved main profile's commands, not the branch's", () => {
@@ -399,6 +487,8 @@ test("the hook gives no skill instruction for an unapproved profile, then does o
   assert.doesNotMatch(before, /microverse:orchestration`, unless/);
   assert.match(before, /not approved/);
   assert.match(before, /orch-trust/);
+  assert.ok(before.includes(` ${sha(profileOf(dir))} --project "`), before);
+  assert.doesNotMatch(before, /! orch-trust/);
   assert.equal(before.split("\n").length, 1);
   script("orch-trust", [sha(profileOf(dir))], dir, envOf(h));
   const after = JSON.parse(hook(dir, h).stdout).hookSpecificOutput.additionalContext;
