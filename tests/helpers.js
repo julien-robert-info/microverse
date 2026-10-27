@@ -9,8 +9,11 @@ const { dirname, join, resolve } = require("node:path");
 const ROOT = resolve(__dirname, "..");
 const bin = (name) => join(ROOT, "bin", name);
 
+// An `env` value of undefined removes the variable from the child.
 function sh(cmd, args, cwd, env = {}) {
-  const r = spawnSync(cmd, args, { cwd, encoding: "utf8", env: { ...process.env, ...env } });
+  const full = { ...process.env, ...env };
+  for (const k of Object.keys(full)) if (full[k] === undefined) delete full[k];
+  const r = spawnSync(cmd, args, { cwd, encoding: "utf8", env: full });
   return { code: r.status, out: (r.stdout ?? "") + (r.stderr ?? "") };
 }
 

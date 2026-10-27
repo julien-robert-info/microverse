@@ -21,7 +21,7 @@ cleans up; the launch pace follows the usage quota.
 | `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown (`--no-write` is passed to `orch-quota`, `--session <id>` picks the conversation of the context line) |
 | `orch-speak` | turns a spoken text (stdin or `--file`) into an mp3 with edge-tts for the optional audio report and prints its path; `MICROVERSE_EDGE_TTS` names the edge-tts command when it is not on PATH |
 | `orch-status [<commit>]` | plain-text overview, read-only: missions and questions of `CLAUDE.local.md`, agent worktrees, merges since the last report, agent runs, quota, context (the command behind `/microverse:status`) |
-| `orch-trust [<sha256>]` | shows the fingerprint and commands of the project profile; `orch-trust <sha256>` approves it (the user runs it, never an agent); `--status` exits 0 when approved or without profile; `--commands setup\|checks` prints the approved commands for agents |
+| `orch-trust [<sha256>]` | shows the fingerprint and commands of the project profile and the approval line to run; `orch-trust <sha256>` approves it (the user runs it, never an agent); `--project <dir>` resolves the project from `<dir>` instead of the current directory, in every mode; `--status` exits 0 when approved or without profile; `--commands setup\|checks` prints the approved commands for agents |
 | `agent-check <branch>` | commits, merge with the base, clean worktree, profile checks (only once the profile is approved; `--merged`: on the merge result), suspicious patterns in the diff; one run per worktree at a time |
 | `agent-cleanup [--keep-branch] <branch>` | removes an agent's worktree (only under `.claude/worktrees`) and merged branch; `--keep-branch` removes the worktree only, to resume an interrupted agent (refuses with uncommitted changes) |
 | `PreToolUse` hook (`agent-model-guard`, matcher `Agent\|Task`) | denies the launch of a `microverse:` agent with no model or a model its role does not allow; other agents pass |
@@ -195,7 +195,7 @@ orch-usage --agents
 orch-report --since a0f5690 --target 98 --reserve 30
 orch-report --since a0f5690 --no-write --session <id>   # read-only; context of that conversation
 orch-trust                                     # fingerprint and commands of the profile
-! orch-trust <sha256>                          # you approve it, from the Claude Code prompt
+orch-trust --project /path/to/project --status # any mode, from another directory
 agent-check feat/subject
 agent-check feat/subject --merged
 agent-cleanup feat/subject
@@ -215,9 +215,21 @@ before Node starts, which validation inside Node cannot undo.
 `.claude/orchestration/profile.json` is code, like the scripts of a
 `package.json`: review it on each pull. Nothing in it runs until you approve it
 on your machine: `orch-trust` shows its fingerprint (sha256) and commands, and
-`! orch-trust <sha256>` records the approval in
-`~/.claude/microverse/trust.json`. No agent ever runs it, so never put
-`orch-trust` in a permission allow list.
+the approval line it prints records the approval in
+`~/.claude/microverse/trust.json`. The line names the script by absolute path
+and the project with `--project`, so it works from any directory, with a local
+clone as with a marketplace install (the script then lives in the plugin
+cache), without the plugin `bin/` on the PATH:
+
+```
+! node "/path/to/plugin/bin/orch-trust" <sha256> --project "/path/to/project"   # Claude Code CLI: type it at the prompt
+node "/path/to/plugin/bin/orch-trust" <sha256> --project "/path/to/project"     # VS Code extension, desktop app: run it in a terminal
+```
+
+The `!` prefix exists only in the Claude Code CLI; elsewhere it would be sent
+to the model as a prompt. `orch-trust` picks the form from
+`CLAUDE_CODE_ENTRYPOINT` (`cli` gives the `!` form). No agent ever runs the
+line, so never put `orch-trust` in a permission allow list.
 
 The approval covers the profile of the main worktree, and `agent-check` and
 `orch-trust --commands setup|checks` take the commands from it: what an agent

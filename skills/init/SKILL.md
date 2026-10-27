@@ -108,8 +108,8 @@ Also check:
   branch, to verify it passes before making it a criterion; never run them
   from the unapproved file.
 - end by asking the user to approve the profile you wrote: run `orch-trust`
-  to show them its fingerprint and commands, then ask them to run
-  `! orch-trust <sha256>` themselves. Until then the hook, `agent-check` and
-  the agents run none of its commands. Never run `orch-trust <sha256>`
-  yourself, and do not rewrite the profile after they approved it without
+  to show them its fingerprint and commands, then give them, word for
+  word, the approval line it prints. Until then the hook, `agent-check` and
+  the agents run none of its commands. Never run that line
+  (`orch-trust <sha256>`, or its `node` form) yourself, and do not rewrite the profile after they approved it without
   asking again.
