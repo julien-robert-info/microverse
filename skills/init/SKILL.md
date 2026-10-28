@@ -80,8 +80,9 @@ Also check:
   compacts about 33K below this setting (reserved output budget and buffer);
   merge `"model": "sonnet"` and `"advisorModel": "opus"` in the same file: the
   orchestrating conversation runs on Sonnet and consults Opus at decision
-  points, so no model has to be chosen when opening a conversation; check that
-  file is ignored by git;
+  points, so no model has to be chosen when opening a conversation. These keys
+  take effect in conversations opened after the write: tell the user to open a
+  new conversation before orchestrating. Check that file is ignored by git;
 - offer the microverse status line, which records the quota counters for
   `orch-quota` in terminal sessions (the VS Code panel runs no status line):
   run `node "${CLAUDE_PLUGIN_ROOT}/scripts/statusline.js" --install`, which
