@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- `morty` instructions: plain single commands (no `cd &&`, `$(…)`, subshell), no search for unversioned files, background waits, and a per-test "red when <change>" line in the final report.
+
 ## [0.4.1] - 2026-10-27
 
 - The approval line of `orch-trust` works outside the Claude Code CLI and without a local clone: it names the script by absolute path, wherever the plugin is installed (clone or plugin cache), and the project with the new `--project <dir>` option, valid in every mode. At the CLI prompt it starts with `!`; in the VS Code extension and the desktop app, where `!` would be sent to the model as a prompt, it is a command to run in a terminal. `agent-check` and the `after-compact` hook print the same line.

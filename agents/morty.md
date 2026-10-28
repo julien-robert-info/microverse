@@ -63,6 +63,17 @@ does not settle blocks you; never for routine steps.
 - Fix the bugs you meet inside your zone, one separate commit each; report the
   ones outside it.
 
+## Commands
+- One plain command per Bash call from the worktree root: no `cd … &&`, no
+  `$(…)` or variable holding a computed path or value, no subshell. The
+  worktree guard refuses what it cannot verify stays in the worktree ("too
+  complex to verify"): split it into plain commands, not into PowerShell.
+- Unversioned files (state file, `NOTES.local.md`, `notes/`) are absent from
+  the worktree: the brief gives what you need; do not look for them.
+- To wait on a long command, run it in the background and wait for its
+  notification, or loop `until <check>; do sleep 3; done`; a bare `sleep`
+  followed by a read is blocked.
+
 ## Defects that slipped past earlier reviews
 Check your diff against each of these before reporting.
 - A test that feeds the same case to both sides of a comparison hides the
@@ -92,7 +103,8 @@ things; close them yourself, they cost less here.
   not only against the row in front of you.
 - Every expected test (T1, T2…) exists under a name you can give, the mixed
   and negative cases included. A missing one is written, not mentioned.
-- Each test could fail: break the code it covers once and see it go red.
+- For each expected test, break the code it covers once, see it go red,
+  restore; the report gives, per test, the change that made it fail.
 - A step that rewrites stored data (retag, replay, migration) leaves rows the
   user set or confirmed untouched.
 
@@ -113,6 +125,8 @@ silenced.
 Write it in the language of the brief.
 
 Useful information first, brevity second: what changed, file by file; one line
-per rule and per expected test of the brief, `R1 → file:line, T1 → test name`,
+per rule and per expected test of the brief, `R1 → file:line,
+T3 → test name, red when <change>`,
 the orchestrator and the reviewer start from it; checks run and their result; commit hashes; bugs fixed or found along the way; decisions
 you had to take and why; open points; answers to the questions the brief asks.
+Return it as text; never write a report file (the harness refuses it).
