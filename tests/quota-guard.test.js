@@ -51,53 +51,54 @@ function guard(fx, { type = "microverse:morty", tool = "Agent", env = {}, cwd = 
   return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : null;
 }
 
-const denied = (out) => {
+// A limit level: the user is asked to confirm; nothing else is attached.
+const asked = (out) => {
   assert.ok(out, "expected an output");
   assert.equal(out.hookEventName, "PreToolUse");
-  assert.equal(out.permissionDecision, "deny");
+  assert.equal(out.permissionDecision, "ask");
+  assert.ok(!("additionalContext" in out));
+  assert.ok(out.permissionDecisionReason.startsWith("Quota: "));
+  assert.ok(out.permissionDecisionReason.endsWith(" Confirm to launch anyway."));
   assert.ok(out.permissionDecisionReason.length < 400);
   assert.ok(!out.permissionDecisionReason.includes("\n"));
   return out.permissionDecisionReason;
 };
 
-test("a morty at the 5h limit is denied with both counters and the option to raise", () => {
-  const reason = denied(guard(setup({ five: 91, week: 33 })));
+test("a morty at the 5h limit asks for confirmation with both counters", () => {
+  const reason = asked(guard(setup({ five: 91, week: 33 })));
   assert.match(reason, /^Quota: no new agent/);
   assert.match(reason, /5h 91 % \(reading \d+ min old\), week 33 %/);
   assert.match(reason, /0 running/);
-  assert.match(reason, /five_hour_limit/);
   assert.match(reason, /resets \(/);
-  assert.match(reason, /only move these thresholds/);
-  assert.doesNotMatch(reason, /to launch anyway/);
+  assert.doesNotMatch(reason, /five_hour_limit|week_target|thresholds/);
 });
 
-test("no room left: raising five_hour_limit to 100 does not lift the refusal and the reason does not claim it", () => {
+test("no room left: five_hour_limit 100 still asks for confirmation", () => {
   const fx = setup({ five: 87, week: 10 });
-  const reason = denied(guard(fx, { env: { CLAUDE_PLUGIN_OPTION_FIVE_HOUR_LIMIT: "100" } }));
+  const reason = asked(guard(fx, { env: { CLAUDE_PLUGIN_OPTION_FIVE_HOUR_LIMIT: "100" } }));
   assert.match(reason, /^Quota: no new agent: 13 points left before the 5h limit/);
   assert.match(reason, /resets \(/);
-  assert.doesNotMatch(reason, /launch anyway/);
 });
 
-test("a rick with no room for one more agent given the running ones is denied", () => {
+test("a rick with no room for one more agent given the running ones asks for confirmation", () => {
   const fx = setup({ five: 60, week: 10 });
   for (const id of ["a1", "a2"]) fx.acc.agent("proj", id, "microverse:morty", [{ ts: Date.now(), dollars: 1 }], 0);
-  const reason = denied(guard(fx, { type: "microverse:rick" }));
+  const reason = asked(guard(fx, { type: "microverse:rick" }));
   assert.match(reason, /no new agent: 30 points left before the 5h limit, 2 running and about 15 per agent/);
   assert.match(reason, /2 running/);
   // The same counters without the running agents leave room.
   assert.equal(guard(setup({ five: 60, week: 10 }), { type: "microverse:rick" }), null);
 });
 
-test("5h five points over the limit denies as no more resuming", () => {
-  const reason = denied(guard(setup({ five: 96, week: 10 })));
+test("5h five points over the limit asks as no more resuming", () => {
+  const reason = asked(guard(setup({ five: 96, week: 10 })));
   assert.match(reason, /^Quota: no more resuming agents/);
   assert.doesNotMatch(reason, /no new agent/);
 });
 
-test("the week at the target, or three points under it, is denied", () => {
-  assert.match(denied(guard(setup({ five: 10, week: 98 }))), /^Quota: stop/);
-  assert.match(denied(guard(setup({ five: 10, week: 95 }))), /^Quota: no new agent \(≥ 95 %\)/);
+test("the week at the target, or three points under it, asks for confirmation", () => {
+  assert.match(asked(guard(setup({ five: 10, week: 98 }))), /^Quota: stop/);
+  assert.match(asked(guard(setup({ five: 10, week: 95 }))), /^Quota: no new agent \(≥ 95 %\)/);
 });
 
 test("council, meeseeks and other agents are not guarded", () => {
@@ -109,7 +110,7 @@ test("other tools are not guarded; the Task name is", () => {
   const fx = setup({ five: 96, week: 99 });
   assert.equal(guard(fx, { tool: "Bash" }), null);
   assert.equal(guard(fx, { tool: "Read" }), null);
-  denied(guard(fx, { tool: "Task" }));
+  asked(guard(fx, { tool: "Task" }));
 });
 
 test("under every limit with a fresh reading there is no output", () => {
@@ -132,7 +133,7 @@ test("no profile: no output, even at a limit", () => {
 
 test("the payload cwd stands in for CLAUDE_PROJECT_DIR", () => {
   const fx = setup({ five: 96 });
-  denied(guard(fx, { projectDir: "" }));
+  asked(guard(fx, { projectDir: "" }));
   assert.equal(guard(fx, { projectDir: "", cwd: join(fx.acc.home, "nowhere") }), null);
 });
 
@@ -159,16 +160,16 @@ test("five_hour_limit option: 95 lets 92 % through, empty or unexpanded means 90
     return guard(fx, { env: { CLAUDE_PLUGIN_OPTION_FIVE_HOUR_LIMIT: value } });
   };
   assert.equal(run("95"), null);
-  assert.match(denied(run("")), /^Quota: no new agent/);
-  assert.match(denied(run("${user_config.five_hour_limit}")), /^Quota: no new agent/);
-  assert.match(denied(run("abc")), /^Quota: no new agent/);
-  assert.match(denied(run(undefined)), /^Quota: no new agent/);
+  assert.match(asked(run("")), /^Quota: no new agent/);
+  assert.match(asked(run("${user_config.five_hour_limit}")), /^Quota: no new agent/);
+  assert.match(asked(run("abc")), /^Quota: no new agent/);
+  assert.match(asked(run(undefined)), /^Quota: no new agent/);
 });
 
 test("empty week options never become 0", () => {
   const out = guard(setup({ five: 20, week: 10 }), { env: { CLAUDE_PLUGIN_OPTION_WEEK_TARGET: "", CLAUDE_PLUGIN_OPTION_WEEKDAY_RESERVE: "" } });
   assert.equal(out, null);
-  denied(guard(setup({ five: 20, week: 60 }), { env: { CLAUDE_PLUGIN_OPTION_WEEK_TARGET: "60" } }));
+  asked(guard(setup({ five: 20, week: 60 }), { env: { CLAUDE_PLUGIN_OPTION_WEEK_TARGET: "60" } }));
 });
 
 test("the learned cost is used although CLAUDE_PLUGIN_DATA points at a folder without calibration", () => {
@@ -176,9 +177,9 @@ test("the learned cost is used although CLAUDE_PLUGIN_DATA points at a folder wi
   calibration(fx.acc, 11);
   const data = join(fx.acc.home, "empty-data");
   mkdirSync(data);
-  assert.match(denied(guard(fx, { env: { CLAUDE_PLUGIN_DATA: data } })), /~11 points per agent/);
+  assert.match(asked(guard(fx, { env: { CLAUDE_PLUGIN_DATA: data } })), /~11 points per agent/);
   // Without a calibration the default applies.
-  assert.match(denied(guard(setup({ five: 91, week: 10 }))), /~15 points per agent/);
+  assert.match(asked(guard(setup({ five: 91, week: 10 }))), /~15 points per agent/);
 });
 
 // Every file under `dir` with its size and modification time.
@@ -215,7 +216,7 @@ test("a stale calibration and status line readings are used and nothing is writt
   mkdirSync(join(mdir, "statusline-history"), { recursive: true });
   writeFileSync(join(mdir, "statusline-history", "2000-01-01.jsonl"), "");
   const before = snapshot(fx.acc.home);
-  const reason = denied(guard(fx, { env: { CLAUDE_PLUGIN_OPTION_QUOTA_FILE: join(fx.acc.home, "missing.json") } }));
+  const reason = asked(guard(fx, { env: { CLAUDE_PLUGIN_OPTION_QUOTA_FILE: join(fx.acc.home, "missing.json") } }));
   assert.match(reason, /5h 93 %.*week 20 %.*~11 points per agent/);
   assert.deepEqual(snapshot(fx.acc.home), before);
 });
@@ -227,7 +228,7 @@ test("a 5h reading 20 minutes old allows with the warning as context; 10 minutes
   assert.equal(guard(setup({ five: 20, week: 10, fiveAge: 10 * MIN })), null);
 });
 
-test("a stale 5h reading alone does not refuse", () => {
+test("a stale 5h reading alone does not ask", () => {
   const out = guard(setup({ five: 20, week: 10, fiveAge: 4 * HOUR }));
   assert.equal(out.permissionDecision, undefined);
 });
