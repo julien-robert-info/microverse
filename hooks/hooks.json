@@ -47,6 +47,12 @@
             "command": "node",
             "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/agent-model-guard.js"],
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/quota-guard.js"],
+            "timeout": 5
           }
         ]
       },
