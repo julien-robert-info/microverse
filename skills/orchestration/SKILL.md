@@ -55,10 +55,10 @@ any other launch, and a launch with no `model`):
   inside a conversation rewrites the whole cache: don't. Design that needs
   Opus goes to a `rick`, not to a model switch.
 - **Consult the advisor** (say "consult the advisor") before writing a brief a
-  `rick` did not draft, before ruling on a `council` review, before a design
-  decision recorded as "to confirm", and when an agent fails twice on the same
-  thing. Not for routine steps (launch, `agent-check`, merge, cleanup, state
-  file), nor on a brief taken from a `rick`'s notes.
+  `rick` did not draft, before a design decision recorded as "to confirm", and
+  when an agent fails twice on the same thing. Not for routine steps (launch,
+  `agent-check`, merge, cleanup, state file), nor on a brief taken from a
+  `rick`'s notes.
 - Pass the model **explicitly** at every launch (`model:` of the Agent tool):
   the agent definition alone has not always sufficed.
 - Anything mechanical goes through a script (zero model tokens).

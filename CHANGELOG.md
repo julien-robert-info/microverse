@@ -6,6 +6,7 @@
 
 - `morty` instructions: plain single commands (no `cd &&`, `$(…)`, subshell), no search for unversioned files, background waits, and a per-test "red when <change>" line in the final report.
 - `init` skill: tells the user that `model` and `advisorModel` apply to the next conversation, not the current one.
+- `orchestration` skill: no longer asks to consult the advisor before ruling on a council review.
 
 ## [0.4.1] - 2026-10-27
 
