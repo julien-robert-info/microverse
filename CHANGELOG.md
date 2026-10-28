@@ -4,7 +4,7 @@
 
 ### Added
 
-- `quota-guard` hook (`PreToolUse`, `Agent|Task`): denies the launch of a `microverse:morty` or `microverse:rick` when the quota advice is at a limit, computed at each launch with no model request and read only; the refusal lasts until the counters leave room, and `five_hour_limit` and `week_target` only move the thresholds. It allows with a note when the weekly counter is above the pacing line.
+- `quota-guard` hook (`PreToolUse`, `Agent|Task`): asks the user to confirm the launch of a `microverse:morty` or `microverse:rick` when the quota advice is at a limit, computed at each launch with no model request and read only; confirming launches the agent, and a non-interactive run (`claude -p`) denies it with the reason. It allows with a note when the weekly counter is above the pacing line.
 - `orch-quota` warns when the 5h reading is over 15 minutes old; the hook passes the same warning to the orchestrator.
 
 ### Fixed

@@ -1,12 +1,17 @@
-// PreToolUse hook (matcher Agent|Task): refuses the launch of a morty or a rick
-// when the quota advice (the one of bin/orch-quota) is at a limit, whether or
-// not the orchestrator ran orch-quota. Costs no token: it is computed here.
+// PreToolUse hook (matcher Agent|Task): asks the user to confirm the launch of a
+// morty or a rick when the quota advice (the one of bin/orch-quota) is at a
+// limit, whether or not the orchestrator ran orch-quota. Costs no token: it is
+// computed here.
+//
+// A launch at a limit is the user's call: a prompt costs one click, while a
+// hard refusal could block work that no option can unblock. Without anyone to
+// answer (claude -p) Claude Code denies the call and returns the reason.
 //
 // Read only and in process: the readings are read without pruning, the stored
 // calibration is used even when stale (recomputing it takes longer than the
 // hook's timeout), and nothing is written. Council, meeseeks and other agents
 // pass, as does anything it cannot compute (no profile, no weekly reading, any
-// error): a false refusal blocks the user's work, a false pass costs no more
+// error): a false prompt interrupts the user's work, a false pass costs no more
 // than not having the guard.
 //
 // Launches sent in one message do not see each other as running: none of them
@@ -23,10 +28,10 @@ const lib = require("./orch-lib.js");
 const statusline = require("./statusline.js");
 
 const GUARDED = ["microverse:morty", "microverse:rick"];
-const REFUSED = ["stop", "week-limit", "no-resume", "five-hour", "no-room"];
+const AT_LIMIT = ["stop", "week-limit", "no-resume", "five-hour", "no-room"];
 
 // Empty, unexpanded (`${user_config.KEY}`) or not a number: the default. An
-// empty value must never become 0, which would refuse every launch.
+// empty value must never become 0, which would put every launch at a limit.
 function option(name, fallback) {
   const raw = process.env[`CLAUDE_PLUGIN_OPTION_${name}`];
   if (!lib.setOption(raw)) return fallback;
@@ -79,12 +84,12 @@ function main() {
   const out = (fields) => process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", ...fields } }));
   const stale5 = lib.staleFiveHourWarning(f, now);
 
-  if (REFUSED.includes(level)) {
+  if (AT_LIMIT.includes(level)) {
     const reading = f ? `reading ${Math.round((now - f.observedAt) / 60e3)} min old` : "no current reading";
     const reason =
       `Quota: ${text}. 5h ${state.used5} % (${reading}), week ${state.used7} %, ${running} running, ~${agentCost} points per agent. ` +
-      "The five_hour_limit and week_target options of the microverse plugin only move these thresholds: a launch stays refused until the counters leave room.";
-    out({ permissionDecision: "deny", permissionDecisionReason: reason.replace(/\s+/g, " ") });
+      "Confirm to launch anyway.";
+    out({ permissionDecision: "ask", permissionDecisionReason: reason.replace(/\s+/g, " ") });
     return;
   }
   const notes = [];
