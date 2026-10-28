@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const { mkdtempSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
-const { sanitize, agentWorktrees, lastContext, listWorktrees, normPath, paceAdvice, paceDecision, parseArgs } = require("../scripts/orch-lib.js");
+const { sanitize, agentWorktrees, lastContext, listWorktrees, normPath, paceAdvice, paceDecision, parseArgs, setOption } = require("../scripts/orch-lib.js");
 const { git, makeRepo } = require("./helpers.js");
 
 const norm = (p) => p.replace(/\\/g, "/").toLowerCase();
@@ -216,4 +216,10 @@ test("paceAdvice is the text of paceDecision", () => {
     assert.equal(paceAdvice(full), paceDecision(full).text);
   }
   assert.equal(paceDecision({ used7: 40, used5: 10, delta: 0, target: 98, period: 98, fiveLimit: 90 }).text, "normal: up to 2 agents at once (morty on distinct zones, one per shared resource)");
+});
+
+test("setOption: empty, blank and unexpanded plugin options are unset", () => {
+  for (const v of ["", "  ", "${user_config.quota_file}", undefined, true, null]) assert.equal(setOption(v), false, String(v));
+  assert.equal(setOption("/some/file.json"), true);
+  assert.equal(setOption("95"), true);
 });
