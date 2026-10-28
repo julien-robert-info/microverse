@@ -210,12 +210,13 @@ test("paceDecision: one level per branch, in the order of the advice", () => {
   assert.equal(level({ used5: 76, delta: 9 }), "smooth");
 });
 
-test("paceAdvice is the text of paceDecision", () => {
-  for (const o of [{ used7: 98 }, { used7: 95 }, { used5: 95, reset5: " until X" }, { used5: 90 }, { delta: 6 }, { used5: 76, running: 1 }, { delta: -11 }, {}]) {
-    const full = { used7: 40, used5: 10, delta: 0, target: 98, period: 98, fiveLimit: 90, ...o };
-    assert.equal(paceAdvice(full), paceDecision(full).text);
-  }
-  assert.equal(paceDecision({ used7: 40, used5: 10, delta: 0, target: 98, period: 98, fiveLimit: 90 }).text, "normal: up to 2 agents at once (morty on distinct zones, one per shared resource)");
+test("paceAdvice keeps its texts", () => {
+  assert.equal(pace({ delta: 6 }), "smooth out: no new agent until the counter drops back under the line");
+  assert.equal(pace({ used5: 90, reset5: " until the 5h counter resets (X)" }), "no new agent until the 5h counter resets (X)");
+  assert.equal(
+    pace({ used5: 50, running: 3, reset5: " until X" }),
+    "no new agent: 40 points left before the 5h limit, 3 running and about 15 per agent until X",
+  );
 });
 
 test("setOption: empty, blank and unexpanded plugin options are unset", () => {

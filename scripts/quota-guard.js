@@ -83,7 +83,7 @@ function main() {
     const reading = f ? `reading ${Math.round((now - f.observedAt) / 60e3)} min old` : "no current reading";
     const reason =
       `Quota: ${text}. 5h ${state.used5} % (${reading}), week ${state.used7} %, ${running} running, ~${agentCost} points per agent. ` +
-      "Raise the five_hour_limit or week_target option of the microverse plugin to launch anyway.";
+      "The five_hour_limit and week_target options of the microverse plugin only move these thresholds: a launch stays refused until the counters leave room.";
     out({ permissionDecision: "deny", permissionDecisionReason: reason.replace(/\s+/g, " ") });
     return;
   }

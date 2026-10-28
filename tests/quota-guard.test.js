@@ -66,6 +66,17 @@ test("a morty at the 5h limit is denied with both counters and the option to rai
   assert.match(reason, /5h 91 % \(reading \d+ min old\), week 33 %/);
   assert.match(reason, /0 running/);
   assert.match(reason, /five_hour_limit/);
+  assert.match(reason, /resets \(/);
+  assert.match(reason, /only move these thresholds/);
+  assert.doesNotMatch(reason, /to launch anyway/);
+});
+
+test("no room left: raising five_hour_limit to 100 does not lift the refusal and the reason does not claim it", () => {
+  const fx = setup({ five: 87, week: 10 });
+  const reason = denied(guard(fx, { env: { CLAUDE_PLUGIN_OPTION_FIVE_HOUR_LIMIT: "100" } }));
+  assert.match(reason, /^Quota: no new agent: 13 points left before the 5h limit/);
+  assert.match(reason, /resets \(/);
+  assert.doesNotMatch(reason, /launch anyway/);
 });
 
 test("a rick with no room for one more agent given the running ones is denied", () => {
@@ -197,6 +208,12 @@ test("a stale calibration and status line readings are used and nothing is writt
   writeFileSync(join(dir, "live.json"), JSON.stringify(reading(now - MIN, 93, 20)));
   // Expired: orch-quota would prune it, the guard must not.
   writeFileSync(join(dir, "old.json"), JSON.stringify(reading(now - 30 * 24 * HOUR, 10, 10)));
+  // An installed status line script that differs from the plugin's, and a
+  // history file past its retention: refreshing or pruning would change them.
+  const mdir = join(fx.acc.home, ".claude", "microverse");
+  writeFileSync(join(mdir, "statusline.js"), "// older copy\n");
+  mkdirSync(join(mdir, "statusline-history"), { recursive: true });
+  writeFileSync(join(mdir, "statusline-history", "2000-01-01.jsonl"), "");
   const before = snapshot(fx.acc.home);
   const reason = denied(guard(fx, { env: { CLAUDE_PLUGIN_OPTION_QUOTA_FILE: join(fx.acc.home, "missing.json") } }));
   assert.match(reason, /5h 93 %.*week 20 %.*~11 points per agent/);
