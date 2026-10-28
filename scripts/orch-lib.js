@@ -524,22 +524,30 @@ const AGENT_COST = 3; // weekly points an agent may still use once launched
 const FIVE_HOUR_RESUME = 5; // points above the five-hour limit where resuming stops too
 const FIVE_HOUR_COST = 15; // points of the five-hour counter one agent may use
 
-function paceAdvice({ used7, used5, delta, target, period, fiveLimit, reset5 = "", running = 0, agentCost = FIVE_HOUR_COST }) {
-  if (used7 >= target) return `stop: no more resuming agents (≥ ${target} %); keep the rest for end-of-week questions`;
-  if (used7 >= target - AGENT_COST) return `no new agent (≥ ${target - AGENT_COST} %): finish, review and merge the running ones`;
-  if (used5 >= fiveLimit + FIVE_HOUR_RESUME) return `no more resuming agents${reset5}`;
-  if (used5 >= fiveLimit) return `no new agent${reset5}`;
-  if (used7 >= period || delta > AHEAD) return "smooth out: no new agent until the counter drops back under the line";
+// The level names the branch taken, so that callers decide from it and never
+// from the text.
+function paceDecision({ used7, used5, delta, target, period, fiveLimit, reset5 = "", running = 0, agentCost = FIVE_HOUR_COST }) {
+  if (used7 >= target) return { level: "stop", text: `stop: no more resuming agents (≥ ${target} %); keep the rest for end-of-week questions` };
+  if (used7 >= target - AGENT_COST) return { level: "week-limit", text: `no new agent (≥ ${target - AGENT_COST} %): finish, review and merge the running ones` };
+  if (used5 >= fiveLimit + FIVE_HOUR_RESUME) return { level: "no-resume", text: `no more resuming agents${reset5}` };
+  if (used5 >= fiveLimit) return { level: "five-hour", text: `no new agent${reset5}` };
+  if (used7 >= period || delta > AHEAD) return { level: "smooth", text: "smooth out: no new agent until the counter drops back under the line" };
   // Each running agent keeps its share of the room left under the five-hour
   // limit: a launch that does not fit would hit the limit and stop them all.
   const fits = Math.floor((fiveLimit - used5 - running * agentCost) / agentCost);
-  if (fits < 1) return `no new agent: ${fiveLimit - used5} points left before the 5h limit, ${running ? `${running} running and ` : ""}about ${agentCost} per agent${reset5}`;
+  if (fits < 1)
+    return {
+      level: "no-room",
+      text: `no new agent: ${fiveLimit - used5} points left before the 5h limit, ${running ? `${running} running and ` : ""}about ${agentCost} per agent${reset5}`,
+    };
   const total = Math.min(delta < -BEHIND ? 3 : 2, running + fits);
   const where = "(morty on distinct zones, one per shared resource)";
-  if (delta < -BEHIND) return `speed up: up to ${total} agents at once ${where}`;
-  if (total >= 2) return `normal: up to ${total} agents at once ${where}`;
-  return "normal: one agent at a time";
+  if (delta < -BEHIND) return { level: "launch", text: `speed up: up to ${total} agents at once ${where}` };
+  if (total >= 2) return { level: "launch", text: `normal: up to ${total} agents at once ${where}` };
+  return { level: "launch", text: "normal: one agent at a time" };
 }
+
+const paceAdvice = (o) => paceDecision(o).text;
 
 // Claude Code compacts about this many tokens before `autoCompactWindow`
 // (likely a reserved output budget plus a buffer; undocumented).
@@ -611,6 +619,81 @@ function fmtAge(ms) {
   if (ms < 60e3) return "under 1 min";
   if (ms < HOUR) return `${Math.floor(ms / 60e3)} min`;
   return `${Math.floor(ms / HOUR)} h`;
+}
+
+// Where the "Claude Code Usage" VS Code extension stores its readings.
+function defaultQuotaFile() {
+  const rel = ["Code", "User", "globalStorage", "growthjack.claude-code-usage", "quota-observations-v2.json"];
+  if (process.platform === "win32") return join(process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"), ...rel);
+  if (process.platform === "darwin") return join(homedir(), "Library", "Application Support", ...rel);
+  return join(homedir(), ".config", ...rel);
+}
+
+// An unset plugin option can reach us as an empty string or as the literal
+// `${user_config.KEY}`: neither is a value.
+const setOption = (v) => typeof v === "string" && v.trim() !== "" && !v.includes("${");
+
+// The three sources as one list; per counter, the current reading of each.
+// Callers read the files (this module cannot require statusline.js) and pass
+// `extensionObs` (the extension's observations), `statuslineObs` and
+// `historyObs`. `week` and `five` are the merged observations by time.
+function mergeReadings({ extensionObs, statuslineObs, historyObs, now }) {
+  const ext = extensionObs.filter((o) => (o.provider ?? "claude") === "claude");
+  const merged = [...ext.map((o) => ({ ...o, source: "extension" })), ...statuslineObs, ...historyObs];
+  const byType = (type) => merged.filter((o) => o.periodType === type).sort((a, b) => a.observedAt - b.observedAt);
+  const five = byType("five-hour");
+  const week = byType("seven-day");
+  return { extensionObs: ext, week, f: currentReading(five, now), w: currentReading(week, now) };
+}
+
+const fmtDate = (ms) =>
+  new Date(ms).toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+// Counters and pacing line from the merged readings; null without a current
+// weekly reading. The weekly window is split in two periods: the weekend
+// (window start to Monday 0:00 local time) up to target - reserve %, then the
+// weekdays up to the target.
+function quotaState({ week, f, w, now, target, reserve }) {
+  if (!w) return null;
+  const used7 = Math.round(w.usedFraction * 100);
+  // Without a current five-hour window the counter is back to 0.
+  const used5 = f ? Math.round(f.usedFraction * 100) : 0;
+
+  const windowStart = w.resetAt - 7 * DAY;
+  const monday = new Date(windowStart);
+  monday.setHours(0, 0, 0, 0);
+  do monday.setDate(monday.getDate() + 1);
+  while (monday.getDay() !== 1);
+  const weekendEnd = monday.getTime();
+  const hasWeekend = weekendEnd - windowStart <= 3 * DAY;
+
+  let period;
+  if (hasWeekend && now < weekendEnd) period = { name: "weekend", start: windowStart, end: weekendEnd, target: target - reserve };
+  else if (hasWeekend) period = { name: "weekdays", start: weekendEnd, end: w.resetAt, target };
+  else period = { name: "whole window", start: windowStart, end: w.resetAt, target };
+
+  // Usage when the period began: the last reading of this window taken before
+  // it, else 0 at the window start, else the first reading inside the period.
+  const sameWindow = week.filter((o) => Number.isFinite(o.resetAt) && Math.abs(o.resetAt - w.resetAt) < HOUR);
+  const before = sameWindow.filter((o) => o.observedAt <= period.start).at(-1);
+  let startUsed;
+  if (before) startUsed = before.usedFraction * 100;
+  else if (period.start === windowStart) startUsed = 0;
+  else startUsed = (sameWindow.find((o) => o.observedAt >= period.start) ?? w).usedFraction * 100;
+
+  const elapsed = Math.min(1, Math.max(0, (now - period.start) / (period.end - period.start)));
+  const expected = startUsed + (period.target - startUsed) * elapsed;
+  const delta = used7 - expected;
+  const reset5 = f ? ` until the 5h counter resets (${fmtDate(f.resetAt)})` : "";
+  return { used5, used7, f, w, period, expected, delta, reset5 };
+}
+
+// The 5h counter can rise fast: a reading older than this may be far off.
+const STALE_FIVE_HOUR = 15 * 60e3;
+
+function staleFiveHourWarning(f, now) {
+  if (!f || now - f.observedAt <= STALE_FIVE_HOUR) return null;
+  return `Warning: 5h reading ${Math.round((now - f.observedAt) / 60e3)} min old; the 5h counter can rise quickly: ask the user for it before launching more than one agent.`;
 }
 
 // Worktrees of `cwd`'s repository as { path, head, branch }, main one first.
@@ -845,7 +928,7 @@ module.exports = {
   mainRoot, profileTrust, approveProfile, approvalLine, approvalAsk, describeCommands,
   sanitize, validBranch,
   listWorktrees, agentWorktrees,
-  statuslineObservations, risingOnly, currentReading, fmtAge,
+  statuslineObservations, risingOnly, currentReading, fmtAge, defaultQuotaFile, setOption, mergeReadings, fmtDate, quotaState, STALE_FIVE_HOUR, staleFiveHourWarning, paceDecision,
   COMPACT_OFFSET, run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses, lastContext, readTail, paceAdvice,
   FIVE_HOUR_COST, readRequests, executorCost, advisorSteps, priceOf, requestCost, agentInfo, projectSlug, projectsRoot, walkTranscripts,
   countRunning, computeCalibration, learnedAgentCost, calibrationFile, loadCalibration, saveCalibration, calibrationStale, fmtRatio,

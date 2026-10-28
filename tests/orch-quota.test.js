@@ -10,7 +10,7 @@ const { script } = require("./helpers.js");
 const HOUR = 3600e3;
 
 // Readings of both counters, taken now, in a window that resets in two days.
-function quotaFile(week, five) {
+function quotaFile(week, five, fiveAge = 0) {
   const now = Date.now();
   const file = join(mkdtempSync(join(tmpdir(), "microverse-quota-")), "quota.json");
   writeFileSync(
@@ -18,7 +18,7 @@ function quotaFile(week, five) {
     JSON.stringify({
       observations: [
         { periodType: "seven-day", usedFraction: week, resetAt: now + 48 * HOUR, observedAt: now },
-        { periodType: "five-hour", usedFraction: five, resetAt: now + 2 * HOUR, observedAt: now },
+        { periodType: "five-hour", usedFraction: five, resetAt: now + 2 * HOUR, observedAt: now - fiveAge },
       ],
     }),
   );
@@ -60,4 +60,20 @@ test("a missing counters file is reported with exit code 1", () => {
 test("an unexpanded plugin option falls back to the default location", () => {
   const r = script("orch-quota", ["--file", "${user_config.quota_file}"], process.cwd());
   assert.doesNotMatch(r.out, /user_config/);
+});
+
+test("an empty numeric option means unset, never 0", () => {
+  assert.doesNotMatch(advice(0.5, 0.1, ["--target", ""]), /Advice: stop/);
+  assert.match(advice(0.5, 0.1, ["--target", ""]), /Advice: (speed up|normal|smooth out)/);
+  assert.match(advice(0.5, 0.5, ["--five-hour", ""]), /Advice: (no new agent: 40 points left|speed up|normal)/);
+  assert.match(advice(0.1, 0.1, ["--agent-cost", ""]), /Agent cost: 15 points of 5h \(default\)/);
+  assert.match(advice(0.1, 0.1, ["--running", ""]), /Running: 0 agents \(0 in other projects\)/);
+  assert.match(advice(0.1, 0.1, ["--reserve", ""]), /Advice:/);
+});
+
+const staleLine = (fiveAge) => script("orch-quota", ["--file", quotaFile(0.1, 0.2, fiveAge)], process.cwd()).out;
+
+test("a 5h reading over 15 minutes old is flagged", () => {
+  assert.match(staleLine(20 * 60e3), /^Warning: 5h reading 20 min old; the 5h counter can rise quickly: ask the user for it before launching more than one agent\.$/m);
+  assert.doesNotMatch(staleLine(10 * 60e3), /5h reading/);
 });

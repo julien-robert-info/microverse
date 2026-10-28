@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- `quota-guard` hook (`PreToolUse`, `Agent|Task`): denies the launch of a `microverse:morty` or `microverse:rick` when the quota advice is at a limit, computed at each launch with no model request and read only; raise `five_hour_limit` or `week_target` to lift it. It allows with a note when the weekly counter is above the pacing line.
+- `orch-quota` warns when the 5h reading is over 15 minutes old; the hook passes the same warning to the orchestrator.
+
+### Fixed
+
+- An empty `orch-quota` numeric option (`--target ""`, `--five-hour ""`, `--agent-cost ""`) means unset instead of 0, which advised to stop everything.
+
 ### Changed
 
 - `morty` instructions: plain single commands (no `cd &&`, `$(…)`, subshell), no search for unversioned files, background waits, and a per-test "red when <change>" line in the final report.

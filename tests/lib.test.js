@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const { mkdtempSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
-const { sanitize, agentWorktrees, lastContext, listWorktrees, normPath, paceAdvice, parseArgs } = require("../scripts/orch-lib.js");
+const { sanitize, agentWorktrees, lastContext, listWorktrees, normPath, paceAdvice, paceDecision, parseArgs } = require("../scripts/orch-lib.js");
 const { git, makeRepo } = require("./helpers.js");
 
 const norm = (p) => p.replace(/\\/g, "/").toLowerCase();
@@ -188,4 +188,32 @@ test("sanitize caps the length in code points", () => {
   assert.equal(sanitize("abcdef", 4), "abc…");
   assert.equal(sanitize("abcd", 4), "abcd");
   assert.equal(sanitize("🙂".repeat(5), 3), "🙂🙂…");
+});
+
+test("paceDecision: one level per branch, in the order of the advice", () => {
+  const level = (o) => paceDecision({ used7: 40, used5: 10, delta: 0, target: 98, period: 98, fiveLimit: 90, ...o }).level;
+  assert.equal(level({ used7: 98 }), "stop");
+  assert.equal(level({ used7: 95 }), "week-limit");
+  assert.equal(level({ used5: 95 }), "no-resume");
+  assert.equal(level({ used5: 90 }), "five-hour");
+  assert.equal(level({ delta: 6 }), "smooth");
+  assert.equal(level({ used7: 70, period: 68 }), "smooth");
+  assert.equal(level({ used5: 76 }), "no-room");
+  assert.equal(level({ used5: 40, running: 3 }), "no-room");
+  assert.equal(level({ delta: -11 }), "launch");
+  assert.equal(level({}), "launch");
+  assert.equal(level({ used5: 70 }), "launch");
+  // Earlier branches win over later ones.
+  assert.equal(level({ used7: 98, used5: 95, delta: 9 }), "stop");
+  assert.equal(level({ used5: 95, delta: 9 }), "no-resume");
+  assert.equal(level({ used5: 90, delta: 9 }), "five-hour");
+  assert.equal(level({ used5: 76, delta: 9 }), "smooth");
+});
+
+test("paceAdvice is the text of paceDecision", () => {
+  for (const o of [{ used7: 98 }, { used7: 95 }, { used5: 95, reset5: " until X" }, { used5: 90 }, { delta: 6 }, { used5: 76, running: 1 }, { delta: -11 }, {}]) {
+    const full = { used7: 40, used5: 10, delta: 0, target: 98, period: 98, fiveLimit: 90, ...o };
+    assert.equal(paceAdvice(full), paceDecision(full).text);
+  }
+  assert.equal(paceDecision({ used7: 40, used5: 10, delta: 0, target: 98, period: 98, fiveLimit: 90 }).text, "normal: up to 2 agents at once (morty on distinct zones, one per shared resource)");
 });
