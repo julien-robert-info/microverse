@@ -39,13 +39,12 @@ Run by the orchestrator, never by an agent, at the end of a series when
 
 1. Pick the version (0.x): a new feature raises the minor, fixes only raise the
    patch.
-2. Move the `Unreleased` entries under `## [x.y.z] - YYYY-MM-DD` and leave an
-   empty `## Unreleased` on top.
-3. Set `version` in `.claude-plugin/plugin.json` to `x.y.z`.
-4. `npm test` with a temporary `HOME` and `USERPROFILE`; after the commit,
-   `claude plugin validate --strict .` run in an export of it (`git archive HEAD`
-   into a temporary folder): an unversioned `CLAUDE.local.md` at the root of the
-   working tree is a warning.
-5. Commit `chore(release): vX.Y.Z`, then tag it: `git tag -a vX.Y.Z -m "vX.Y.Z"`.
-6. Push the commit and the tag.
-7. Publish the release: `gh release create vX.Y.Z --title vX.Y.Z --notes-file <file holding the version's CHANGELOG section> --verify-tag`.
+2. `npm run release -- x.y.z` from a clean `main`: it moves the `Unreleased`
+   entries under `## [x.y.z] - YYYY-MM-DD`, sets `version` in `.claude-plugin/plugin.json`,
+   runs the tests with a temporary `HOME`, commits `chore(release): vX.Y.Z`,
+   tags it, validates an export of the commit (`claude plugin validate
+   --strict`; an unversioned `CLAUDE.local.md` would be a warning in the
+   working tree) and prints the next commands. If validation fails it prints
+   the commands that undo the release instead.
+3. Run the printed commands: push the commit and the tag, then
+   `gh release create vX.Y.Z --title vX.Y.Z --notes-file <file> --verify-tag`.

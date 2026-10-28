@@ -5,6 +5,7 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "test": "node --test",
+    "release": "node tools/release.js",
     "eval": "claude plugin eval . --ablation none --no-publish"
   }
 }
