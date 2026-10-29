@@ -10,6 +10,13 @@ nothing to it, and is not kept.
   when a question needs it.
 - Numbers, units and dates in words ("forty percent", "five hours",
   "question four", "October eighteenth").
+- The voice reads with the rules of its own language, so a word from another
+  language (borrowed term, agent or tool name) is replaced by a word of the
+  user's language, or respelled as that language would spell the sound, with
+  hyphens to force the syllables. In French: "merge" becomes "fusion" or
+  "meurdje", "push" "pouche", "hook" "houk", "release" "rilize", "meeseeks"
+  "mi-siks", "worktree" "oeurk-tri". The written message keeps the real
+  spelling.
 - A report keeps its written order, one or two sentences per item: what
   was merged and what it changes for the user (the council verdict only
   when it led to fixes), incidents, business decisions to confirm with
