@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Audio report: the spoken text replaces or respells words from another language than the user's, so the voice no longer mispronounces them.
+
 ## [0.5.0] - 2026-10-28
 
 ### Added
