@@ -1,6 +1,6 @@
 ---
 name: init
-description: Prepare a project for orchestration by agents — examine the stack and write the profile `.claude/orchestration/profile.json` (worktree setup, checks, servers, patterns, shared resources) and `rules.md` (the project's rules and traps), then check `.gitignore`. Use when the user asks to initialize orchestration in a project ("initialise l'orchestration"), or when the `orchestration` skill finds no profile.
+description: Prepare a project for orchestration by agents — examine the stack and write the profile `.claude/orchestration/profile.json` (worktree setup, checks, servers, patterns, shared resources) and `rules.md` (the project's rules and traps), then check `.gitignore` and write `.worktreeinclude`. Use when the user asks to initialize orchestration in a project ("initialise l'orchestration"), or when the `orchestration` skill finds no profile.
 ---
 
 # A project's orchestration profile
@@ -8,7 +8,10 @@ description: Prepare a project for orchestration by agents — examine the stack
 Write reports, questions and summaries in the language the user writes in.
 
 The profile tells agents and scripts how to work in this project. It is
-versioned with the project, in `.claude/orchestration/`.
+kept out of the repository by default, in `.claude/orchestration/` (git-ignored;
+only `rules.md` is copied into the agents' worktrees, by a `.worktreeinclude`).
+A project that shares the profile with a team removes the `.gitignore` line and
+versions it.
 
 ## 1. Examine the project
 
@@ -71,8 +74,21 @@ No generic procedure: it is already in the agents' definitions.
 Show both files to the user, integrate their corrections, then write them.
 Also check:
 
-- `.gitignore` contains `CLAUDE.local.md`, `NOTES.local.md`, `notes/` and
-  `.claude/worktrees/`; offer to add what is missing;
+- `.gitignore` contains `CLAUDE.local.md`, `NOTES.local.md`, `notes/`,
+  `.claude/worktrees/` and `.claude/orchestration/`; offer to add what is
+  missing;
+- if `git ls-files .claude/orchestration` is not empty (profile already
+  tracked), say so and offer `git rm -r --cached .claude/orchestration` (the
+  files stay on disk). Warn that the history keeps them and that, for anyone
+  who pulls that commit, the tracked files are deleted from their working
+  folder. Never run it without the user's agreement;
+- write `.worktreeinclude` at the project root with the line
+  `.claude/orchestration/rules.md`: create it if missing, keep the existing
+  lines, add no duplicate. This file is versioned (it holds only a path).
+  `rules.md` is the only file listed: `profile.json` is read from the main
+  worktree by the scripts and `orch-trust`, never from a branch's, and `rick`,
+  `council` and `meeseeks` run in the main worktree. Offer to add other
+  unversioned files a worktree needs (`.env`…) to it;
 - offer to merge `"autoCompactWindow"` into `.claude/settings.local.json`
   (create it if missing, keep every existing key), set to
   `${user_config.compact_window}` + 33000 (at most 1000000), so Claude Code
@@ -103,7 +119,6 @@ Also check:
 - tell the user that once the profile exists, the plugin's `SessionStart` hook
   loads the orchestration skill in every conversation of the project (new,
   resumed, cleared or compacted); nothing to configure;
-- offer a `.worktreeinclude` for unversioned files a worktree needs (`.env`…);
 - once the user has approved the profile (`orch-trust --status` exits 0), run
   each command printed by `orch-trust --commands checks` once on the current
   branch, to verify it passes before making it a criterion; never run them
