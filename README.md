@@ -103,17 +103,20 @@ Plugin settings (`/config`):
 
 In a project with a profile, a `PreToolUse` hook computes the `orch-quota` advice at each launch of a `microverse:morty` or `microverse:rick`, whether or not the orchestrator ran `orch-quota`, and asks you to confirm the launch when the advice is a limit. The prompt gives the advice, both counters, the agents running and the cost per agent; confirming launches the agent. In a non-interactive run (`claude -p`) the prompt cannot be answered: the launch is denied and the reason is returned. The hook reads the readings and the stored calibration and writes nothing; with no weekly reading, or on any error, the launch goes through. Agents launched in the same message do not count as running for each other. `five_hour_limit` and `week_target` move the thresholds (an empty option means its default). The stored calibration is refreshed by `orch-quota`, not by the hook.
 
-Per project, the `.claude/orchestration/` profile (versioned), written by
+Per project, the `.claude/orchestration/` profile (unversioned by default), written by
 `/microverse:init`:
 
 - `profile.json`: `setup` (commands for a fresh worktree), `checks` (`name`,
   `run`, optional `paths`), `teardown` (commands restoring files the checks
   rewrite), `servers` (command-line patterns), `diffPatterns`
   (`pattern`, `why`), `shared` (exclusive resources);
-- `rules.md`: the project's rules and traps, read first by the agents.
+- `rules.md`: the project's rules and traps, read first by the agents; a
+  `.worktreeinclude` at the project root copies it into the agents' worktrees.
 
 The project ignores `CLAUDE.local.md`, `NOTES.local.md`, `notes/` (the
-missions' design and measurements) and `.claude/worktrees/`.
+missions' design and measurements), `.claude/worktrees/` and
+`.claude/orchestration/`. A project that shares the profile with a team removes
+that last line and versions it.
 
 ## Usage
 
@@ -218,7 +221,7 @@ before Node starts, which validation inside Node cannot undo.
 ## Trust model
 
 `.claude/orchestration/profile.json` is code, like the scripts of a
-`package.json`: review it on each pull. Nothing in it runs until you approve it
+`package.json`: when the profile is versioned, review it on each pull. Nothing in it runs until you approve it
 on your machine: `orch-trust` shows its fingerprint (sha256) and commands, and
 the approval line it prints records the approval in
 `~/.claude/microverse/trust.json`. The line names the script by absolute path

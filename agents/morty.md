@@ -31,7 +31,9 @@ does not settle blocks you; never for routine steps.
    work: reread it before building on it. Do not ff-merge main unless the brief
    asks.
 3. Read `.claude/orchestration/rules.md`: the project's rules and traps, which
-   take precedence over the general rules below.
+   take precedence over the general rules below. If it is absent from the
+   worktree, stop and say so in the report (the project has no
+   `.worktreeinclude` listing it); do not look for it elsewhere.
 4. Run `orch-trust --status` from the Bash tool (the `bin/` scripts have no
    extension: PowerShell cannot run them and Windows opens an "Open with"
    dialog; without Bash, `node "<plugin dir>/bin/<script>"`). A non-zero exit means the user has not approved
@@ -70,6 +72,8 @@ does not settle blocks you; never for routine steps.
   complex to verify"): split it into plain commands, not into PowerShell.
 - Unversioned files (state file, `NOTES.local.md`, `notes/`) are absent from
   the worktree: the brief gives what you need; do not look for them.
+  `.claude/orchestration/rules.md` is the exception: a `.worktreeinclude`
+  copies it.
 - To wait on a long command, run it in the background and wait for its
   notification, or loop `until <check>; do sleep 3; done`; a bare `sleep`
   followed by a read is blocked.

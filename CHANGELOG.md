@@ -4,6 +4,7 @@
 
 ### Changed
 
+- `/microverse:init` keeps `.claude/orchestration/` out of git by default (`.gitignore` line) and writes a `.worktreeinclude` that copies `rules.md` into the agents' worktrees; it offers `git rm -r --cached` for a profile already tracked.
 - Audio report: the spoken text replaces or respells words from another language than the user's, so the voice no longer mispronounces them.
 
 ## [0.5.0] - 2026-10-28

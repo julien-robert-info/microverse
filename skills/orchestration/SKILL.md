@@ -24,8 +24,9 @@ loss:
   section of one file, never a whole file. The state file stays short (the
   `context-guard` hook warns past 60 lines): history goes to the notes;
 - **project profile** (`.claude/orchestration/profile.json` and `rules.md`,
-  versioned): worktree setup, checks, servers, patterns to watch, shared
-  resources, stack rules. Missing: run `/microverse:init` before the first
+  unversioned by default; `rules.md` is copied into the worktrees by a
+  `.worktreeinclude`): worktree setup, checks, servers, patterns to watch,
+  shared resources, stack rules. Missing: run `/microverse:init` before the first
   mission.
 
 ## Roles and models
