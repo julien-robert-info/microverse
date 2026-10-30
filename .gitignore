@@ -4,3 +4,4 @@ prototypes/
 evals/results/
 notes/
 .claude/worktrees/
+.claude/orchestration/
