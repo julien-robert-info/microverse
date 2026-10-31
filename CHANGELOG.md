@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `orch-quota --json` and `orch-usage --json` (by model, `--agents`, `--context`): one JSON object per run, with the same figures as the text, which is unchanged. A failure is `{ "v": 1, "error" }` with the exit code of the text. `orch-quota` also gives how many more agents the advice allows (`advice.more`).
+
 ### Changed
 
 - `/microverse:init` keeps `.claude/orchestration/` out of git by default (`.gitignore` line) and writes a `.worktreeinclude` that copies `rules.md` into the agents' worktrees; it offers `git rm -r --cached` for a profile already tracked.
