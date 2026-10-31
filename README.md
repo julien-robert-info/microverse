@@ -32,11 +32,13 @@ cleans up; the launch pace follows the usage quota.
 | `SubagentStop` hook | stops servers left running by a finished agent |
 | `UserPromptSubmit` hook (`context-guard`) | once, when the context nears the auto-compaction window: update the state file; once, when it is past it (`autoCompactWindow` probably unset); once, when `autoCompactWindow` is below `compact_window` + 33000; once, when `CLAUDE.local.md` exceeds 60 lines; ignores a prompt starting with `/microverse:status` |
 | `SessionStart` hook (matcher `compact\|startup\|resume\|clear`) | in a project with a profile, tells every conversation to load the orchestration skill first; after a compaction, restates that `CLAUDE.local.md` is the state of reference and lists the agent worktrees, merged or not; on a new, cleared or resumed conversation, lists them with their last commit and uncommitted changes to resume an interrupted series (silent without a profile) |
+| `board` mod (`hooks/board/`, module of `hooks.json`) | Board pane for Claude Desktop (command `/board`, opened by itself at the start on Desktop only), Cockpit tab: launch pace, context, series cost and running agents of the project, read from `orch-status --json`. Inert in a project with no `.claude/orchestration/profile.json`: no timer, no command, no process. Light readings (git, roster, rate limits, `CLAUDE.local.md`) every 30 s while the pane is open; `orch-status` on open, on Refresh and at the end of a main turn, at most once per 120 s. The mod takes the project from the session's folder, whatever it is |
 | `user/CLAUDE.md` | writing rules (README, comments, commits), to import into `~/.claude/CLAUDE.md` |
 
 ## Requirements
 
-- Claude Code 2.1.293 or newer (`haiku` model alias for Claude Haiku 5.5).
+- Claude Code 2.1.306 or newer (`haiku` model alias for Claude Haiku 5.5; the
+  `board` mod's hooks module and `plugin test`).
 - Node.js 20 or newer, for the scripts in `bin/`.
 - Git.
 - Optional, for the quota counters: the VS Code extension "Claude Code Usage"
