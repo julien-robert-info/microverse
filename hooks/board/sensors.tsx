@@ -1,6 +1,8 @@
 import type { AgentInfo, EngineInterface, PluginOptions } from 'claude-code'
 
 import type {
+  CheckItem,
+  CheckResult,
   Heavy,
   Light,
   LightAgent,
@@ -243,7 +245,72 @@ export async function readLight(
   }
 }
 
-const isOrchStatus = (json: unknown): json is OrchStatus =>
+// A branch becomes an argument of `agent-check`: a plain ref name, never an
+// option (no leading `-`) and never a path climb.
+export const isBranch = (branch: string) =>
+  /^\w[\w./-]*$/.test(branch) && !branch.includes('..')
+
+// The `Q<n>` an answer is for, or undefined when the text is not one: `Q<n>
+// <letter>`, or `Q<n>` and a free text, on one line, 500 characters at most.
+export const answerOf = (text: string): string | undefined =>
+  text.length > 500 ? undefined : /^(Q\d+) (?:[a-z]|\S[^\r\n]*)$/.exec(text)?.[1]
+
+const isVerdict = (value: unknown): value is 'green' | 'needs-fixes' =>
+  value === 'green' || value === 'needs-fixes'
+
+const CHECK_TIMEOUT_MS = 600_000
+
+// One `agent-check <branch> --json` run (schema B4); a failure is a result with
+// the reason, never a throw.
+export async function readCheck(
+  $: Engine,
+  root: string,
+  branch: string,
+): Promise<CheckResult> {
+  const now = await $.clock.now()
+  const failed = (error: string): CheckResult => ({
+    at: now,
+    state: 'error',
+    checks: [],
+    error,
+  })
+  let out: { exitCode: number; stdout: string }
+  try {
+    out = await $.process.run(
+      ['node', `${$.plugin.root}/bin/agent-check`, branch, '--json'],
+      { cwd: root, env: GIT_ENV, timeoutMs: CHECK_TIMEOUT_MS },
+    )
+  } catch (error) {
+    return failed(reasonOf(error))
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(out.stdout.trim())
+  } catch {
+    return failed('unreadable output')
+  }
+  const body = json as { error?: unknown; verdict?: unknown; checks?: unknown }
+  if (typeof body !== 'object' || body === null) {
+    return failed('unreadable output')
+  }
+  if (typeof body.error === 'string') {
+    return failed(reasonOf(body.error))
+  }
+  if (!isVerdict(body.verdict) || !Array.isArray(body.checks)) {
+    return failed('unreadable output')
+  }
+  const checks: CheckItem[] = body.checks.map(check => ({
+    name: String(check?.name ?? ''),
+    // A state the board does not know is not reported as passing.
+    state: check?.state === 'ok' || check?.state === 'skip' ? check.state : 'fail',
+    detail: String(check?.detail ?? ''),
+    lines: Array.isArray(check?.lines) ? check.lines.map(String) : [],
+  }))
+
+  return { at: now, state: 'done', verdict: body.verdict, checks }
+}
+
+const isOrchStatus =(json: unknown): json is OrchStatus =>
   typeof json === 'object' && json !== null && (json as { v?: unknown }).v === 1
 
 // One `orch-status --json` run. The previous good value stays when this run

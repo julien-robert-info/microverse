@@ -1,6 +1,6 @@
-// Types of the `board` module (hooks/board). Every `$.state` key the board will
-// ever use is declared here, whichever later mission fills it: `plugin
-// validate --strict` refuses a key that is not declared.
+// Types of the `board` module (hooks/board). Every `$.state` key the board uses
+// is declared here: `plugin validate --strict` refuses a key that is not
+// declared.
 
 // A value read by a sensor and the time it was read. A sensor that fails keeps
 // its previous value with the old `at`, so the pane can say how stale it is.
@@ -164,29 +164,39 @@ export type View = {
   toggled: string[]
 }
 
-// agent-check result of a branch (filled by the checks mission).
-export type CheckResult = {
-  at: number
-  verdict: 'green' | 'needs-fixes' | 'error'
+// One check of `agent-check --json` (schema B4).
+export type CheckItem = {
+  name: string
+  state: 'ok' | 'fail' | 'skip'
+  detail: string
   lines: string[]
 }
 
-// Last quota reading sent to the status line recorder (filled by the quota
-// mission).
+// agent-check result of a branch, by branch name. `running` has no checks yet
+// and disables the button; `error` carries the reason in `error`.
+export type CheckResult = {
+  at: number
+  state: 'running' | 'done' | 'error'
+  verdict?: 'green' | 'needs-fixes'
+  checks: CheckItem[]
+  error?: string
+}
+
+// Last quota reading sent to the status line recorder.
 export type QuotaSent = {
   at: number
   five: { used: number; resetsAt: number } | null
   week: { used: number; resetsAt: number } | null
 }
 
-// First press of a two-press answer, and the questions already answered
-// (filled by the questions mission).
+// First press of a two-press answer (the option marked, not yet sent), and the
+// questions whose answer was already sent.
 export type AnswerState = {
   pending: { question: string; option: string } | null
   sent: string[]
 }
 
-// Per agent: what the board saw it do (filled by the agents mission).
+// Per agent id: what the board saw the agent do.
 export type Activity = {
   lastTool: string
   calls: number
@@ -199,6 +209,11 @@ export type BoardData = {
   light: Light | null
   heavy: Heavy | null
   view: View
+  // By branch.
+  checks: Record<string, CheckResult>
+  answer: AnswerState
+  // By agent id.
+  activity: Record<string, Activity>
 }
 
 // The components `$.ui.resolve(e)` hands a render. Written out because the file
@@ -217,6 +232,18 @@ export type BoardActions = {
   refresh: () => unknown
   setTab: (tab: View['tab']) => unknown
   closeDetail: () => unknown
+  openDetail: (kind: DetailKind, id: string) => unknown
+  // Flips a fold from its default: adds the key to `view.toggled`, or removes it.
+  toggle: (key: string) => unknown
+  // Runs `agent-check <branch> --json` (never `--merged`), one at a time. A
+  // branch that is not a plain ref name is refused.
+  runCheck: (branch: string) => unknown
+  // First press of an answer: marks `option` of `question` (`Q<n>`, a letter).
+  chooseAnswer: (question: string, option: string) => unknown
+  // Second press: puts `text` in the prompt box, not sent. `text` is `Q<n> <letter>`
+  // or `Q<n> <free text>` on one line, 500 characters at most. A question
+  // already answered is refused.
+  sendAnswer: (text: string) => unknown
 }
 
 // What every section renderer of the Cockpit receives.
