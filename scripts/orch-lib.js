@@ -32,11 +32,19 @@ function validBranch(name) {
   return r.code === 0 && r.out.trim() === name;
 }
 
+// A script run with --json calls this once: its failures are then its JSON
+// result, on stdout, and every caller of `fail` follows without change.
+let jsonErrors = false;
+const failAsJson = () => {
+  jsonErrors = true;
+};
+
 function fail(message) {
   // Callers do not expect a return, so exit here; writeSync because console.error
   // on a pipe may still be queued when process.exit cuts it.
   try {
-    writeSync(2, `${message}\n`);
+    if (jsonErrors) writeSync(1, `${JSON.stringify({ v: 1, error: sanitize(message) })}\n`);
+    else writeSync(2, `${message}\n`);
   } catch {}
   process.exit(2);
 }
@@ -326,6 +334,10 @@ const RUNNING_WINDOW = 10 * 60e3;
 // again, so the agent was resumed.
 const FINISH_SLACK = 2000;
 
+// An agent that handed back and was not resumed since: marked `finished`, its
+// transcript (`mtime`) not newer than that mark.
+const agentFinished = (info, mtime) => info.finished && info.metaMtime !== null && mtime <= info.metaMtime + FINISH_SLACK;
+
 // Agents working now on the account: subagent transcripts written in the last
 // ten minutes and not marked finished, `meeseeks` left out (they cost little
 // and do not take a slot). An agent without the mark (interrupted, or from a
@@ -338,7 +350,7 @@ function countRunning(files, { now = Date.now(), currentSlug = null } = {}) {
     if (f.kind !== "agent" || f.mtime < now - RUNNING_WINDOW) continue;
     const info = agentInfo(f.path);
     if (info.type.endsWith("meeseeks")) continue;
-    if (info.finished && info.metaMtime !== null && f.mtime <= info.metaMtime + FINISH_SLACK) continue;
+    if (agentFinished(info, f.mtime)) continue;
     total++;
     if (f.project.toLowerCase() !== currentSlug) others++;
   }
@@ -527,24 +539,26 @@ const FIVE_HOUR_COST = 15; // points of the five-hour counter one agent may use
 // The level names the branch taken, so that callers decide from it and never
 // from the text.
 function paceDecision({ used7, used5, delta, target, period, fiveLimit, reset5 = "", running = 0, agentCost = FIVE_HOUR_COST }) {
-  if (used7 >= target) return { level: "stop", text: `stop: no more resuming agents (≥ ${target} %); keep the rest for end-of-week questions` };
-  if (used7 >= target - AGENT_COST) return { level: "week-limit", text: `no new agent (≥ ${target - AGENT_COST} %): finish, review and merge the running ones` };
-  if (used5 >= fiveLimit + FIVE_HOUR_RESUME) return { level: "no-resume", text: `no more resuming agents${reset5}` };
-  if (used5 >= fiveLimit) return { level: "five-hour", text: `no new agent${reset5}` };
-  if (used7 >= period || delta > AHEAD) return { level: "smooth", text: "smooth out: no new agent until the counter drops back under the line" };
+  if (used7 >= target) return { level: "stop", more: 0, text: `stop: no more resuming agents (≥ ${target} %); keep the rest for end-of-week questions` };
+  if (used7 >= target - AGENT_COST) return { level: "week-limit", more: 0, text: `no new agent (≥ ${target - AGENT_COST} %): finish, review and merge the running ones` };
+  if (used5 >= fiveLimit + FIVE_HOUR_RESUME) return { level: "no-resume", more: 0, text: `no more resuming agents${reset5}` };
+  if (used5 >= fiveLimit) return { level: "five-hour", more: 0, text: `no new agent${reset5}` };
+  if (used7 >= period || delta > AHEAD) return { level: "smooth", more: 0, text: "smooth out: no new agent until the counter drops back under the line" };
   // Each running agent keeps its share of the room left under the five-hour
   // limit: a launch that does not fit would hit the limit and stop them all.
   const fits = Math.floor((fiveLimit - used5 - running * agentCost) / agentCost);
   if (fits < 1)
     return {
       level: "no-room",
+      more: 0,
       text: `no new agent: ${fiveLimit - used5} points left before the 5h limit, ${running ? `${running} running and ` : ""}about ${agentCost} per agent${reset5}`,
     };
   const total = Math.min(delta < -BEHIND ? 3 : 2, running + fits);
+  const more = Math.max(0, total - running);
   const where = "(morty on distinct zones, one per shared resource)";
-  if (delta < -BEHIND) return { level: "launch", text: `speed up: up to ${total} agents at once ${where}` };
-  if (total >= 2) return { level: "launch", text: `normal: up to ${total} agents at once ${where}` };
-  return { level: "launch", text: "normal: one agent at a time" };
+  if (delta < -BEHIND) return { level: "launch", more, text: `speed up: up to ${total} agents at once ${where}` };
+  if (total >= 2) return { level: "launch", more, text: `normal: up to ${total} agents at once ${where}` };
+  return { level: "launch", more, text: "normal: one agent at a time" };
 }
 
 const paceAdvice = (o) => paceDecision(o).text;
@@ -929,7 +943,7 @@ module.exports = {
   sanitize, validBranch,
   listWorktrees, agentWorktrees,
   statuslineObservations, risingOnly, currentReading, fmtAge, defaultQuotaFile, setOption, mergeReadings, fmtDate, quotaState, STALE_FIVE_HOUR, staleFiveHourWarning, paceDecision,
-  COMPACT_OFFSET, run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses, lastContext, readTail, paceAdvice,
-  FIVE_HOUR_COST, readRequests, executorCost, advisorSteps, priceOf, requestCost, agentInfo, projectSlug, projectsRoot, walkTranscripts,
+  COMPACT_OFFSET, failAsJson, run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses, lastContext, readTail, paceAdvice,
+  FIVE_HOUR_COST, agentFinished, readRequests, executorCost, advisorSteps, priceOf, requestCost, agentInfo, projectSlug, projectsRoot, walkTranscripts,
   countRunning, computeCalibration, learnedAgentCost, calibrationFile, loadCalibration, saveCalibration, calibrationStale, fmtRatio,
 };
