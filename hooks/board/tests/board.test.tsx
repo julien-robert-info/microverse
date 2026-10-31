@@ -105,6 +105,8 @@ type World = {
   commands: number
   every: number
   gitRuns: number
+  // Text of every `$.ui.log`.
+  logs: string[]
 }
 
 // The world under the board: a project with a profile, a `git`, a roster and
@@ -116,6 +118,8 @@ const world = (
     surfaces?: readonly string[]
     heavy?: (argv: readonly string[]) => unknown
     clock?: boolean
+    // While `armed`, every `clock.now` waits for `gate`, in call order.
+    holdNow?: { gate: Promise<void>; armed: { value: boolean } }
     // What `$.session.root()` answers, and what `git worktree list` prints.
     root?: string
     git?: () => unknown
@@ -125,7 +129,7 @@ const world = (
     state?: string
   } = {},
 ) => {
-  const seen: World = { heavy: [], opens: 0, commands: 0, every: 0, gitRuns: 0 }
+  const seen: World = { heavy: [], opens: 0, commands: 0, every: 0, gitRuns: 0, logs: [] }
   const {
     profile = true,
     surfaces = ['desktop'],
@@ -158,6 +162,11 @@ const world = (
     value: paneOpen ? [{ id: 'microverse-board', title: 'Board' }] : [],
   }))
   on('ui.status', () => ({ value: undefined }))
+  on('ui.log', (_, e) => {
+    seen.logs.push(e.text)
+
+    return { value: undefined }
+  })
   on('process.run', (_, e) => {
     if (e.argv[0] === 'git') {
       seen.gitRuns += 1
@@ -185,7 +194,14 @@ const world = (
     ],
   }))
   if (options.clock === false) {
-    on('clock.now', () => ({ value: START }))
+    on('clock.now', () => {
+      const hold = options.holdNow
+      if (hold?.armed.value === true) {
+        return hold.gate.then(() => ({ value: START }))
+      }
+
+      return { value: START }
+    })
     on('clock.every', () => {
       seen.every += 1
 
@@ -220,113 +236,204 @@ test('the cockpit draws pace, context, series cost and agents', async ($, on) =>
   }
 })
 
-test('with no profile nothing runs and nothing is registered', async ($, on) => {
-  const { seen } = world(on, { profile: false, clock: false })
+for (const surface of SURFACES) {
+  // On Desktop the pane opens at start and reads orch-status once; a terminal
+  // session reads it at the first main turn.
+  const base = surface === 'desktop' ? 1 : 0
 
-  await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
-  await $.turn.complete(done())
-  await new Promise(resolve => setTimeout(resolve, 20))
+  test(`with no profile nothing runs and nothing is registered (${surface})`, async ($, on) => {
+    const { seen } = world(on, { profile: false, clock: false, surfaces: [surface] })
 
-  expect(seen.gitRuns).toBe(0)
-  expect(seen.heavy).toHaveLength(0)
-  expect(seen.every).toBe(0)
-  expect(seen.commands).toBe(0)
-  expect(seen.opens).toBe(0)
-})
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await $.turn.complete(done())
+    await new Promise(resolve => setTimeout(resolve, 20))
 
-test('a subagent turn does not launch orch-status', async ($, on) => {
-  // A terminal session opens no pane at start, so only turns can launch it.
-  const { seen, clock } = world(on, { surfaces: ['terminal'] })
+    expect(seen.gitRuns).toBe(0)
+    expect(seen.heavy).toHaveLength(0)
+    expect(seen.every).toBe(0)
+    expect(seen.commands).toBe(0)
+    expect(seen.opens).toBe(0)
+  })
 
-  await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
-  await $.turn.complete(done('a1'))
-  await clock?.settle()
+  test(`a subagent turn does not launch orch-status (${surface})`, async ($, on) => {
+    const { seen, clock } = world(on, { surfaces: [surface] })
 
-  expect(seen.heavy).toHaveLength(0)
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await clock?.settle()
+    await clock?.advance(130_000)
+    await $.turn.complete(done('a1'))
+    await clock?.settle()
 
-  await $.turn.complete(done())
-  await clock?.settle()
+    expect(seen.heavy).toHaveLength(base)
 
-  expect(seen.heavy).toHaveLength(1)
-})
+    await $.turn.complete(done())
+    await clock?.settle()
 
-test('orch-status runs at most once per 120 s and never twice at once', async ($, on) => {
+    expect(seen.heavy).toHaveLength(base + 1)
+  })
+
+  test(`orch-status runs at most once per 120 s and never twice at once (${surface})`, async ($, on) => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>(resolve => {
+      release = resolve
+    })
+    let first = true
+    const { seen, clock } = world(on, {
+      surfaces: [surface],
+      heavy: () => {
+        if (!first) {
+          return run(status(1))
+        }
+        first = false
+
+        return gate.then(() => run(status(1)))
+      },
+    })
+
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await $.turn.complete(done())
+    await clock?.settle()
+    // The first run is still waiting on its gate.
+    expect(seen.heavy).toHaveLength(1)
+
+    await clock?.advance(130_000)
+    await $.turn.complete(done())
+    await clock?.settle()
+    expect(seen.heavy).toHaveLength(1)
+
+    release()
+    await clock?.settle()
+    await $.turn.complete(done())
+    await clock?.settle()
+    // The first run started 130 s ago: this one is due.
+    expect(seen.heavy).toHaveLength(2)
+
+    await clock?.advance(30_000)
+    await $.turn.complete(done())
+    await clock?.settle()
+    expect(seen.heavy).toHaveLength(2)
+  })
+
+  test(`a failing orch-status keeps the previous data and adds one line (${surface})`, async ($, on) => {
+    // Each unreadable answer follows a denial, so a line that is not replaced
+    // shows.
+    const answers = [
+      () => run(status(2)),
+      () => ({ deny: 'node not found' }),
+      () => run('oops'),
+      () => ({ deny: 'node not found' }),
+      () => run('{"v":2}'),
+    ]
+    const { clock } = world(on, { surfaces: [surface], heavy: () => answers.shift()?.() })
+
+    await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+    await $.turn.complete(done())
+    await clock?.settle()
+
+    const seen = async () => {
+      const ui = await $.ui.mount({ ...PANE, surface })
+      const lines = {
+        data: /85k of 150k tokens/,
+        denied: /! orch-status: .*node not found/,
+        unreadable: /! orch-status: unreadable output/,
+      }
+      const found = {
+        data: (await ui.find({ type: 'Text', text: lines.data })) !== undefined,
+        denied: (await ui.find({ type: 'Text', text: lines.denied })) !== undefined,
+        unreadable: (await ui.find({ type: 'Text', text: lines.unreadable })) !== undefined,
+      }
+      await ui.unmount()
+
+      return found
+    }
+
+    expect(await seen()).toEqual({ data: true, denied: false, unreadable: false })
+
+    await clock?.advance(130_000)
+    await $.turn.complete(done())
+    await clock?.settle()
+    expect(await seen()).toEqual({ data: true, denied: true, unreadable: false })
+
+    // Not JSON at all.
+    await clock?.advance(130_000)
+    await $.turn.complete(done())
+    await clock?.settle()
+    expect(await seen()).toEqual({ data: true, denied: false, unreadable: true })
+
+    await clock?.advance(130_000)
+    await $.turn.complete(done())
+    await clock?.settle()
+    expect(await seen()).toEqual({ data: true, denied: true, unreadable: false })
+
+    // Valid JSON of another version.
+    await clock?.advance(130_000)
+    await $.turn.complete(done())
+    await clock?.settle()
+    expect(await seen()).toEqual({ data: true, denied: false, unreadable: true })
+  })
+}
+
+test('a Refresh pressed while a turn waits for the clock starts no second orch-status', async ($, on) => {
   let release: () => void = () => {}
   const gate = new Promise<void>(resolve => {
     release = resolve
   })
-  let first = true
-  const { seen, clock } = world(on, {
-    heavy: () => {
-      if (!first) {
-        return run(status(1))
-      }
-      first = false
-
-      return gate.then(() => run(status(1)))
-    },
+  const armed = { value: false }
+  const { seen } = world(on, {
+    surfaces: ['terminal'],
+    clock: false,
+    holdNow: { gate, armed },
   })
 
   await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
-  await $.turn.complete(done())
-  await clock?.settle()
-  // The first run is still waiting on its gate.
-  expect(seen.heavy).toHaveLength(1)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await clock?.advance(130_000)
+  // The clock stays closed: the turn waits on it first, then the forced Refresh
+  // arrives, and both resume in that order.
+  armed.value = true
   await $.turn.complete(done())
-  await clock?.settle()
-  expect(seen.heavy).toHaveLength(1)
-
+  await new Promise(resolve => setTimeout(resolve, 20))
+  // The press returns once its action does, which waits for the clock too.
+  const pressed = ui.press({ key: 'refresh' })
+  await new Promise(resolve => setTimeout(resolve, 20))
   release()
-  await clock?.settle()
-  await $.turn.complete(done())
-  await clock?.settle()
-  // The first run started 130 s ago: this one is due.
-  expect(seen.heavy).toHaveLength(2)
+  await pressed
+  await new Promise(resolve => setTimeout(resolve, 20))
+  await ui.unmount()
 
-  await clock?.advance(30_000)
-  await $.turn.complete(done())
-  await clock?.settle()
-  expect(seen.heavy).toHaveLength(2)
+  expect(seen.heavy).toHaveLength(1)
 })
 
-test('a failing orch-status keeps the previous data and adds one line', async ($, on) => {
-  const answers = [
-    () => run(status(2)),
-    () => ({ deny: 'node not found' }),
-    () => run('{"v":2}'),
-  ]
-  const { clock } = world(on, { heavy: () => answers.shift()?.() })
+test('the light sensors read at start only where the pane opens', async ($, on) => {
+  const terminal = world(on, { surfaces: ['terminal'], clock: false })
+  await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+  await new Promise(resolve => setTimeout(resolve, 20))
 
+  expect(terminal.seen.gitRuns).toBe(0)
+})
+
+test('the light sensors read at start on Desktop', async ($, on) => {
+  const desktop = world(on, { surfaces: ['desktop'], clock: false })
   await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
-  await $.turn.complete(done())
-  await clock?.settle()
+  await new Promise(resolve => setTimeout(resolve, 20))
 
-  const seen = async () => {
-    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    const found = {
-      data: (await ui.find({ type: 'Text', text: /85k of 150k tokens/ })) !== undefined,
-      denied: (await ui.find({ type: 'Text', text: /! orch-status: .*node not found/ })) !== undefined,
-      unreadable:
-        (await ui.find({ type: 'Text', text: /! orch-status: unreadable output/ })) !== undefined,
-    }
+  expect(desktop.seen.gitRuns).toBe(1)
+})
+
+test('the width is logged when it changes, not at every redraw', async ($, on) => {
+  const { seen } = world(on)
+  await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
+
+  const logged = () => seen.logs.filter(text => text.startsWith('board: bodyColumns'))
+  for (const columns of [60, 60, 60]) {
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop', props: { ...PANE.props, bodyColumns: columns } })
     await ui.unmount()
-
-    return found
   }
+  expect(logged()).toEqual(['board: bodyColumns 60'])
 
-  expect(await seen()).toEqual({ data: true, denied: false, unreadable: false })
-
-  await clock?.advance(130_000)
-  await $.turn.complete(done())
-  await clock?.settle()
-  expect(await seen()).toEqual({ data: true, denied: true, unreadable: false })
-
-  await clock?.advance(130_000)
-  await $.turn.complete(done())
-  await clock?.settle()
-  expect(await seen()).toEqual({ data: true, denied: false, unreadable: true })
+  const wide = await $.ui.mount({ ...PANE, surface: 'desktop', props: { ...PANE.props, bodyColumns: 140 } })
+  await wide.unmount()
+  expect(logged()).toEqual(['board: bodyColumns 60', 'board: bodyColumns 140'])
 })
 
 test('the pane opens by itself only on Desktop', async ($, on) => {
@@ -346,47 +453,49 @@ test('the pane opens by itself with desktop in the surfaces', async ($, on) => {
   expect(desktop.seen.opens).toBe(1)
 })
 
-test(
-  'options become flags only when set',
-  {
-    options: {
-      week_target: 95,
-      weekday_reserve: '',
-      five_hour_limit: 85,
-      quota_file: '',
+for (const surface of SURFACES) {
+  test(
+    `options become flags only when set (${surface})`,
+    {
+      options: {
+        week_target: 95,
+        weekday_reserve: '',
+        five_hour_limit: 85,
+        quota_file: '',
+      },
     },
-  },
-  async ($, on) => {
-    const { seen, clock } = world(on)
+    async ($, on) => {
+      const { seen, clock } = world(on, { surfaces: [surface] })
 
-    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
-    await $.turn.complete(done())
-    await clock?.settle()
+      await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+      await $.turn.complete(done())
+      await clock?.settle()
 
-    expect(seen.heavy[0]?.slice(2)).toEqual(['--json', '--target', '95', '--five-hour', '85'])
-  },
-)
-
-test(
-  'an empty option is not passed',
-  {
-    options: {
-      week_target: '',
-      weekday_reserve: '',
-      five_hour_limit: '',
-      quota_file: '',
+      expect(seen.heavy[0]?.slice(2)).toEqual(['--json', '--target', '95', '--five-hour', '85'])
     },
-  },
-  async ($, on) => {
-    const { seen, clock } = world(on)
+  )
 
-    await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
-    await $.turn.complete(done())
-    await clock?.settle()
+  test(
+    `an empty option is not passed (${surface})`,
+    {
+      options: {
+        week_target: '',
+        weekday_reserve: '',
+        five_hour_limit: '',
+        quota_file: '',
+      },
+    },
+    async ($, on) => {
+      const { seen, clock } = world(on, { surfaces: [surface] })
 
-    expect(seen.heavy[0]?.slice(2)).toEqual(['--json'])
-  },
-)
+      await $.session.start({ cwd: ROOT, surface, isInteractive: true })
+      await $.turn.complete(done())
+      await clock?.settle()
+
+      expect(seen.heavy[0]?.slice(2)).toEqual(['--json'])
+    },
+  )
+}
 
 test('a session root spelled with backslashes keeps the light reading between runs', async ($, on) => {
   // Git prints forward slashes, the session root may not.

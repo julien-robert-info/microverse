@@ -50,6 +50,8 @@ type Run = {
   isHeavyRunning: boolean
   isLightRunning: boolean
   lastHeavyAt: number | undefined
+  // The last `bodyColumns` logged.
+  columns: number | undefined
 }
 
 const reasonOf = (error: unknown) =>
@@ -94,16 +96,18 @@ const refreshHeavy = async (
   root: string,
   force: boolean,
 ) => {
+  // The lock is taken before the first await: a second caller arriving while
+  // this one waits for the clock must find it held.
   if (run.isHeavyRunning) {
     return
   }
-  const now = await $.clock.now()
-  if (!force && run.lastHeavyAt !== undefined && now - run.lastHeavyAt < HEAVY_EVERY_MS) {
-    return
-  }
   run.isHeavyRunning = true
-  run.lastHeavyAt = now
   try {
+    const now = await $.clock.now()
+    if (!force && run.lastHeavyAt !== undefined && now - run.lastHeavyAt < HEAVY_EVERY_MS) {
+      return
+    }
+    run.lastHeavyAt = now
     const previous = await read($, heavyAtom)
     const next: Heavy = await readHeavy($, root, options, previous)
     await update($, heavyAtom, () => next)
@@ -146,6 +150,7 @@ export const register: Register = (on, options) => {
     isHeavyRunning: false,
     isLightRunning: false,
     lastHeavyAt: undefined,
+    columns: undefined,
   }
 
   on('session.start', async ($, e, next) => {
@@ -155,10 +160,10 @@ export const register: Register = (on, options) => {
       if (root === undefined) {
         return
       }
-      await refreshLight($, run, root)
       // On a terminal an unasked pane opens inline in the transcript: only
-      // /board opens it there.
+      // /board opens it there, and the light sensors read only for an open pane.
       if ((await $.session.surfaces()).includes('desktop')) {
+        await refreshLight($, run, root)
         await $.ui.open({ id: PANE, title: 'Board' })
       }
     })
@@ -231,7 +236,11 @@ export const register: Register = (on, options) => {
       setTab: tab => update($, viewAtom, (current: View) => ({ ...current, tab })),
       closeDetail: () => update($, viewAtom, (current: View) => ({ ...current, detail: null })),
     }
-    $.ui.log(`board: bodyColumns ${e.props.bodyColumns}`, { to: 'debug' })
+    // Logged when the width changes, not at every redraw.
+    if (run.columns !== e.props.bodyColumns) {
+      run.columns = e.props.bodyColumns
+      $.ui.log(`board: bodyColumns ${e.props.bodyColumns}`, { to: 'debug' })
+    }
 
     return renderCockpit({
       ui,
