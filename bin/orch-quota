@@ -10,7 +10,13 @@
 // extension while it has a reading under 48 hours old, else that history.
 //
 // orch-quota [--target 98] [--reserve 30] [--five-hour 90] [--running 0]
-//             [--agent-cost 15] [--file <path>] [--no-write]
+//             [--agent-cost 15] [--file <path>] [--no-write] [--json]
+//
+// --json prints one JSON object on one line instead of the text, with the same
+// figures (dates in milliseconds, percentages as integers): counters, limits,
+// period, pace, running agents, agent cost, advice, warnings, the readings of
+// the current weekly window and, with --calibrate, the calibration. A failure is
+// { "v": 1, "error" } with exit code 1. It writes exactly what the text does.
 //
 // --no-write leaves everything as found: the installed status line script is
 // not refreshed, expired readings are not deleted and a calibration is not
@@ -35,12 +41,13 @@
 const { existsSync, readFileSync } = require("node:fs");
 const lib = require("../scripts/orch-lib.js");
 const statusline = require("../scripts/statusline.js");
-const { paceAdvice, parseArgs } = lib;
+const { parseArgs } = lib;
 
 const HOUR = 3600e3;
 const DAY = 24 * HOUR;
 
-const opts = parseArgs(process.argv.slice(2), { flags: ["calibrate", "no-write"] });
+const opts = parseArgs(process.argv.slice(2), { flags: ["calibrate", "no-write", "json"] });
+const json = Boolean(opts.json);
 const write = !opts["no-write"];
 // An empty value is unset: Number("") is 0, which would stop every launch.
 const num = (v, d) => (v === undefined || v === true || v === "" || Number.isNaN(Number(v)) ? d : Number(v));
@@ -53,12 +60,24 @@ const fiveLimit = num(opts["five-hour"], 90);
 const file = lib.setOption(opts.file) ? opts.file : lib.defaultQuotaFile();
 const now = Date.now();
 
+// The result is built as one object, then printed as text or as JSON. The
+// notes below are the warnings, in the order the text prints them.
+const emit = (o) => console.log(JSON.stringify({ v: 1, ...o }));
+const failed = (lines) => {
+  if (json) emit({ error: lib.sanitize(lines.join(" ")) });
+  else for (const l of lines) console.log(l);
+  process.exitCode = 1;
+};
+const startNotes = [];
+const calNotes = [];
+const lateNotes = [];
+
 // Keeps the installed copy of the status line script current; never fatal.
 if (write) {
   try {
     statusline.refreshInstalled();
   } catch (e) {
-    console.log(`Status line script not refreshed: ${e.message}`);
+    startNotes.push(`Status line script not refreshed: ${e.message}`);
   }
 }
 
@@ -76,28 +95,34 @@ else {
 const statuslineObs = lib.statuslineObservations(statusline.readReadings({ now, prune: write }));
 const historyObs = lib.risingOnly(statusline.readHistory({ now, prune: write }));
 if (!observations.length && !statuslineObs.length && !historyObs.length) {
-  console.log(fileProblem ? `${fileProblem}, and no status line reading exists.` : `Counters not found: ${file} has no reading, and no status line reading exists.`);
-  console.log("The extension is read in VS Code; in a terminal session the status line is set up by /microverse:init.");
-  console.log("Ask the user for both counters (5h and week, in %).");
-  process.exitCode = 1;
+  // A refresh failure is still reported in text mode, as before.
+  if (!json) for (const l of startNotes) console.log(l);
+  failed([
+    fileProblem ? `${fileProblem}, and no status line reading exists.` : `Counters not found: ${file} has no reading, and no status line reading exists.`,
+    "The extension is read in VS Code; in a terminal session the status line is set up by /microverse:init.",
+    "Ask the user for both counters (5h and week, in %).",
+  ]);
   return;
 }
 
 const { extensionObs, week, f, w } = lib.mergeReadings({ extensionObs: observations, statuslineObs, historyObs, now });
 if (!w) {
-  console.log("No current weekly reading: ask the user for the counters.");
-  process.exitCode = 1;
+  if (!json) for (const l of startNotes) console.log(l);
+  failed(["No current weekly reading: ask the user for the counters."]);
   return;
 }
 
 // Agents running and cost of one agent: given, else detected / learned.
 const files = lib.walkTranscripts();
 let runningLine;
+// Other projects' agents are unknown when the count is given.
+let runningOthers = null;
 let running = num(opts.running, null);
 if (running !== null) runningLine = `Running: ${running} agent${running === 1 ? "" : "s"} (given)`;
 else {
   const r = lib.countRunning(files, { now, currentSlug: lib.projectSlug(process.cwd()) });
   running = r.total;
+  runningOthers = r.others;
   runningLine = `Running: ${r.total} agent${r.total === 1 ? "" : "s"} (${r.others} in other projects)`;
 }
 
@@ -124,17 +149,62 @@ if (opts.calibrate || lib.calibrationStale(cal, now)) {
     }
   }
 }
+if (calNote) calNotes.push(calNote);
+if (cal?.change) calNotes.push(cal.change);
 let agentCost = num(opts["agent-cost"], null);
 let costLine;
+let learnedRuns = null;
 if (agentCost !== null) costLine = `Agent cost: ${agentCost} points of 5h (given)`;
 else {
   const learned = lib.learnedAgentCost(cal);
   agentCost = learned?.points ?? lib.FIVE_HOUR_COST;
+  learnedRuns = learned?.runs ?? null;
   costLine = learned
     ? `Agent cost: ~${agentCost} points of 5h (learned from ${learned.runs} runs)`
     : `Agent cost: ${agentCost} points of 5h (default)`;
 }
 
+const { used5, used7, period, expected, delta, reset5 } = lib.quotaState({ week, f, w, now, target, reserve });
+const fmt = lib.fmtDate;
+const hours = (ms) => `${Math.max(0, ms / HOUR).toFixed(ms < 10 * HOUR ? 1 : 0)} h`;
+
+const advice = lib.paceDecision({ used7, used5, delta, target, period: period.target, fiveLimit, reset5, running, agentCost });
+
+const age = now - Math.max(w.observedAt, f?.observedAt ?? 0);
+const src = (r) => `${r.source === "statusline" ? "status line" : "extension"}, ${lib.fmtAge(now - r.observedAt)} ago`;
+if (age > 2 * HOUR)
+  lateNotes.push(`Warning: last reading ${hours(age)} ago (the extension updates while VS Code runs, the status line at each answer of a terminal session).`);
+const stale5 = lib.staleFiveHourWarning(f, now);
+if (stale5) lateNotes.push(stale5);
+const left = Math.max(0, period.target - used7);
+
+if (json) {
+  const counter = (r, used) => (r ? { used, resetsAt: r.resetAt, observedAt: r.observedAt, source: r.source } : null);
+  // The readings of the current weekly window (a reset an hour or more apart
+  // is another window), all sources, as the points where the counter rose.
+  const history = lib
+    .risingOnly(week.filter((o) => Number.isFinite(o.resetAt) && Math.abs(o.resetAt - w.resetAt) < HOUR))
+    .sort((a, b) => a.observedAt - b.observedAt)
+    .slice(-500)
+    .map((o) => ({ at: o.observedAt, used: Math.round(o.usedFraction * 100) }));
+  const out = {
+    project: lib.mainRoot(process.cwd()) ?? process.cwd(),
+    counters: { five: counter(f, used5), week: counter(w, used7) },
+    limits: { target, reserve, fiveHour: fiveLimit },
+    period: { name: period.name, start: period.start, end: period.end, target: period.target },
+    pace: { expected: Math.round(expected), actual: used7, delta: Math.round(delta), left },
+    running: { total: running, others: runningOthers },
+    agentCost: { points: agentCost, runs: learnedRuns },
+    advice,
+    warnings: [...startNotes, ...calNotes, ...lateNotes].map((t) => lib.sanitize(t)),
+    history,
+  };
+  if (opts.calibrate) out.calibration = cal ?? null;
+  emit(out);
+  return;
+}
+
+for (const l of startNotes) console.log(l);
 if (opts.calibrate && cal) {
   const r = (x, n) => (x === null ? `none (${n} intervals, 5 needed)` : `${lib.fmtRatio(x)} points/$ (${n} intervals)`);
   const from = Math.max(cal.at - 14 * DAY, cal.since ?? 0);
@@ -143,28 +213,11 @@ if (opts.calibrate && cal) {
   console.log(`Week: ${r(cal.ratio7, cal.n7)}`);
   for (const [role, v] of Object.entries(cal.roles)) console.log(`${role}: ${v.median === null ? `no median (${v.n} runs, 5 needed)` : `median $${v.median.toFixed(2)} (${v.n} runs)`}`);
 }
-if (calNote) console.log(calNote);
-if (cal?.change) console.log(cal.change);
-
-const { used5, used7, period, expected, delta, reset5 } = lib.quotaState({ week, f, w, now, target, reserve });
-const fmt = lib.fmtDate;
-const hours = (ms) => `${Math.max(0, ms / HOUR).toFixed(ms < 10 * HOUR ? 1 : 0)} h`;
-
-const advice = paceAdvice({ used7, used5, delta, target, period: period.target, fiveLimit, reset5, running, agentCost });
-
-const age = now - Math.max(w.observedAt, f?.observedAt ?? 0);
-const src = (r) => `${r.source === "statusline" ? "status line" : "extension"}, ${lib.fmtAge(now - r.observedAt)} ago`;
+for (const l of calNotes) console.log(l);
 console.log(`Counters: 5h ${used5} %${f ? ` (resets ${fmt(f.resetAt)}; ${src(f)})` : ""}, week ${used7} % (resets ${fmt(w.resetAt)}; ${src(w)})`);
-if (age > 2 * HOUR)
-  console.log(
-    `Warning: last reading ${hours(age)} ago (the extension updates while VS Code runs, the status line at each answer of a terminal session).`,
-  );
-const stale5 = lib.staleFiveHourWarning(f, now);
-if (stale5) console.log(stale5);
+for (const l of lateNotes) console.log(l);
 console.log(`Period: ${period.name} until ${fmt(period.end)}, ${hours(period.end - now)} left, target ${period.target} %`);
-console.log(
-  `Pace: expected ${Math.round(expected)} % by now, actual ${used7} % (${delta >= 0 ? "+" : ""}${Math.round(delta)} points); ${Math.max(0, period.target - used7)} points left for the period`,
-);
+console.log(`Pace: expected ${Math.round(expected)} % by now, actual ${used7} % (${delta >= 0 ? "+" : ""}${Math.round(delta)} points); ${left} points left for the period`);
 console.log(runningLine);
 console.log(costLine);
-console.log(`Advice: ${advice}`);
+console.log(`Advice: ${advice.text}`);

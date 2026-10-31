@@ -2,7 +2,12 @@
 // Token usage of a project from the Claude Code transcripts, by model and token
 // type, priced at API rates (an equivalent, not the subscription's bill).
 //
-// orch-usage [--since <ISO date>] [--session <id>] [--project <dir>] [--context | --agents]
+// orch-usage [--since <ISO date>] [--session <id>] [--project <dir>] [--context | --agents] [--json]
+//
+// --json prints one JSON object on one line instead of the table, with the same
+// figures: dates in milliseconds, tokens as counts, costs in dollars rounded
+// as in the text (null for a model without a price). A failure is
+// { "v": 1, "error" } with the same exit code. `project` is the repository root.
 //
 // --agents lists each agent run (type, description, model) with its cost, to
 // compare a mission's tokens with the weekly counter.
@@ -13,15 +18,22 @@
 
 const { existsSync, readdirSync, readFileSync, statSync } = require("node:fs");
 const { join } = require("node:path");
-const { sanitize, fail, parseArgs, lastContext, readRequests, executorCost, advisorSteps, priceOf, requestCost, agentInfo, projectSlug, projectsRoot } = require("../scripts/orch-lib.js");
+const { sanitize, fail, failAsJson, parseArgs, lastContext, readRequests, executorCost, advisorSteps, priceOf, requestCost, agentInfo, agentFinished, mainRoot, projectSlug, projectsRoot } = require("../scripts/orch-lib.js");
 
 // Same parsing as scripts/context-guard.js.
 const windowOption = process.env.CLAUDE_PLUGIN_OPTION_COMPACT_WINDOW;
 const windowValue = /^\s*\d+\s*$/.test(windowOption ?? "") ? parseInt(windowOption, 10) : NaN;
 const CONTEXT_LIMIT = windowValue >= 100e3 && windowValue <= 1e6 ? windowValue : 150e3;
 
-const opts = parseArgs(process.argv.slice(2));
+const opts = parseArgs(process.argv.slice(2), { flags: ["json", "context", "agents"] });
 const projectDir = typeof opts.project === "string" ? opts.project : process.cwd();
+
+const emit = (o) => console.log(JSON.stringify({ v: 1, ...o }));
+if (opts.json) failAsJson();
+// Two decimals as the text prints them; null without a price, never 0.
+const dollars = (x, priced = true) => (priced ? Number(x.toFixed(2)) : null);
+const tokensOf = (v) => ({ input: v[0], write5m: v[1], write1h: v[2], read: v[3], output: v[4] });
+const project = () => mainRoot(projectDir) ?? projectDir;
 
 // Claude Code names a project's folder after its path, every character other
 // than a letter or digit replaced by "-". The drive letter's case varies.
@@ -46,7 +58,8 @@ if (opts.context) {
   if (!last) fail(`no request in session ${s.id}`);
   const ctx = last.tokens;
   const verdict = ctx >= CONTEXT_LIMIT ? "over the threshold: auto-compaction should have run (autoCompactWindow), else ask the user for /compact" : "under the threshold";
-  console.log(`Session ${s.id} (${last.model}): context ${k(ctx)} tokens, threshold ${k(CONTEXT_LIMIT)}; ${verdict}`);
+  if (opts.json) emit({ project: project(), session: sanitize(s.id), model: sanitize(last.model), tokens: ctx, threshold: CONTEXT_LIMIT, percent: Math.round((ctx / CONTEXT_LIMIT) * 100), verdict });
+  else console.log(`Session ${s.id} (${last.model}): context ${k(ctx)} tokens, threshold ${k(CONTEXT_LIMIT)}; ${verdict}`);
   return;
 }
 
@@ -65,18 +78,58 @@ if (opts.agents) {
   const runs = new Map();
   for (const r of requests.values()) {
     if (r.kind !== "agent") continue;
-    const run = runs.get(r.agent.id) ?? { agent: r.agent, model: r.model, n: 0, cost: 0, priced: true, ts: r.ts };
+    const run = runs.get(r.agent.id) ?? { agent: r.agent, model: r.model, n: 0, cost: 0, priced: true, ts: r.ts, end: r.ts, v: [0, 0, 0, 0, 0], advisor: { calls: 0, cost: 0, priced: true } };
     // The advisor's cost belongs to the run that consulted it.
     const c = requestCost(r);
     run.n++;
     run.cost += c.cost;
     if (!c.priced) run.priced = false;
     if (r.ts < run.ts) run.ts = r.ts;
+    if (r.ts > run.end) run.end = r.ts;
+    run.v = run.v.map((x, i) => x + r.v[i]);
+    for (const it of advisorSteps(r)) {
+      const ac = priceOf(it.model, it.v);
+      run.advisor.calls++;
+      if (ac) run.advisor.cost += ac.reduce((s, x) => s + x, 0);
+      else run.advisor.priced = false;
+    }
     runs.set(r.agent.id, run);
+  }
+  const sorted = [...runs.values()].sort((a, b) => (a.ts < b.ts ? -1 : 1));
+  if (opts.json) {
+    // The total covers every run; the list keeps the 200 latest.
+    const total = { cost: 0, advisor: { calls: 0, cost: 0 } };
+    const list = sorted.map((r) => {
+      const advisor = { calls: r.advisor.calls, cost: dollars(r.advisor.cost, r.advisor.priced) };
+      total.cost += dollars(r.cost, r.priced) ?? 0;
+      total.advisor.calls += advisor.calls;
+      total.advisor.cost += advisor.cost ?? 0;
+      let finished = false;
+      try {
+        finished = agentFinished(r.agent, statSync(r.agent.file).mtimeMs);
+      } catch {
+        // transcript vanished since it was read
+      }
+      return {
+        agentId: r.agent.id,
+        type: sanitize(r.agent.type),
+        model: sanitize(r.model),
+        description: sanitize(r.agent.description),
+        started: Date.parse(r.ts),
+        ended: Date.parse(r.end),
+        requests: r.n,
+        tokens: tokensOf(r.v),
+        cost: dollars(r.cost, r.priced),
+        advisor,
+        finished,
+      };
+    });
+    emit({ project: project(), since: since.getTime(), runs: list.slice(-200), total: { cost: dollars(total.cost), advisor: { calls: total.advisor.calls, cost: dollars(total.advisor.cost) } } });
+    return;
   }
   console.log(`Agents since ${since.toISOString().slice(0, 16)}Z (API-equivalent $)`);
   console.log("started	type	model	requests	$	description");
-  for (const r of [...runs.values()].sort((a, b) => (a.ts < b.ts ? -1 : 1)))
+  for (const r of sorted)
     console.log(`${r.ts.slice(0, 16)}	${r.agent.type}	${r.model}	${r.n}	${r.priced ? r.cost.toFixed(2) : "?"}	${sanitize(r.agent.description).replace(/\n/g, " ")}`);
   return;
 }
@@ -94,6 +147,15 @@ function add(key, v, c) {
   if (c) row.cost = row.cost.map((x, i) => x + c[i]);
   else row.priced = false;
   rows.set(key, row);
+}
+
+if (opts.json) {
+  const list = [...rows].sort().map(([key, row]) => {
+    const [type, model] = key.split("\t");
+    return { type, model: sanitize(model), requests: row.n, tokens: tokensOf(row.v), cost: dollars(row.cost.reduce((s, x) => s + x, 0), row.priced) };
+  });
+  emit({ project: project(), since: since.getTime(), rows: list });
+  return;
 }
 
 const M = (x) => (x / 1e6).toFixed(2);
