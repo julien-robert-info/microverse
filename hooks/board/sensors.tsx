@@ -35,6 +35,14 @@ const reasonOf = (error: unknown) =>
 export const at = (root: string, relative: string) =>
   `${root.replace(/[\\/]+$/, '')}/${relative}`
 
+// `$.session.root()` may answer `D:\work\x` where git prints `D:/work/x`: paths
+// are compared in one spelling.
+export const samePath = (left: string, right: string) => {
+  const spell = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '')
+
+  return spell(left).toLowerCase() === spell(right).toLowerCase()
+}
+
 // An option with no value, or one the host left as `${user_config.x}`, is not
 // passed: the script then uses its own default.
 export const optionArgs = (options: PluginOptions): string[] =>
@@ -91,7 +99,8 @@ export const readQuestions = (lines: string[]): string[] => {
   const pending: string[] = []
   const answered = new Set<string>()
   for (const bullet of bulletsOf(sectionOf(lines, /question/i))) {
-    if (/^(répondues?|answered)/i.test(bullet)) {
+    // "Répondu", "Répondue(s)", "Répondus" and "Answered", whatever follows.
+    if (/^(répondu(?:e|s|es)?|answered)(?![\p{L}])/iu.test(bullet)) {
       ids(bullet).forEach(id => answered.add(id))
     } else {
       pending.push(...ids(bullet))
@@ -146,7 +155,9 @@ export async function readLight(
   root: string,
   previous: Light | null,
 ): Promise<Light> {
-  const keep = previous?.project === root ? previous : null
+  // `root` is what the session gave, `project` what git says the repository
+  // is: the previous reading is kept only for the same session root.
+  const keep = previous !== null && samePath(previous.root, root) ? previous : null
   const now = await $.clock.now()
   const failures: string[] = []
 
@@ -222,6 +233,7 @@ export async function readLight(
 
   return {
     project: main?.path ?? root,
+    root,
     at: now,
     worktrees,
     agents,
@@ -242,7 +254,8 @@ export async function readHeavy(
   options: PluginOptions,
   previous: Heavy | null,
 ): Promise<Heavy> {
-  const keep = previous?.project === root ? previous.status : null
+  const keep =
+    previous !== null && samePath(previous.project, root) ? previous.status : null
   const fail = (line: string): Heavy => ({
     project: root,
     status: keep,

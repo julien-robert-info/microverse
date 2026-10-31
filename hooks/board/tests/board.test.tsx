@@ -116,19 +116,34 @@ const world = (
     surfaces?: readonly string[]
     heavy?: (argv: readonly string[]) => unknown
     clock?: boolean
+    // What `$.session.root()` answers, and what `git worktree list` prints.
+    root?: string
+    git?: () => unknown
+    // The pane is listed as open, so the 30 s light timer reads.
+    paneOpen?: boolean
+    // Content of CLAUDE.local.md.
+    state?: string
   } = {},
 ) => {
   const seen: World = { heavy: [], opens: 0, commands: 0, every: 0, gitRuns: 0 }
-  const { profile = true, surfaces = ['desktop'], heavy = () => run(status(2)) } = options
+  const {
+    profile = true,
+    surfaces = ['desktop'],
+    heavy = () => run(status(2)),
+    root = ROOT,
+    git = () => run(WORKTREES),
+    paneOpen = false,
+    state = '',
+  } = options
 
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
-  on('session.root', () => ({ value: ROOT }))
+  on('session.root', () => ({ value: root }))
   on('session.surfaces', () => ({ value: surfaces }))
   on('fs.exists', (_, e) => ({
     value: profile || !e.path.endsWith('profile.json'),
   }))
-  on('fs.read', () => ({ value: '' }))
+  on('fs.read', () => ({ value: state }))
   on('command.register', () => {
     seen.commands += 1
 
@@ -139,13 +154,15 @@ const world = (
 
     return { value: { isPlaced: true } }
   })
-  on('ui.panes', () => ({ value: [] }))
+  on('ui.panes', () => ({
+    value: paneOpen ? [{ id: 'microverse-board', title: 'Board' }] : [],
+  }))
   on('ui.status', () => ({ value: undefined }))
   on('process.run', (_, e) => {
     if (e.argv[0] === 'git') {
       seen.gitRuns += 1
 
-      return run(WORKTREES)
+      return git()
     }
     seen.heavy.push([...e.argv])
 
@@ -370,6 +387,51 @@ test(
     expect(seen.heavy[0]?.slice(2)).toEqual(['--json'])
   },
 )
+
+test('a session root spelled with backslashes keeps the light reading between runs', async ($, on) => {
+  // Git prints forward slashes, the session root may not.
+  const { clock } = world(on, {
+    root: 'D:\\work\\demo',
+    git: () => run(['worktree D:/work/demo', 'HEAD 1111111aaaa', 'branch refs/heads/main', ''].join('\n')),
+    paneOpen: true,
+  })
+
+  await $.session.start({ cwd: 'D:\\work\\demo', surface: 'desktop', isInteractive: true })
+  await clock?.settle()
+  await clock?.advance(300_000)
+  await clock?.settle()
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  // The agent was first seen at the start: five minutes, not zero.
+  expect(await ui.find({ type: 'Text', text: /running · task · 5 min/ })).toBeDefined()
+  await ui.unmount()
+})
+
+const QUESTIONS = (...bullets: string[]) =>
+  ['# State', '', '## Questions', '', '- Q41 which one?', ...bullets, '', '## Next', ''].join('\n')
+
+const ANSWERS: [string, boolean][] = [
+  ['', true],
+  ['- Répondu le 2026-11-02 : Q41 a', false],
+  ['- Répondue : Q41 a', false],
+  ['- Répondues : Q41 a', false],
+  ['- Répondus : Q41 a', false],
+  ['- Answered: Q41 a', false],
+  ['- Répondre à Q41 plus tard', true],
+]
+
+for (const [bullet, isPending] of ANSWERS) {
+  test(`question Q41 with the bullet "${bullet}" is ${isPending ? 'waiting' : 'settled'}`, async ($, on) => {
+    world(on, { state: QUESTIONS(...(bullet === '' ? [] : [bullet])) })
+    await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
+
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const found = (await ui.find({ type: 'Text', text: /1 question needs you/ })) !== undefined
+    await ui.unmount()
+
+    expect(found).toBe(isPending)
+  })
+}
 
 test('the body is one column below 110 and two above', async ($, on) => {
   world(on)

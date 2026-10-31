@@ -45,6 +45,9 @@ export type LightState = {
 export type Light = {
   // Absolute path of the repository's root.
   project: string
+  // What `$.session.root()` gave: the key of the reading, which differs from
+  // `project` when the session runs in a worktree.
+  root: string
   at: number
   worktrees: Sensed<LightWorktree[]> | null
   agents: Sensed<LightAgent[]> | null
