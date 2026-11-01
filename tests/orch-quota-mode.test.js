@@ -106,6 +106,20 @@ test("T5: readings that are all old ask for the counters, or for orch-reading --
   assert.equal(quota(withMarker).code, 1);
 });
 
+test("T5b: an expired old status line reading still asks, and is not pruned before the question", () => {
+  const fx = account({ readings: { s1: { at: now - 20 * 24 * HOUR, week: { used: 40, resetsAt: now - 14 * 24 * HOUR } } } });
+  const readingFile = join(fx.acc.home, ".claude", "microverse", "statusline", "s1.json");
+  // No --no-write: this is the run that prunes.
+  const run = (extra = []) => script("orch-quota", ["--running", "0", "--agent-cost", "15", ...extra], fx.cwd, fx.env);
+  for (const extra of [[], [], ["--no-write"]]) {
+    const r = run(extra);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /ask the user for the counters/);
+    assert.doesNotMatch(r.out, /Quota: off/);
+    assert.ok(existsSync(readingFile));
+  }
+});
+
 test("T6: no source at all is off (no counter source), nothing written", () => {
   const fx = account();
   const t = quota(fx);

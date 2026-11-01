@@ -98,8 +98,10 @@ else {
     fileProblem = `Counters unreadable (${file}): ${e.message}`;
   }
 }
-const statuslineObs = lib.statuslineObservations(statusline.readReadings({ now, prune: write }));
-const historyObs = lib.risingOnly(statusline.readHistory({ now, prune: write }));
+// Read without pruning: an old reading proves a subscription exists, so the
+// mode must see it. The pruning happens below, once a current reading is found.
+const statuslineObs = lib.statuslineObservations(statusline.readReadings({ now }));
+const historyObs = lib.risingOnly(statusline.readHistory({ now }));
 
 // quota_mode: off, or no source at all, means no pacing and no counters asked.
 const modeOption = lib.setOption(opts.mode) ? opts.mode : process.env.CLAUDE_PLUGIN_OPTION_QUOTA_MODE;
@@ -153,6 +155,11 @@ if (!w) {
   if (!json) for (const l of startNotes) console.log(l);
   failed(["No current weekly reading: ask the user for the counters, or run orch-reading --none if the plan has no limits."]);
   return;
+}
+
+if (write) {
+  statusline.readReadings({ now, prune: true });
+  statusline.readHistory({ now, prune: true });
 }
 
 // Agents running and cost of one agent: given, else detected / learned.
