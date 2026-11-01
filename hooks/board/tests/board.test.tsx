@@ -173,6 +173,10 @@ const world = (
 
       return git()
     }
+    // The quota recorder's write is covered by quota.test.tsx.
+    if (e.argv[1]?.endsWith('statusline.js') === true) {
+      return run('')
+    }
     seen.heavy.push([...e.argv])
 
     return heavy(e.argv)

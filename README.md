@@ -165,8 +165,11 @@ not available yet.
   of the pane.
 - Below 110 columns the pane has one column and a detail replaces it, with a
   Back button; from 110 it has two, with a drawer.
-- In a project with no `.claude/orchestration/profile.json` the mod is inert:
-  no timer, no `/board` command, no process.
+- The board records the quota counters for `orch-quota` where no status line
+  runs: at the end of a main turn it passes them to `scripts/statusline.js`, in
+  any project.
+- In a project with no `.claude/orchestration/profile.json` the mod is inert
+  (no timer, no `/board` command, no sensor), except for that quota write.
 - The project is the one of the session's folder, whichever it is, and the
   `week_target`, `weekday_reserve`, `five_hour_limit` and `quota_file` options
   are passed to `orch-status` when set.
