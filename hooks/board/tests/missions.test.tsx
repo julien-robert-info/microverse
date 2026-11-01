@@ -265,7 +265,7 @@ for (const surface of SURFACES) {
     expect(await shows(ui, /^To merge \(0\)$/)).toBe(true)
     await ui.press({ key: 'open:E7' })
     await settle()
-    expect(await shows(ui, /Runs \(2\)/)).toBe(true)
+    expect(await shows(ui, /Runs \(1\)/)).toBe(true)
     expect(await shows(ui, /sonnet-5 · 10 min · \$1\.50/)).toBe(true)
     await ui.unmount()
   })
@@ -404,6 +404,28 @@ for (const surface of SURFACES) {
     await settle()
     expect(await shows(ui, /Runs \(1\)/)).toBe(true)
     expect(await shows(ui, /opus-4 · 2 min · \$2\.00/)).toBe(true)
+    await ui.unmount()
+  })
+
+  test(`a range row is never the target of a link, even through its branch cell (${surface})`, async ($, on) => {
+    await start($, on, {
+      state: TABLE('| E1-E9 | `feat/shared` | mergés |', '| E10 | `feat/ten` | en cours |'),
+      trees: [{ branch: 'feat/shared', id: 'm1' }],
+      runs: [
+        {
+          agentId: 'm1',
+          type: 'microverse:morty',
+          model: 'claude-sonnet-5',
+          description: 'E1-E9 cleanup',
+          started: START - 60_000,
+          ended: START,
+          cost: 1,
+        },
+      ],
+    })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    expect(await shows(ui, /1 run not attributed to a mission/)).toBe(true)
     await ui.unmount()
   })
 

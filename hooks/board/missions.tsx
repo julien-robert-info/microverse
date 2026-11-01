@@ -367,6 +367,8 @@ export const renderMissionDetail = (context: BoardContext) => {
     ['Review', first('council')?.started],
     ['Merged', view.mergedAt],
   ]
+  // A running agent that already has a run record is listed once, by the record.
+  const liveOnly = view.running.filter(agent => !view.runs.some(one => one.agentId === agent.id))
   const raw = [
     ...files.map(name => ({ name, text: missions.notes[name].raw })),
     ...view.row.sections.map(number => ({
@@ -449,9 +451,9 @@ export const renderMissionDetail = (context: BoardContext) => {
       </Box>
 
       <Box flexDirection="column">
-        <Text weight="semibold">{`Runs (${view.runs.length + view.running.length})`}</Text>
+        <Text weight="semibold">{`Runs (${view.runs.length + liveOnly.length})`}</Text>
         {status === undefined && <Text dimColor>Loading…</Text>}
-        {view.running.map(agent => (
+        {liveOnly.map(agent => (
           <Text key={`run:live:${agent.id}`} wrap="truncate">
             <Text color="warning">●</Text> {agent.type}{' '}
             <Text dimColor>{`running · ${agent.description}`}</Text>
@@ -465,7 +467,7 @@ export const renderMissionDetail = (context: BoardContext) => {
             </Text>
           </Text>
         ))}
-        {status !== undefined && view.runs.length + view.running.length === 0 && (
+        {status !== undefined && view.runs.length + liveOnly.length === 0 && (
           <Text dimColor>No run linked.</Text>
         )}
       </Box>

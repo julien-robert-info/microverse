@@ -156,6 +156,11 @@ The Cockpit tab shows the launch pace, the context, the series cost and the
 running agents of the project, read from `orch-status --json`; the Usage tab is
 not available yet.
 
+- **Missions** are the rows of the state file's table, placed in Design, Brief,
+  Building, Review, To merge or Merged (Other, folded, for the rest) from the
+  running agents, the worktrees and the commits cited; an agent is linked to its
+  mission by its worktree branch or by an Id at the start of its `description`.
+  A mission's detail lists its notes by type and its runs.
 - **Refresh** reads everything again at once. Otherwise the git worktrees, the
   agent roster, the rate limits and `CLAUDE.local.md` are read every 30 s while
   the pane is open, and `orch-status` runs when the pane opens and at the end of
