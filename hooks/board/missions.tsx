@@ -256,7 +256,7 @@ export const renderMissions = (context: BoardContext) => {
   const body = isWide ? (
     <Box flexDirection="row" gap={2}>
       {COLUMNS.filter(column => column.name !== 'other').map(column => (
-        <Box key={`column:${column.name}`} flexDirection="column" flexGrow={1} flexBasis={0}>
+        <Box key={`column:${column.name}`} flexDirection="column" flexGrow={1} flexShrink={1}>
           <Text weight="semibold">{`${column.label} (${byColumn(column.name).length})`}</Text>
           {cardsOf(column.name)}
         </Box>
