@@ -11,6 +11,8 @@
 
 - `orch-reading`: under Claude Desktop the model records the counters from `get_usage` as a `desktop` reading, so `orch-quota` and the quota guard see fresh 5h and week values where the extension and the status line do not run. The orchestration skill calls it before the budget check.
 
+- `board` mod, missions: the state file's mission table as columns (Design, Brief, Building, Review, To merge, Merged), agents linked to their mission, and a mission detail with its notes by type (Structured or Raw) and its runs.
+
 - `board` mod: at the end of each main turn it records the 5 h and week counters of `session.usage` through `scripts/statusline.js`, so `orch-quota` and the week's curve get readings under Claude Desktop where no status line runs. Written when a value changed or after 5 min; it works in projects with no orchestration profile.
 
 ### Changed

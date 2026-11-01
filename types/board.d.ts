@@ -41,6 +41,57 @@ export type LightState = {
   isAudioOn: boolean
 }
 
+// Missions (hooks/board/notes.ts, missions.tsx).
+export type NoteType =
+  | 'decided'
+  | 'measures'
+  | 'risks'
+  | 'open'
+  | 'verified'
+  | 'brief'
+  | 'other'
+
+// One sub-section of a notes file: its title and its first paragraph.
+export type NotesItem = { title: string; type: NoteType; text: string }
+
+// A parsed notes file, kept with the stamp (`mtimeMs:size`) it was read at.
+export type NotesFile = {
+  stamp: string
+  raw: string
+  items: NotesItem[]
+}
+
+// One line of the state file's mission table.
+export type MissionRow = {
+  id: string
+  // `E1-E29` or `E3, E4`: shown, never a link target.
+  isRange: boolean
+  branch: string | null
+  title: string
+  hashes: string[]
+  // `NOTES.local.md` sections the line cites, as numbers.
+  sections: string[]
+}
+
+export type MissionsLight = {
+  // `mtimeMs:size` of the state file the rows come from.
+  stateStamp: string | null
+  rows: MissionRow[]
+  // By file name under `notes/` (`E7.md`, `E7.review-1.md`).
+  notes: Record<string, NotesFile>
+  // By section number of `NOTES.local.md`.
+  sections: Record<string, NotesFile & { title: string }>
+  notesStamp: string | null
+  // By agent id: the branch of the brief the store holds, when it holds one.
+  briefs: Record<string, string>
+}
+
+// What `git` says about the hashes the table cites.
+export type MissionsHeavy = {
+  hashes: Record<string, { ancestor: boolean; at: number | null }>
+  briefs: Record<string, string>
+}
+
 // Light reading: no node process, no model token. One per project root.
 export type Light = {
   // Absolute path of the repository's root.
@@ -54,6 +105,7 @@ export type Light = {
   agents: Sensed<LightAgent[]> | null
   usage: Sensed<LightUsage> | null
   state: Sensed<LightState> | null
+  missions?: MissionsLight
   failures: string[]
 }
 
@@ -154,6 +206,7 @@ export type Heavy = {
   project: string
   status: Sensed<OrchStatus> | null
   failure: string | null
+  missions?: MissionsHeavy
 }
 
 export type DetailKind = 'mission' | 'question' | 'agent'
