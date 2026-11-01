@@ -32,11 +32,13 @@ cleans up; the launch pace follows the usage quota.
 | `SubagentStop` hook | stops servers left running by a finished agent |
 | `UserPromptSubmit` hook (`context-guard`) | once, when the context nears the auto-compaction window: update the state file; once, when it is past it (`autoCompactWindow` probably unset); once, when `autoCompactWindow` is below `compact_window` + 33000; once, when `CLAUDE.local.md` exceeds 60 lines; ignores a prompt starting with `/microverse:status` |
 | `SessionStart` hook (matcher `compact\|startup\|resume\|clear`) | in a project with a profile, tells every conversation to load the orchestration skill first; after a compaction, restates that `CLAUDE.local.md` is the state of reference and lists the agent worktrees, merged or not; on a new, cleared or resumed conversation, lists them with their last commit and uncommitted changes to resume an interrupted series (silent without a profile) |
+| `board` mod (`hooks/board/`, module of `hooks.json`) | Board pane for Claude Desktop (command `/board`): launch pace, context, series cost and running agents of the project; see [Board](#board) |
 | `user/CLAUDE.md` | writing rules (README, comments, commits), to import into `~/.claude/CLAUDE.md` |
 
 ## Requirements
 
-- Claude Code 2.1.293 or newer (`haiku` model alias for Claude Haiku 5.5).
+- Claude Code 2.1.306 or newer (`haiku` model alias for Claude Haiku 5.5; the
+  `board` mod's hooks module and `plugin test`).
 - Node.js 20 or newer, for the scripts in `bin/`.
 - Git.
 - Optional, for the quota counters: the VS Code extension "Claude Code Usage"
@@ -144,6 +146,29 @@ total and the quota and context detail. `--agents` lists each agent run and
 `--verbose` adds the Pace, Running, Agent cost and Advice lines of the quota
 (`/microverse:status --agents --verbose`). With hooks disabled, the
 skill asks the model to run `orch-status` instead, which costs one request.
+
+### Board
+
+`/board` opens the Board pane of Claude Desktop; on Desktop the pane also opens
+by itself at the start of a session, and on a terminal only `/board` opens it.
+The Cockpit tab shows the launch pace, the context, the series cost and the
+running agents of the project, read from `orch-status --json`; the Usage tab is
+not available yet.
+
+- **Refresh** reads everything again at once. Otherwise the git worktrees, the
+  agent roster, the rate limits and `CLAUDE.local.md` are read every 30 s while
+  the pane is open, and `orch-status` runs when the pane opens and at the end of
+  a main turn (not a subagent's), at most once per 120 s and never two at a
+  time.
+- A reading that fails keeps the previous value and adds one line at the foot
+  of the pane.
+- Below 110 columns the pane has one column and a detail replaces it, with a
+  Back button; from 110 it has two, with a drawer.
+- In a project with no `.claude/orchestration/profile.json` the mod is inert:
+  no timer, no `/board` command, no process.
+- The project is the one of the session's folder, whichever it is, and the
+  `week_target`, `weekday_reserve`, `five_hour_limit` and `quota_file` options
+  are passed to `orch-status` when set.
 
 ### Talking to the orchestrator
 

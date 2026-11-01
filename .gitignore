@@ -5,3 +5,4 @@ evals/results/
 notes/
 .claude/worktrees/
 .claude/orchestration/
+.claude-plugin/types/
