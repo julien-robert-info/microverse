@@ -15,7 +15,7 @@ type Engine = EngineInterface
 
 export const PROFILE = '.claude/orchestration/profile.json'
 const STATE_FILE = 'CLAUDE.local.md'
-const FINISHED = ['completed', 'failed', 'killed']
+export const FINISHED = ['completed', 'failed', 'killed']
 const HEAVY_TIMEOUT_MS = 60_000
 // Same variable as orch-status's own git calls: a read must not take the
 // index lock a running agent may need.
