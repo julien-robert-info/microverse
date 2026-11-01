@@ -265,6 +265,8 @@ test("T1b --json: agent runs and the advisor calls of conversations and agents",
 test("T2 --json: a quota in error leaves the other keys", () => {
   const { dir, since } = series();
   const none = join(mkdtempSync(join(tmpdir(), "microverse-quota-")), "none.json");
+  // Unreadable, not missing: a missing file and no other source is quota off, not an error.
+  writeFileSync(none, "{not json");
   const r = script("orch-report", ["--json", "--since", since, "--file", none], dir, emptyHome());
   assert.equal(r.code, 0, r.out);
   const j = jsonOf(r);
