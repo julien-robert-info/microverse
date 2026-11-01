@@ -17,8 +17,9 @@ cleans up; the launch pace follows the usage quota.
 | agent `meeseeks` (Haiku; Sonnet for a code map; writes only the new file its prompt names) | answers one question with facts and their evidence, writes a code map or runs measurement recipes |
 | agent `rick` (Opus, Sonnet for a small mission; writes only its notes file) | designs a mission: measurements, rules, draft brief, questions for the user |
 | agent `council` (Opus; writes only its review file) | reviews a risky diff, writes the full review to a file, returns a verdict and one line per defect |
-| `orch-quota` | reads the quota counters (extension and terminal status line readings, merged; the status line also keeps a 15-day history that serves the period start and, without a recent extension reading, the calibration) and advises the launch pace, counting the agents running on the account and learning their cost (`--calibrate`); `--no-write` reads without refreshing, pruning or saving anything; `--json` prints the counters, period, pace, advice (with how many agents may still launch) and the readings of the current window as one JSON object, and writes what the text writes |
+| `orch-quota` | reads the quota counters (extension and terminal status line readings, merged; the status line also keeps a 15-day history that serves the period start and, without a recent extension reading, the calibration) and advises the launch pace, counting the agents running on the account and learning their cost (`--calibrate`); `--no-write` reads without refreshing, pruning or saving anything; `--json` prints the counters, period, pace, advice (with how many agents may still launch) and the readings of the current window as one JSON object, and writes what the text writes; `--mode auto\|off` (else the `quota_mode` setting) turns the pacing off, which also happens with a newer `orch-reading --none` marker or no counter source |
 | `orch-reading --five-hour <pct> --five-hour-resets <iso> --week <pct> --week-resets <iso>` | under Claude Desktop, records the counters the model got from `get_usage` (one window is enough) as the `desktop` reading that `orch-quota` and the quota guard read; refuses invalid values with exit 2 and writes nothing |
+| `orch-reading --none [--source get_usage\|user]` | records that the plan has no quota windows (a marker `orch-quota` and the quota guard read; a later reading cancels it), so no counters are asked and agents start without pacing |
 | `orch-usage` | tokens and API-equivalent cost per model (advisor calls on their own `<model> (advisor)` rows) or per agent run, context size of a session; `--json` prints the same figures as one JSON object (tokens as counts, dates in milliseconds, `finished` per run) |
 | `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown (`--no-write` is passed to `orch-quota`, `--session <id>` picks the conversation of the context line) |
 | `orch-speak` | turns a spoken text (stdin or `--file`) into an mp3 with edge-tts for the optional audio report and prints its path; `MICROVERSE_EDGE_TTS` names the edge-tts command when it is not on PATH |
@@ -47,7 +48,10 @@ cleans up; the launch pace follows the usage quota.
   (growthjack), or the microverse status line in a terminal session (set up by
   `/microverse:init`; the VS Code panel runs no status line). `orch-quota`
   merges the readings of both. With neither,
-  the orchestrator asks the user for the counters. The status bar shows the 5h
+  there is no counter source and no pacing: `orch-quota` says so and the
+  orchestrator asks nothing (a plan with no quota windows: API key, Bedrock,
+  Vertex, gateway). When readings exist but none is current, it asks the user
+  for the counters. The status bar shows the 5h
   and 7d counters as five-cell gauges, green below the expected pace, yellow up
   to the target (defaults 90 and 98 %), red above; `NO_COLOR` or `TERM=dumb`
   gives plain text.
@@ -97,6 +101,7 @@ Plugin settings (`/config`):
 | `weekday_reserve` | 30 | points kept for weekdays; the weekend rises to `week_target` minus this value |
 | `five_hour_limit` | 90 | beyond it, no new agent until the 5h counter resets; 5 points higher, no more resuming (%) |
 | `compact_window` | 150000 | context size (tokens, 100000 to 1000000) at which Claude Code compacts the orchestrating conversation; `/microverse:init` writes it + 33000 as `autoCompactWindow` in `.claude/settings.local.json`, because Claude Code compacts about 33K below that setting |
+| `quota_mode` | auto | `auto`: pace agents on the 5-hour and weekly counters when a source exists; `off`: no pacing (API key, Bedrock, Vertex, gateway). Any other value is read as `auto` |
 | `quota_file` | — | readings file, if the extension is not at its default location |
 | `speak_voice` | fr-FR-HenriNeural | voice of the audio report, from `edge-tts --list-voices` |
 | `speak_rate` | +10% | speaking rate of the audio report, such as +20% or -5% |

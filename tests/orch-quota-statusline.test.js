@@ -34,11 +34,12 @@ test("status line readings alone give the advice and the line names the source",
   assert.match(r.out, /Advice:/);
 });
 
-test("with neither source the message names the extension file and the status line setup", () => {
+test("with an unreadable extension file and no status line the message names the file and the status line setup", () => {
   const fx = account();
+  writeFileSync(fx.file, "{not json");
   const r = run(fx);
   assert.equal(r.code, 1);
-  assert.match(r.out, /Counters not found/);
+  assert.match(r.out, /Counters unreadable/);
   assert.ok(r.out.includes(fx.file));
   assert.match(r.out, /\/microverse:init/);
 });

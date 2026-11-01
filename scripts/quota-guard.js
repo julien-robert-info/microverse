@@ -47,6 +47,11 @@ function main() {
   const projectDir = process.env.CLAUDE_PROJECT_DIR || payload.cwd;
   if (!projectDir || !existsSync(join(projectDir, ".claude", "orchestration", "profile.json"))) return;
 
+  // quota_mode=off settles it: no source is read. Same reading of the value as
+  // lib.quotaMode.
+  const modeOption = process.env.CLAUDE_PLUGIN_OPTION_QUOTA_MODE;
+  if (lib.setOption(modeOption) && modeOption.trim().toLowerCase() === "off") return;
+
   const target = option("WEEK_TARGET", 98);
   const reserve = option("WEEKDAY_RESERVE", 30);
   const fiveLimit = option("FIVE_HOUR_LIMIT", 90);
@@ -62,6 +67,14 @@ function main() {
   }
   const statuslineObs = lib.statuslineObservations(statusline.readReadings({ now, prune: false }));
   const historyObs = lib.risingOnly(statusline.readHistory({ now, prune: false }));
+  const decided = lib.quotaMode({
+    option: modeOption,
+    marker: lib.readQuotaMarker(),
+    // The history of any age: an old file proves a subscription.
+    readings: { extensionObs, statuslineObs, historyObs: lib.risingOnly(statusline.readHistory({ now, days: Infinity, prune: false })) },
+    now,
+  });
+  if (decided.mode !== "metered") return;
   const { week, f, w } = lib.mergeReadings({ extensionObs, statuslineObs, historyObs, now });
   const state = lib.quotaState({ week, f, w, now, target, reserve });
   if (!state) return;

@@ -83,12 +83,23 @@ test("a counter read from the status line says so", () => {
   assert.equal(out.counters.five.source, "statusline");
 });
 
-test("without any reading: { v, error } on one line, exit code 1", () => {
-  const { code, out, raw } = json(["--file", join(tmpdir(), "microverse-missing.json")]);
+test("without any source: off on one line, exit code 0, with the error key kept", () => {
+  const { code, out, raw } = json([], process.cwd(), { APPDATA: mkdtempSync(join(tmpdir(), "microverse-appdata-")) });
+  assert.equal(code, 0);
+  assert.deepEqual(Object.keys(out), ["v", "mode", "reason", "error", "advice"]);
+  assert.equal(out.v, 1);
+  assert.equal(out.mode, "off");
+  assert.match(out.error, /^Quota off \(no counter source\)/);
+  assert.equal(raw.trim().split("\n").length, 1);
+});
+
+test("with an unreadable counters file and no other source: { v, error }, exit code 1", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "microverse-quota-")), "quota.json");
+  writeFileSync(file, "{not json");
+  const { code, out, raw } = json(["--file", file]);
   assert.equal(code, 1);
   assert.deepEqual(Object.keys(out), ["v", "error"]);
-  assert.equal(out.v, 1);
-  assert.match(out.error, /not found.*no status line reading/);
+  assert.match(out.error, /unreadable.*no status line reading/);
   assert.equal(raw.trim().split("\n").length, 1);
 });
 

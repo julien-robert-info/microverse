@@ -11,9 +11,13 @@ the microverse status line writes in terminal sessions, and the reading
 counter it takes the latest window not yet reset and, in it, the highest value
 (a counter does not fall within a window, and an idle session may rewrite an old
 value late); the `Counters:` line gives the source and age of each. If neither
-source has a reading, or the newest is more than two hours old, ask the user for
-both counters (`5h x% | wk y%`) at the next opportunity, without blocking, and
-apply the same rules by hand. The status line also appends each rising reading
+source exists, `orch-quota` answers `Quota: off (no counter source)` and there is
+no pacing. When readings exist but none is current (it says
+`No current weekly reading`), or the newest is more than two hours old (the
+`Warning: last reading … ago` line), ask the user for both counters
+(`5h x% | wk y%`) at the next opportunity, without blocking, and apply the
+same rules by hand; if their plan has no limits, run
+`orch-reading --none --source user` instead. The status line also appends each rising reading
 to a 15-day history (`statusline-history/`), which gives the usage at the start
 of the weekday period when the readings of that moment are gone.
 
@@ -25,6 +29,17 @@ windows, resets as the ISO dates it returns:
 (one window is enough; exit 2 means a value was refused, nothing was written).
 Run `orch-quota` after it, and the quota guard also sees the fresh reading. The
 `Counters:` line still says "status line". Outside Desktop nothing changes.
+If `get_usage` returns no windows (`not_applicable`: API key, Bedrock, Vertex,
+gateway), run `orch-reading --none` instead: it records that the plan has no
+quota, and `orch-quota` answers `Quota: off (no quota windows, from get_usage)`.
+Any later reading, from any source, cancels that record.
+
+## Quota off
+
+`Quota: off (<reason>)` means no pacing: no rhythm, no counters to ask for, no
+agent held back, and the quota guard stays silent. The reasons are
+`quota_mode=off` (the setting), `no quota windows, from get_usage` or `said by
+the user` (the `orch-reading --none` record), and `no counter source`.
 
 ## The periods
 

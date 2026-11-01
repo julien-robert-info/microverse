@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
-const { mkdirSync, readdirSync, statSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { ROOT, makeAccount } = require("./helpers.js");
 
@@ -11,7 +11,7 @@ const HOOK = join(ROOT, "scripts", "quota-guard.js");
 const HOUR = 3600e3;
 const MIN = 60e3;
 
-const OPTIONS = ["WEEK_TARGET", "WEEKDAY_RESERVE", "FIVE_HOUR_LIMIT", "QUOTA_FILE"].map((k) => `CLAUDE_PLUGIN_OPTION_${k}`);
+const OPTIONS = ["WEEK_TARGET", "WEEKDAY_RESERVE", "FIVE_HOUR_LIMIT", "QUOTA_FILE", "QUOTA_MODE"].map((k) => `CLAUDE_PLUGIN_OPTION_${k}`);
 
 // Calibration whose learned cost is `points` per agent: 1 dollar costs 1 point
 // of 5h, and the larger of a rick and a morty with its council review is `points`.
@@ -231,4 +231,40 @@ test("a 5h reading 20 minutes old allows with the warning as context; 10 minutes
 test("a stale 5h reading alone does not ask", () => {
   const out = guard(setup({ five: 20, week: 10, fiveAge: 4 * HOUR }));
   assert.equal(out.permissionDecision, undefined);
+});
+
+test("quota_mode=off returns before reading any source, even an unreadable counters file", () => {
+  const fx = setup({ five: 95, week: 33 });
+  // A folder where the counters file should be: reading it fails.
+  const bad = join(fx.acc.home, "folder.json");
+  mkdirSync(bad);
+  // Preload that logs every readFileSync of that path.
+  const log = join(fx.acc.home, "reads.log");
+  const preload = join(fx.acc.home, "spy.js");
+  writeFileSync(
+    preload,
+    `const fs = require("node:fs"); const real = fs.readFileSync;
+fs.readFileSync = function (p, ...a) { if (p === ${JSON.stringify(bad)}) fs.appendFileSync(${JSON.stringify(log)}, "read\\n"); return real.call(this, p, ...a); };`,
+  );
+  const env = { CLAUDE_PLUGIN_OPTION_QUOTA_FILE: bad, NODE_OPTIONS: `--require ${JSON.stringify(preload.replace(/\\/g, "/"))}` };
+  const reads = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).length : 0);
+  // Control: in auto mode the spy sees the read.
+  assert.equal(guard(fx, { env }), null);
+  assert.equal(reads(), 1);
+  for (const value of ["off", " OFF "]) {
+    assert.equal(guard(fx, { env: { ...env, CLAUDE_PLUGIN_OPTION_QUOTA_MODE: value } }), null);
+    assert.equal(reads(), 1, `quota_mode ${JSON.stringify(value)} read the file`);
+  }
+});
+
+test("T10: with quota off (setting, or a marker newer than the readings) a morty passes silently", () => {
+  assert.equal(guard(setup({ five: 95, week: 33 }), { env: { CLAUDE_PLUGIN_OPTION_QUOTA_MODE: "off" } }), null);
+  const fx = setup({ five: 95, week: 33 });
+  asked(guard(fx));
+  const dir = join(fx.acc.home, ".claude", "microverse");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "quota-mode.json"), JSON.stringify({ v: 1, mode: "off", at: Date.now() + MIN, source: "get_usage" }));
+  assert.equal(guard(fx), null);
+  // An unknown value is read as auto: the limit still asks.
+  asked(guard(setup({ five: 95, week: 33 }), { env: { CLAUDE_PLUGIN_OPTION_QUOTA_MODE: "banana" } }));
 });

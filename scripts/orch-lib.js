@@ -622,7 +622,7 @@ function currentReading(observations, now) {
   const group = live.slice(start);
   const newest = group.reduce((a, b) => (b.observedAt >= a.observedAt ? b : a));
   return {
-    usedFraction: Math.max(...group.map((o) => o.usedFraction)),
+    usedFraction: group.reduce((m, o) => Math.max(m, o.usedFraction), -Infinity),
     resetAt: newest.resetAt,
     observedAt: newest.observedAt,
     source: newest.source,
@@ -708,6 +708,44 @@ const STALE_FIVE_HOUR = 15 * 60e3;
 function staleFiveHourWarning(f, now) {
   if (!f || now - f.observedAt <= STALE_FIVE_HOUR) return null;
   return `Warning: 5h reading ${Math.round((now - f.observedAt) / 60e3)} min old; the 5h counter can rise quickly: ask the user for it before launching more than one agent.`;
+}
+
+// Marker left by `orch-reading --none`: the plan has no quota windows. Same
+// folder as statusline.js's dataDir(), but outside statusline/, which
+// readReadings() parses as readings.
+const quotaModeFile = () => join(homedir(), ".claude", "microverse", "quota-mode.json");
+
+// The marker, or null when absent or not { v: 1, mode: "off", at, source }.
+function readQuotaMarker() {
+  try {
+    const m = JSON.parse(readFileSync(quotaModeFile(), "utf8"));
+    if (m && m.v === 1 && m.mode === "off" && Number.isFinite(m.at)) return { at: m.at, source: m.source === "user" ? "user" : "get_usage" };
+  } catch {}
+  return null;
+}
+
+// How to pace: { mode: "off" | "metered" | "ask", reason, warning? }.
+// `option` is the quota_mode setting (auto or off; any other non-empty value is
+// read as auto, with a warning). `marker` is readQuotaMarker(). `readings` is
+// { extensionObs, statuslineObs, historyObs } as read by the caller, without
+// pruning and, for the history, of any age (readHistory({ days: Infinity })):
+// an old file proves a subscription existed. The latest reading of any source
+// wins over the marker, so a plan change needs no command back: a fresh reading
+// cancels the marker.
+// Reasons: option, get_usage, user, no-source (off); reading (metered); stale (ask).
+function quotaMode({ option, marker, readings, now }) {
+  const raw = setOption(option) ? option.trim().toLowerCase() : "auto";
+  const warning = raw !== "auto" && raw !== "off" ? `Warning: quota_mode ${JSON.stringify(option.trim())} unknown, read as auto.` : undefined;
+  const done = (mode, reason) => ({ mode, reason, ...(warning && { warning }) });
+  if (raw === "off") return done("off", "option");
+
+  const { extensionObs = [], statuslineObs = [], historyObs = [] } = readings ?? {};
+  const all = [...extensionObs.filter((o) => (o.provider ?? "claude") === "claude"), ...statuslineObs, ...historyObs];
+  // A loop, not Math.max(...): a spread of a large file overflows the stack.
+  const latest = all.reduce((m, o) => (Number.isFinite(o.observedAt) && o.observedAt > m ? o.observedAt : m), -Infinity);
+  if (marker && marker.at > latest) return done("off", marker.source);
+  if (mergeReadings({ extensionObs, statuslineObs, historyObs, now }).w) return done("metered", "reading");
+  return all.length ? done("ask", "stale") : done("off", "no-source");
 }
 
 // Worktrees of `cwd`'s repository as { path, head, branch }, main one first.
@@ -942,7 +980,7 @@ module.exports = {
   mainRoot, profileTrust, approveProfile, approvalLine, approvalAsk, describeCommands,
   sanitize, validBranch,
   listWorktrees, agentWorktrees,
-  statuslineObservations, risingOnly, currentReading, fmtAge, defaultQuotaFile, setOption, mergeReadings, fmtDate, quotaState, STALE_FIVE_HOUR, staleFiveHourWarning, paceDecision,
+  quotaMode, quotaModeFile, readQuotaMarker, statuslineObservations, risingOnly, currentReading, fmtAge, defaultQuotaFile, setOption, mergeReadings, fmtDate, quotaState, STALE_FIVE_HOUR, staleFiveHourWarning, paceDecision,
   COMPACT_OFFSET, failAsJson, run, git, fail, parseArgs, repoRoot, loadProfile, defaultBase, worktreeFor, normPath, listProcesses, lastContext, readTail, paceAdvice,
   FIVE_HOUR_COST, agentFinished, readRequests, executorCost, advisorSteps, priceOf, requestCost, agentInfo, projectSlug, projectsRoot, walkTranscripts,
   countRunning, computeCalibration, learnedAgentCost, calibrationFile, loadCalibration, saveCalibration, calibrationStale, fmtRatio,

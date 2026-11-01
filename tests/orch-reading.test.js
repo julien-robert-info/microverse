@@ -179,3 +179,31 @@ test("quota-guard asks for confirmation for a morty at 5h 95 % from a desktop re
   assert.match(out.permissionDecisionReason, /^Quota: no /);
   assert.match(out.permissionDecisionReason, /5h 95 %/);
 });
+
+const markerFile = (acc) => join(acc.home, ".claude", "microverse", "quota-mode.json");
+const env = (acc) => ({ ...acc.env, APPDATA: acc.home });
+
+test("--none writes the marker beside, not inside, the readings, and deletes no reading", () => {
+  const acc = makeAccount();
+  assert.equal(reading(acc, both({ pct: 1, at: now + 2 * HOUR }, { pct: 2, at: now + 48 * HOUR })).code, 0);
+  const r = script("orch-reading", ["--none"], acc.home, env(acc));
+  assert.equal(r.code, 0, r.out);
+  const m = JSON.parse(readFileSync(markerFile(acc), "utf8"));
+  assert.deepEqual(Object.keys(m).sort(), ["at", "mode", "source", "v"]);
+  assert.deepEqual({ v: m.v, mode: m.mode, source: m.source }, { v: 1, mode: "off", source: "get_usage" });
+  assert.ok(Math.abs(m.at - Date.now()) < 60e3);
+  assert.ok(existsSync(desktopFile(acc)));
+  assert.equal(readdirSync(join(acc.home, ".claude", "microverse", "statusline")).join(), "desktop.json");
+  assert.equal(script("orch-reading", ["--none", "--source", "user"], acc.home, env(acc)).code, 0);
+  assert.equal(JSON.parse(readFileSync(markerFile(acc), "utf8")).source, "user");
+});
+
+test("T9: --none with a counter flag, a bad --source, or --source alone is refused and writes nothing", () => {
+  const acc = makeAccount();
+  for (const args of [["--none", "--week", "40"], ["--none", "--week", "40", "--week-resets", iso(now + 48 * HOUR)], ["--none", "--source", "bogus"], ["--source", "user"], ["--none", "--none"]]) {
+    const r = script("orch-reading", args, acc.home, env(acc));
+    assert.equal(r.code, 2, `${args.join(" ")}: ${r.out}`);
+  }
+  assert.ok(!existsSync(markerFile(acc)));
+  assert.ok(!existsSync(desktopFile(acc)));
+});

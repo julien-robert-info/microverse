@@ -201,11 +201,12 @@ test("T9: no state file", () => {
   assert.match(r.out, /^Quota$/m);
 });
 
-test("T10: quota options reach orch-quota; without a reading, its three lines", () => {
+test("T10: quota options reach orch-quota; without any source, its two off lines", () => {
   const { dir } = makeRepo(PROFILE);
   const none = script("orch-status", [], dir);
   assert.equal(none.code, 0, none.out);
-  assert.equal(sectionOf(none.out, "Quota").split("\n").filter(Boolean).length, 3, none.out);
+  assert.equal(sectionOf(none.out, "Quota").split("\n").filter(Boolean).length, 2, none.out);
+  assert.match(none.out, /Quota: off \(no counter source\)/);
   const stop = script("orch-status", ["--file", quotaFile(0.99, 0.1)], dir);
   assert.match(stop.out, /^advice {3}stop/m);
 });

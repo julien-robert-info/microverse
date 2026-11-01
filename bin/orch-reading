@@ -10,12 +10,20 @@
 //   orch-reading --five-hour <pct> --five-hour-resets <ISO-8601>
 //                --week <pct> --week-resets <ISO-8601>
 //
+//   orch-reading --none [--source get_usage|user]
+//
+// --none says the plan has no quota windows (API key, Bedrock, Vertex, gateway):
+// it writes the marker ~/.claude/microverse/quota-mode.json, which turns
+// orch-quota and the quota guard off until a reading newer than it appears. It
+// takes no counter flag (exit 2) and deletes no reading.
+//
 // Each window is a percentage (0-100) and its reset time (ISO-8601 with a
 // zone, e.g. 2026-11-06T20:00:00.199Z); one window is enough. Exit 0 on
 // success, 2 on invalid input (nothing written), 1 when the write failed.
 
-const { readFileSync } = require("node:fs");
-const { join } = require("node:path");
+const { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } = require("node:fs");
+const { dirname, join } = require("node:path");
+const lib = require("../scripts/orch-lib.js");
 const statusline = require("../scripts/statusline.js");
 
 const SESSION = "desktop";
@@ -30,15 +38,44 @@ function refuse(message) {
 function main() {
   const args = process.argv.slice(2);
   const given = {};
-  for (let i = 0; i < args.length; i += 2) {
+  let none = false;
+  for (let i = 0; i < args.length; i++) {
     const flag = args[i];
-    if (!FLAGS.has(flag)) refuse(`unknown argument ${JSON.stringify(flag)}`);
+    if (flag === "--none") {
+      if (none) refuse("--none given twice");
+      none = true;
+      continue;
+    }
+    if (flag !== "--source" && !FLAGS.has(flag)) refuse(`unknown argument ${JSON.stringify(flag)}`);
     if (flag in given) refuse(`${flag} given twice`);
     if (i + 1 >= args.length) refuse(`${flag} needs a value`);
-    given[flag] = args[i + 1];
+    given[flag] = args[++i];
   }
 
   const now = Date.now();
+
+  if (none) {
+    if (Object.keys(given).some((f) => f !== "--source")) refuse("--none takes no counter flag");
+    const source = given["--source"] ?? "get_usage";
+    if (source !== "get_usage" && source !== "user") refuse(`--source must be get_usage or user, got ${JSON.stringify(source)}`);
+    const file = lib.quotaModeFile();
+    const tmp = `${file}.${process.pid}.tmp`;
+    try {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(tmp, JSON.stringify({ v: 1, mode: "off", at: now, source }));
+      renameSync(tmp, file);
+    } catch {
+      try {
+        unlinkSync(tmp);
+      } catch {}
+      console.error("orch-reading: could not write the marker");
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`Recorded: no quota windows (${source === "user" ? "said by the user" : "from get_usage"}); readings kept`);
+    return;
+  }
+  if ("--source" in given) refuse("--source goes with --none");
 
   function windowOf(label, pctFlag, resetsFlag) {
     const p = given[pctFlag];
