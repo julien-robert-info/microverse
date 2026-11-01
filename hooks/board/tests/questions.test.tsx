@@ -1,0 +1,430 @@
+import { expect, mock, test } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
+
+import { freeText, parseBlocks, parseStateQuestions } from '../questions'
+
+type Kit = Parameters<TestBody>
+
+const pane = (surface: 'terminal' | 'desktop', bodyColumns: number) =>
+  ({
+    plugin: 'microverse',
+    component: 'Pane',
+    requestId: 'microverse-board',
+    surface,
+    props: {
+      title: 'Board',
+      isFocused: false,
+      bodyColumns,
+      placement: 'dock',
+      scroll: { offset: 0, bodyRows: 30 },
+      view: {},
+    },
+  }) as const
+
+const SURFACES = ['terminal', 'desktop'] as const
+const WIDE = 140
+const ROOT = '/work/demo'
+const START = 1_767_000_000_000
+
+const run = (stdout: string, exitCode = 0) => ({
+  value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+})
+
+const done = () => ({
+  answer: '',
+  durationMs: 1,
+  isAborted: false,
+  turnId: 't1',
+  reason: 'answer' as const,
+})
+
+const status = () =>
+  JSON.stringify({
+    v: 1,
+    project: ROOT,
+    base: { name: 'main', tip: '1111111' },
+    lastReport: null,
+    state: { exists: true, sections: [] },
+    worktrees: [],
+    free: [],
+    report: null,
+    agents: { since: START, runs: [], total: { cost: 0, advisor: { calls: 0, cost: 0 } } },
+    quota: { error: 'none' },
+    context: { error: 'none' },
+  })
+
+type Fill = { text: string; mode: string | undefined }
+
+// The engine resolves a path against the host (a drive letter and backslashes
+// on Windows): files are keyed by their POSIX spelling.
+const norm = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
+
+// The world under the board: the files by POSIX path (mutable, a test changes
+// the state file), the prompt box and what was written to it.
+const world = (on: Kit[1], initial: Record<string, string>) => {
+  const files: Record<string, string> = Object.fromEntries(
+    Object.entries(initial).map(([name, text]) => [`${ROOT}/${name}`, text]),
+  )
+  const box = { draft: '', fills: [] as Fill[], result: { isFilled: true } as { isFilled: boolean; refusal?: string } }
+
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('session.root', () => ({ value: ROOT }))
+  on('session.surfaces', () => ({ value: ['desktop'] }))
+  on('fs.exists', (_, e) => ({ value: e.path.endsWith('profile.json') || norm(e.path) in files }))
+  on('fs.stat', (_, e) => ({
+    value: { kind: 'file', size: (files[norm(e.path)] ?? '').length, mtimeMs: 7, isLink: false },
+  }))
+  on('fs.list', (_, e) => ({
+    value: Object.entries(files)
+      .filter(([path]) => path.startsWith(`${norm(e.path)}/`))
+      .map(([path, text]) => ({
+        name: path.slice(norm(e.path).length + 1),
+        kind: 'file' as const,
+        size: text.length,
+        mtimeMs: 7,
+        isLink: false,
+      })),
+  }))
+  on('fs.read', (_, e) => ({ value: files[norm(e.path)] ?? '' }))
+  on('store.get', () => ({ value: undefined }))
+  on('command.register', () => ({ value: { command: 'board' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: [] }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000, percent: 1 }, rateLimits: [] },
+  }))
+  on('agent.list', () => ({ value: [] }))
+  on('process.run', (_, e) =>
+    e.argv[0] === 'git' && e.argv[1] === 'worktree'
+      ? run(`worktree ${ROOT}\nHEAD 1111111aaaa\nbranch refs/heads/main\n`)
+      : e.argv[1]?.endsWith('statusline.js') === true
+        ? run('')
+        : run(status()),
+  )
+  on('prompt.read', () => ({ value: { text: box.draft, cursor: box.draft.length } }))
+  on('prompt.fill', (_, e) => {
+    box.fills.push({ text: e.text, mode: e.mode })
+
+    return { text: e.text, cursor: e.text.length, ...box.result } as never
+  })
+  mock.clock(on, { now: START })
+
+  return { files, box }
+}
+
+const settle = () => new Promise(resolve => setTimeout(resolve, 30))
+
+const start = async ($: Kit[0], on: Kit[1], initial: Record<string, string>) => {
+  const seen = world(on, initial)
+  await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
+  await $.turn.complete(done())
+  await settle()
+
+  return seen
+}
+
+type Mounted = Awaited<ReturnType<Kit[0]['ui']['mount']>>
+
+const shows = async (ui: Mounted, text: RegExp) =>
+  (await ui.find({ type: 'Text', text })) !== undefined
+
+const has = async (ui: Mounted, key: string) => (await ui.find({ key })) !== undefined
+
+const press = async (ui: Mounted, key: string) => {
+  await ui.press({ key })
+  await settle()
+}
+
+const STATE = (...bullets: string[]) =>
+  ['# État', '', '## Questions à Julien', '', ...bullets, '', '## Suite', '', '- Q99 hors section', ''].join('\n')
+
+const BLOCK = (id: string, lines: string[] = []) =>
+  [
+    '# E9',
+    '',
+    `### ${id}. Which format?`,
+    '',
+    'First paragraph of context.',
+    '',
+    'Second paragraph.',
+    '',
+    '- **a.** Fixed : one rule for every question',
+    '- **b.** Free : each rick writes its own',
+    '- **c.** None : keep today',
+    '',
+    ...lines,
+    '',
+    '## Next section',
+  ].join('\n')
+
+const RECOMMENDED = ['**Recommandation : a.** Simplest.', '', '**Attend :** the report of M14.']
+
+const M10 = STATE(
+  '- Répondues le 2026-10-28 : Q34 d, Q35 oui',
+  '- En attente : rien',
+  '- Push mobile : à tester sur le téléphone',
+  '- Q37 (notes/E9.md) : choisir le format',
+)
+
+for (const surface of SURFACES) {
+  test(`T1 the M10 state file gives one pending question and reads the answers (${surface})`, async ($, on) => {
+    await start($, on, { 'CLAUDE.local.md': M10, 'notes/E9.md': BLOCK('Q37', RECOMMENDED) })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    expect(await shows(ui, /^Needs your decision \(1\)$/)).toBe(true)
+    expect(await shows(ui, /1 question needs you/)).toBe(true)
+    expect(await has(ui, 'open:question:Q37')).toBe(true)
+    expect(await shows(ui, /rien|Push mobile|Q99/)).toBe(false)
+    expect(await shows(ui, /^▸ Answered \(2\)$/)).toBe(true)
+    await press(ui, 'fold:answered')
+    expect(await shows(ui, /^Q35 oui · 2026-10-28$/)).toBe(true)
+    expect(await shows(ui, /^Q34 d · 2026-10-28$/)).toBe(true)
+    await ui.unmount()
+  })
+
+  test(`T2 a D-1 block gives options a, b, c, the recommended one and what it waits on (${surface})`, async ($, on) => {
+    await start($, on, { 'CLAUDE.local.md': M10, 'notes/E9.md': BLOCK('Q37', RECOMMENDED) })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    expect((await ui.find({ key: 'answer:Q37:a' }))?.text).toMatch(/^a\. Fixed \(recommended\)$/)
+    expect((await ui.find({ key: 'answer:Q37:b' }))?.text).toMatch(/^b\. Free$/)
+    expect(await has(ui, 'answer:Q37:c')).toBe(true)
+    await press(ui, 'open:question:Q37')
+    expect(await shows(ui, /^a\. Fixed · recommended$/)).toBe(true)
+    expect(await shows(ui, /^b\. Free$/)).toBe(true)
+    expect(await shows(ui, /^one rule for every question$/)).toBe(true)
+    expect(await shows(ui, /^Waits on: the report of M14\.$/)).toBe(true)
+    expect(await shows(ui, /^Mission E9$/)).toBe(true)
+    expect(await ui.find({ type: 'Markdown', text: /First paragraph of context\./ })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test(`T3 a block without a recommendation marks no option (${surface})`, async ($, on) => {
+    await start($, on, { 'CLAUDE.local.md': M10, 'notes/E9.md': BLOCK('Q37') })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    expect((await ui.find({ key: 'answer:Q37:a' }))?.text).toBe('a. Fixed')
+    await press(ui, 'open:question:Q37')
+    expect(await shows(ui, /recommended/)).toBe(false)
+    expect(await shows(ui, /^Waits on/)).toBe(false)
+    await ui.unmount()
+  })
+
+  test(`T4 without a block the bullet stays and only a free answer is offered (${surface})`, async ($, on) => {
+    await start($, on, { 'CLAUDE.local.md': STATE('- Q37 (notes/E9.md) : choisir le format') })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    expect(await has(ui, 'answer:Q37:a')).toBe(false)
+    await press(ui, 'open:question:Q37')
+    expect(await shows(ui, /^No block found for this question/)).toBe(true)
+    expect(await shows(ui, /^choisir le format$/)).toBe(true)
+    expect(await has(ui, 'free:Q37')).toBe(true)
+    await ui.unmount()
+  })
+
+  test(`T4b a bullet with no file finds its block in the notes at detail open only (${surface})`, async ($, on) => {
+    await start($, on, {
+      'CLAUDE.local.md': STATE('- Q37 : choisir le format'),
+      'notes/E9.md': BLOCK('Q37', RECOMMENDED),
+    })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    expect(await has(ui, 'answer:Q37:a')).toBe(false)
+    await press(ui, 'open:question:Q37')
+    expect(await shows(ui, /^a\. Fixed · recommended$/)).toBe(true)
+    await ui.unmount()
+  })
+
+  test(`T5 two presses fill exactly "Q37 a", one press alone writes nothing (${surface})`, async ($, on) => {
+    const { box } = await start($, on, { 'CLAUDE.local.md': M10, 'notes/E9.md': BLOCK('Q37', RECOMMENDED) })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    expect(await has(ui, 'fill:Q37')).toBe(false)
+    await press(ui, 'answer:Q37:a')
+    expect(box.fills).toEqual([])
+    expect((await ui.find({ key: 'fill:Q37' }))?.text).toBe('Fill Q37 a')
+    await press(ui, 'fill:Q37')
+    expect(box.fills).toEqual([{ text: 'Q37 a', mode: 'replace' }])
+    expect(await shows(ui, /Q37 is in your input box/)).toBe(true)
+    expect(await has(ui, 'answer:Q37:a')).toBe(false)
+    await ui.unmount()
+  })
+
+  test(`T6 a free answer is cleaned of control characters and cut at 500 (${surface})`, async ($, on) => {
+    const { box } = await start($, on, { 'CLAUDE.local.md': STATE('- Q37 : choisir le format') })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    await press(ui, 'open:question:Q37')
+    await ui.input({ key: 'free:Q37', text: `oui\u0007 mais\nplus tard​${'x'.repeat(600)}` })
+    await settle()
+    expect(box.fills).toHaveLength(1)
+    const text = box.fills[0].text
+    expect(text.startsWith('Q37 oui mais plus tard')).toBe(true)
+    expect(text).not.toMatch(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u)
+    expect(text.length).toBe(500)
+    await ui.unmount()
+  })
+
+  test(`T7 two questions from two files each get their own options (${surface})`, async ($, on) => {
+    await start($, on, {
+      'CLAUDE.local.md': STATE('- Q37 (notes/E9.md) : un', '- Q38 (notes/E10.md) : deux'),
+      'notes/E9.md': BLOCK('Q37', RECOMMENDED),
+      'notes/E10.md': [
+        '### Q38. Other one?',
+        '',
+        '- **a.** Yes : go',
+        '- **b.** No : stop',
+        '',
+        '**Recommendation: b.**',
+      ].join('\n'),
+    })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    expect(await shows(ui, /^Needs your decision \(2\)$/)).toBe(true)
+    expect((await ui.find({ key: 'answer:Q37:a' }))?.text).toBe('a. Fixed (recommended)')
+    expect((await ui.find({ key: 'answer:Q38:b' }))?.text).toBe('b. No (recommended)')
+    expect(await has(ui, 'answer:Q38:c')).toBe(false)
+    expect(await has(ui, 'answer:Q37:c')).toBe(true)
+    await ui.unmount()
+  })
+
+  test(`T8 a block titled Q37 is not taken for Q38, nor a Q3 block for Q37 (${surface})`, async ($, on) => {
+    await start($, on, {
+      'CLAUDE.local.md': STATE('- Q38 (notes/E9.md) : deux', '- Q37 (notes/E10.md) : un'),
+      'notes/E9.md': BLOCK('Q37'),
+      'notes/E10.md': BLOCK('Q3'),
+    })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    expect(await has(ui, 'answer:Q38:a')).toBe(false)
+    expect(await has(ui, 'answer:Q37:a')).toBe(false)
+    await press(ui, 'open:question:Q38')
+    // The scan finds a Q37 block, which is not Q38's.
+    expect(await has(ui, 'answer:Q38:a')).toBe(false)
+    expect(await shows(ui, /^No block found/)).toBe(true)
+    await ui.unmount()
+  })
+
+  test(`A1 a double press fills once (${surface})`, async ($, on) => {
+    const { box } = await start($, on, { 'CLAUDE.local.md': M10, 'notes/E9.md': BLOCK('Q37', RECOMMENDED) })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    await press(ui, 'answer:Q37:b')
+    await Promise.all([ui.press({ key: 'fill:Q37' }), ui.press({ key: 'fill:Q37' })])
+    await settle()
+    expect(box.fills).toEqual([{ text: 'Q37 b', mode: 'replace' }])
+    await ui.unmount()
+  })
+
+  test(`A2 a refused fill is said in the panel and does not mark the question as sent (${surface})`, async ($, on) => {
+    const { box } = await start($, on, { 'CLAUDE.local.md': M10, 'notes/E9.md': BLOCK('Q37', RECOMMENDED) })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    // The kit's site strips a cause a mocked hook writes (only the engine's own
+    // refusals carry one), so the cause reaching the panel here is "unknown".
+    box.result = { isFilled: false, refusal: 'dialog' }
+    await press(ui, 'answer:Q37:a')
+    await press(ui, 'fill:Q37')
+    expect(await shows(ui, /did not take the text/)).toBe(true)
+    expect(await has(ui, 'fill:Q37')).toBe(true)
+    expect(await shows(ui, /is in your input box/)).toBe(false)
+    box.result = { isFilled: true }
+    await press(ui, 'fill:Q37')
+    expect(box.fills.map(one => one.text)).toEqual(['Q37 a', 'Q37 a'])
+    expect(await shows(ui, /Q37 is in your input box/)).toBe(true)
+    await ui.unmount()
+  })
+
+  test(`A3 a draft in the input box is never overwritten (${surface})`, async ($, on) => {
+    const { box } = await start($, on, { 'CLAUDE.local.md': M10, 'notes/E9.md': BLOCK('Q37', RECOMMENDED) })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    box.draft = 'half typed'
+    await press(ui, 'answer:Q37:a')
+    await press(ui, 'fill:Q37')
+    expect(box.fills).toEqual([])
+    expect(await shows(ui, /holds a draft/)).toBe(true)
+    box.draft = ''
+    await press(ui, 'fill:Q37')
+    expect(box.fills).toEqual([{ text: 'Q37 a', mode: 'replace' }])
+    await ui.unmount()
+  })
+
+  test(`A4 an answer with nothing printable writes nothing (${surface})`, async ($, on) => {
+    const { box } = await start($, on, { 'CLAUDE.local.md': STATE('- Q37 : choisir le format') })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    await press(ui, 'open:question:Q37')
+    await ui.input({ key: 'free:Q37', text: '\u0007​ \n' })
+    await settle()
+    expect(box.fills).toEqual([])
+    await ui.unmount()
+  })
+
+  test(`A5 the question can be answered again once the state file changed (${surface})`, async ($, on) => {
+    const { box, files } = await start($, on, {
+      'CLAUDE.local.md': M10,
+      'notes/E9.md': BLOCK('Q37', RECOMMENDED),
+    })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    await press(ui, 'answer:Q37:a')
+    await press(ui, 'fill:Q37')
+    expect(box.fills).toHaveLength(1)
+    files[`${ROOT}/CLAUDE.local.md`] = `${M10}\n- Q37 reste ouverte\n`
+    await press(ui, 'refresh')
+    await press(ui, 'answer:Q37:c')
+    await press(ui, 'fill:Q37')
+    expect(box.fills.map(one => one.text)).toEqual(['Q37 a', 'Q37 c'])
+    await ui.unmount()
+  })
+}
+
+test('the state file bullets: several questions in one bullet, a word as an answer', () => {
+  const read = parseStateQuestions(
+    STATE('- Q40 et Q41 (notes/E9.md) : deux à la fois', '- Q41 oui', '- Répondu : Q40 non, Q42 b'),
+  )
+
+  expect(read.pending.map(one => one.id)).toEqual(['Q41'])
+  expect(read.answered.map(one => `${one.id}=${one.answer}`)).toEqual(['Q40=non', 'Q42=b'])
+})
+
+test('a file named by a bullet must be a plain name under notes/', () => {
+  const read = parseStateQuestions(STATE('- Q40 (notes/../secret.md) : x', '- Q41 (/etc/passwd) : y'))
+
+  expect(read.pending.map(one => one.file)).toEqual([null, null])
+})
+
+test('the block parser anchors the number and reads both languages', () => {
+  const blocks = parseBlocks(
+    [
+      '### Q3. Short',
+      '',
+      '- **a.** One : first',
+      '',
+      '### Q37. Long',
+      '',
+      '- **a.** Two : second',
+      '',
+      '**Recommendation: z.**',
+      '',
+      '**Waits:** nothing',
+    ].join('\n'),
+  )
+
+  expect(blocks.map(one => one.id)).toEqual(['Q3', 'Q37'])
+  expect(blocks[1].options).toEqual([{ letter: 'a', title: 'Two', effect: 'second' }])
+  // A recommended letter that names no option marks nothing.
+  expect(blocks[1].recommended).toBeNull()
+  expect(blocks[1].waits).toBe('nothing')
+})
+
+test('freeText builds one line of at most 500 characters from an Id and clean text', () => {
+  expect(freeText('Q37', 'a\r\nb')).toBe('Q37 a b')
+  expect(freeText('Q37', '\u0007')).toBeNull()
+  expect(freeText('37; rm', 'x')).toBeNull()
+  expect(Array.from(freeText('Q37', 'é'.repeat(900)) ?? '')).toHaveLength(500)
+})
