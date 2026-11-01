@@ -4,9 +4,10 @@ Read before launching an agent or resuming one.
 
 ## The counters
 
-`orch-quota` reads the two counters, `five-hour` and `seven-day`, from two
-sources: the VS Code extension "Claude Code Usage" (growthjack), and the
-readings the microverse status line writes in terminal sessions. For each
+`orch-quota` reads the two counters, `five-hour` and `seven-day`, from three
+sources: the VS Code extension "Claude Code Usage" (growthjack), the readings
+the microverse status line writes in terminal sessions, and the reading
+`orch-reading` records under Claude Desktop (below). For each
 counter it takes the latest window not yet reset and, in it, the highest value
 (a counter does not fall within a window, and an idle session may rewrite an old
 value late); the `Counters:` line gives the source and age of each. If neither
@@ -15,6 +16,15 @@ both counters (`5h x% | wk y%`) at the next opportunity, without blocking, and
 apply the same rules by hand. The status line also appends each rising reading
 to a 15-day history (`statusline-history/`), which gives the usage at the start
 of the weekday period when the readings of that moment are gone.
+
+Under Claude Desktop neither the extension nor the status line runs, so the
+readings are hours old. There the `mcp__ccd_session_mgmt__get_usage` tool exists
+(if it is deferred, load it with `ToolSearch` first). Call it, then record both
+windows, resets as the ISO dates it returns:
+`orch-reading --five-hour <pct> --five-hour-resets <iso> --week <pct> --week-resets <iso>`
+(one window is enough; exit 2 means a value was refused, nothing was written).
+Run `orch-quota` after it, and the quota guard also sees the fresh reading. The
+`Counters:` line still says "status line". Outside Desktop nothing changes.
 
 ## The periods
 

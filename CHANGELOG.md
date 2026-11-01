@@ -7,6 +7,8 @@
 - `board` mod, foundation: a Board pane for Claude Desktop with the Cockpit tab (launch pace, context, series cost, running agents), the `/board` command and the types of its state. Inert without an orchestration profile. CI runs `plugin test` and uses Claude Code 2.1.306.
 - `orch-quota --json` and `orch-usage --json` (by model, `--agents`, `--context`): one JSON object per run, with the same figures as the text, which is unchanged. A failure is `{ "v": 1, "error" }` with the exit code of the text. `orch-quota` also gives how many more agents the advice allows (`advice.more`).
 
+- `orch-reading`: under Claude Desktop the model records the counters from `get_usage` as a `desktop` reading, so `orch-quota` and the quota guard see fresh 5h and week values where the extension and the status line do not run. The orchestration skill calls it before the budget check.
+
 ### Changed
 
 - `/microverse:init` keeps `.claude/orchestration/` out of git by default (`.gitignore` line) and writes a `.worktreeinclude` that copies `rules.md` into the agents' worktrees; it offers `git rm -r --cached` for a profile already tracked.
