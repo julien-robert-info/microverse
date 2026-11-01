@@ -182,6 +182,10 @@ not available yet.
   running agents, the worktrees and the commits cited; an agent is linked to its
   mission by its worktree branch or by an Id at the start of its `description`.
   A mission's detail lists its notes by type and its runs.
+- **Agents** are cards with the brief's summary (Goal, Rules, Tests, Zone; the
+  text as written when the brief has no template), the last tool call and, for a
+  morty, its step. The brief is captured when the agent is launched from this
+  session. Its detail has a button that runs `agent-check` on the branch.
 - **Refresh** reads everything again at once. Otherwise the git worktrees, the
   agent roster, the rate limits and `CLAUDE.local.md` are read every 30 s while
   the pane is open, and `orch-status` runs when the pane opens and at the end of
