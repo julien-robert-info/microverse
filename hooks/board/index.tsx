@@ -4,6 +4,7 @@ import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 import type {
   Activity,
   AnswerState,
+  AnswerToken,
   BoardActions,
   CheckResult,
   Heavy,
@@ -31,7 +32,9 @@ import {
   optionText,
   readBlockFiles,
   readQuestionsLight,
+  recommendedTokens,
   sentKey,
+  submittedIn,
 } from './questions'
 import { hasProfile, readHeavy, readLight, samePath } from './sensors'
 
@@ -162,7 +165,11 @@ async function markAnswer($: EngineInterface, id: string, letter: string) {
 // What it writes is rebuilt here from the marked question and option, checked
 // against the light reading as it stands now, never taken from a render.
 // A function declaration: the engine follows `$` only through those.
-async function fillFor($: EngineInterface, run: Run, free: { id: string; text: string } | null) {
+async function fillFor(
+  $: EngineInterface,
+  run: Run,
+  source: { id: string; text: string } | 'marked' | 'recommended',
+) {
   // Taken before the first await: a second press arriving meanwhile finds it held.
   if (run.isFilling) {
     return
@@ -171,34 +178,70 @@ async function fillFor($: EngineInterface, run: Run, free: { id: string; text: s
   try {
     const questions = (await read($, lightAtom))?.questions
     const current = await read($, answerAtom)
-    const id = free === null ? current.pending?.question : free.id
-    const question = questions?.pending.find(one => one.id === id)
-    if (questions === undefined || question === undefined) {
+    if (questions === undefined) {
       return
     }
-    const key = sentKey(question.id, questions.stateStamp)
-    if (current.sent.includes(key)) {
+    const isOpen = (id: string) =>
+      !current.sent.includes(sentKey(id, questions.stateStamp)) &&
+      questions.pending.some(one => one.id === id)
+    let added: AnswerToken[] = []
+    if (source === 'recommended') {
+      added = recommendedTokens(questions).filter(one => isOpen(one.question))
+    } else {
+      const id = source === 'marked' ? current.pending?.question : source.id
+      const question = questions.pending.find(one => one.id === id)
+      const letter = current.pending?.option
+      const text =
+        question === undefined || !isOpen(question.id)
+          ? null
+          : source !== 'marked'
+            ? freeText(question.id, source.text)
+            : letter !== undefined &&
+                blockOf(questions, question)?.options.some(one => one.letter === letter)
+              ? optionText(question.id, letter)
+              : null
+      added = question === undefined || text === null ? [] : [{ question: question.id, token: text }]
+    }
+    if (added.length === 0) {
       return
     }
-    const letter = current.pending?.option
-    const text =
-      free !== null
-        ? freeText(question.id, free.text)
-        : letter !== undefined && blockOf(questions, question)?.options.some(one => one.letter === letter)
-          ? optionText(question.id, letter)
-          : null
-    if (text === null) {
-      return
-    }
-    const cause = await fillAnswer($, text)
-    // A refusal never marks the question as sent.
+    const result = await fillAnswer($, current, added)
+    // A refusal changes neither the list nor the marked option; the question
+    // is sent only once the message leaves (`markSubmitted`).
     await update($, answerAtom, (answer: AnswerState) =>
-      cause === null
-        ? { ...answer, pending: null, sent: [...answer.sent, key], refusal: null }
-        : { ...answer, refusal: { question: question.id, cause } },
+      result.refusal === null
+        ? { ...answer, pending: null, answers: result.answers, filled: result.filled, refusal: null }
+        : { ...answer, refusal: { question: added[0].question, cause: result.refusal } },
     )
   } finally {
     run.isFilling = false
+  }
+}
+
+// `prompt.submit`: the answers whose token is in the message just sent become
+// sent, the others stay waiting. Never throws: it runs on every message.
+async function markSubmitted($: EngineInterface, text: unknown) {
+  try {
+    const current = await read($, answerAtom)
+    const waiting = current.answers ?? []
+    const gone = typeof text === 'string' ? submittedIn(waiting, text) : []
+    if (gone.length === 0) {
+      return
+    }
+    const stamp = (await read($, lightAtom))?.questions?.stateStamp ?? null
+    await update($, answerAtom, (answer: AnswerState) => {
+      const left = (answer.answers ?? []).filter(one => !gone.some(item => item.question === one.question))
+      const keys = gone.map(one => sentKey(one.question, stamp))
+
+      return {
+        ...answer,
+        answers: left,
+        filled: left.length === 0 ? null : (answer.filled ?? null),
+        sent: [...answer.sent, ...keys.filter(key => !answer.sent.includes(key))],
+      }
+    })
+  } catch (error) {
+    $.ui.log(`board: submit failed: ${reasonOf(error)}`, { to: 'debug' })
   }
 }
 
@@ -536,6 +579,16 @@ export const register: Register = (on, options) => {
     return done
   })
 
+  // Every message of the user passes through here, unchanged and unwaited-for
+  // beyond one atom read.
+  on('prompt.submit', async ($, e, next) => {
+    if (e.isMeta !== true && e.command === undefined) {
+      await markSubmitted($, e.text)
+    }
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
     const [light, heavy, view, checks, answer, activity] = [
@@ -584,7 +637,8 @@ export const register: Register = (on, options) => {
           }
         }),
       chooseAnswer: (id, letter) => guarded($, 'answer', () => markAnswer($, id, letter)),
-      sendAnswer: () => guarded($, 'answer', () => fillFor($, run, null)),
+      sendAnswer: () => guarded($, 'answer', () => fillFor($, run, 'marked')),
+      sendRecommended: () => guarded($, 'answer', () => fillFor($, run, 'recommended')),
       sendFreeAnswer: (id, text) => guarded($, 'answer', () => fillFor($, run, { id, text })),
       ...agentActions($, watch),
     }
