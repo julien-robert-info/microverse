@@ -187,7 +187,11 @@ not available yet.
   detail shows the question's block of its notes file (context, options, the
   recommended one, what waits) when it has one. Pressing an option marks it,
   and "Fill Q37 a" then fills it into your input box: you press Enter to send
-  it. The board never sends it, never overwrites a draft, and says when the box
+  it. Answering several questions adds them to the same text (`Q97 b, Q98 a`;
+  a new answer to a question replaces its earlier one), so one message answers
+  them all, and "Fill all recommended" adds every recommendation at once. A
+  question counts as answered once a message containing its answer is sent. The
+  board never sends it, never overwrites a draft, and says when the box
   refused the text. Without a block, a free answer is offered on terminal and
   Desktop.
 - **Agents** are cards with the brief's summary (Goal, Rules, Tests, Zone; the

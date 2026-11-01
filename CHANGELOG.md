@@ -11,6 +11,8 @@
 
 - `orch-reading`: under Claude Desktop the model records the counters from `get_usage` as a `desktop` reading, so `orch-quota` and the quota guard see fresh 5h and week values where the extension and the status line do not run. The orchestration skill calls it before the budget check.
 
+- `board` mod, questions: several answers go in one message (`Q97 b, Q98 a`). Each click adds to or replaces its question in the input box text, a typed draft still refuses the fill, a counter says how many answers wait, and "Fill all recommended" adds every recommendation. A question is marked answered when a message holding its answer is sent (new `prompt.submit` hook, which never alters a message).
+
 - `board` mod, missions: the state file's mission table as columns (Design, Brief, Building, Review, To merge, Merged), agents linked to their mission, and a mission detail with its notes by type (Structured or Raw) and its runs.
 
 - `board` mod, agents: each running agent as a card (captured brief summary, last tool, steps of a morty, commits ahead) with a detail (brief, activity, files changed) and a button that runs `agent-check` on its branch. The brief is kept in the store (40 most recent) at `agent.spawn`.
