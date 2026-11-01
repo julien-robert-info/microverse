@@ -253,7 +253,7 @@ number is never reused.
 
 In the state file a pending question is one bullet,
 `- Q<n> (notes/<mission>.md) : <title>`; the board panel reads it with the
-question's block in that notes file and fills the user's answer into his input
+question's block in that notes file and fills the user's answer into their input
 box.
 
 ### What remains to ask
