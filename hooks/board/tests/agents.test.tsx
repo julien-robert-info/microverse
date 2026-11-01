@@ -326,6 +326,29 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 
+  test(`T6c agent-check <branch> in a Bash call is the Checks step (${surface})`, async ($, on) => {
+    await start($, on, {
+      agents: [MORTY],
+      messages: {
+        a1: [
+          { role: 'user', text: 'brief', toolUses: [] },
+          {
+            role: 'assistant',
+            text: '',
+            toolUses: [
+              { tool: 'Edit', input: { file_path: 'hooks/a.ts' }, text: 'ok' },
+              { tool: 'Bash', input: { command: 'agent-check feat/x' }, text: 'ok' },
+            ],
+          },
+        ],
+      },
+    })
+    const ui = await $.ui.mount(OPEN(surface))
+
+    expect(await shows(ui, /✓ Setup {2}✓ Implement {2}● Checks {2}○ Report/)).toBe(true)
+    await ui.unmount()
+  })
+
   test(`T6b a rick has no steps, only its last tool (${surface})`, async ($, on) => {
     await start($, on, {
       agents: [{ id: 'a2', type: 'microverse:rick', description: 'E7 design' }],
@@ -523,10 +546,11 @@ test('T4 a resumed agent stores nothing', async ($, on) => {
   expect([...seen.store.keys()]).toHaveLength(0)
 })
 
-test('T5 a failing store.set does not stop the launch', async ($, on) => {
+test('T5 a capture that fails does not stop the launch', async ($, on) => {
   const seen = await start($, on, { isStoreBroken: true })
 
-  // No description: the capture itself throws, besides the store failing.
+  // No description: the capture throws (and the store write fails). The
+  // engine skips a throwing mock, so this holds with or without the guard.
   const out = await $.agent.spawn({ prompt: 'go', subagentType: 'microverse:morty' })
   await settle()
 
