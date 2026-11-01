@@ -131,6 +131,35 @@ test("T6: no source at all is off (no counter source), nothing written", () => {
   assert.ok(!existsSync(join(fx.acc.home, ".claude", "microverse", "quota-mode.json")));
 });
 
+test("T6b: a counters file with no Claude observation asks, naming the file", () => {
+  for (const extension of [[], [{ provider: "other", periodType: "seven-day", usedFraction: 0.3, resetAt: now + 48 * HOUR, observedAt: now }]]) {
+    const fx = account({ extension });
+    const t = quota(fx);
+    assert.equal(t.code, 1, t.out);
+    assert.doesNotMatch(t.out, /Quota: off/);
+    assert.match(t.out, /Counters not found: .*quota\.json has no reading/);
+    assert.match(t.out, /Ask the user for both counters/);
+    const { code, out } = asJson(fx);
+    assert.equal(code, 1);
+    assert.match(out.error, /quota\.json has no reading/);
+    assert.ok(!("mode" in out));
+  }
+});
+
+test("T6c: an explicit --file that is absent asks, naming the file; the default location absent stays off", () => {
+  const fx = account();
+  const missing = join(fx.acc.home, "gone", "q.json");
+  const t = quota(fx, ["--file", missing]);
+  assert.equal(t.code, 1, t.out);
+  assert.doesNotMatch(t.out, /Quota: off/);
+  assert.ok(t.out.includes(`Counters not found: ${missing} is missing`), t.out);
+  const { code, out } = asJson(fx, ["--file", missing]);
+  assert.equal(code, 1);
+  assert.ok(out.error.includes(`${missing} is missing`));
+  // An unexpanded option is no path: the default location, absent, is off.
+  assert.match(quota(fx, ["--file", "${user_config.quota_file}"]).out, /^Quota: off \(no counter source\)$/m);
+});
+
 test("T7: an unknown value is read as auto with a warning", () => {
   const fx = account({ readings: current(now - MIN) });
   const t = quota(fx, ["--mode", "banana"]);

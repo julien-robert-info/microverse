@@ -14,7 +14,8 @@
 //
 // --mode (else CLAUDE_PLUGIN_OPTION_QUOTA_MODE, else auto) is the quota_mode
 // setting. off, a `orch-reading --none` marker newer than every reading, or no
-// source at all, print "Quota: off (<reason>)" and exit 0: no counters, no pacing.
+// source at all (no extension file at the default location, no status line
+// reading, no history), print "Quota: off (<reason>)" and exit 0: no counters, no pacing.
 // JSON then carries mode "off", reason, advice and an `error` key (older readers
 // of this output take it as "no counters"); otherwise it carries mode "metered".
 //
@@ -118,8 +119,10 @@ const REASON = {
   user: "no quota windows, said by the user",
   "no-source": "no counter source",
 };
-// An unreadable extension file is not "no source": the counters may exist.
-const unreadable = fileProblem && existsSync(file);
+// Not "no source", the counters may exist: a file that is unreadable or holds no
+// Claude observation, and an explicit path (--file) that is absent.
+const claudeObs = observations.filter((o) => (o.provider ?? "claude") === "claude");
+const unreadable = existsSync(file) ? Boolean(fileProblem) || !claudeObs.length : lib.setOption(opts.file);
 if (decided.mode === "off" && !(decided.reason === "no-source" && unreadable)) {
   if (json) {
     const text = REASON[decided.reason];
@@ -139,7 +142,7 @@ if (decided.mode === "off" && !(decided.reason === "no-source" && unreadable)) {
   return;
 }
 
-if (!observations.length && !statuslineObs.length && !historyObs.length) {
+if (!claudeObs.length && !statuslineObs.length && !historyObs.length) {
   // A refresh failure is still reported in text mode, as before.
   if (!json) for (const l of startNotes) console.log(l);
   failed([
