@@ -130,6 +130,9 @@ Agent(subagent_type: "microverse:meeseeks", model: "sonnet",
 ```
 
 - The brief follows `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/brief.md`.
+- The `description` starts with the mission's Id (`E33d board foundation`): the
+  board links an agent to its mission by it, above all `rick`, `council` and
+  `meeseeks`, which have no worktree.
 - Launch from the main repository root. With a remote, the worktree starts from
   `origin/HEAD`, not the local `HEAD`: the `morty` fast-forwards to `main`
   first; a brief based on another branch names it. On Windows a lowercase drive
