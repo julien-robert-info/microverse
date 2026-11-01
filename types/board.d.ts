@@ -45,8 +45,9 @@ export type LightState = {
 export type Light = {
   // Absolute path of the repository's root.
   project: string
-  // What `$.session.root()` gave: the key of the reading, which differs from
-  // `project` when the session runs in a worktree.
+  // What `$.session.root()` gave: the key of the reading. It differs from
+  // `project` in spelling on Windows (`D:\` against `D:/`), and in place when
+  // the session runs in a subfolder or a worktree.
   root: string
   at: number
   worktrees: Sensed<LightWorktree[]> | null
@@ -172,14 +173,12 @@ export type CheckItem = {
   lines: string[]
 }
 
-// agent-check result of a branch, by branch name. `running` has no checks yet
-// and disables the button; `error` carries the reason in `error`.
+// agent-check result of a branch, by branch name. `running` has no checks yet.
 export type CheckResult = {
   at: number
-  state: 'running' | 'done' | 'error'
+  state: 'running' | 'done'
   verdict?: 'green' | 'needs-fixes'
   checks: CheckItem[]
-  error?: string
 }
 
 // Last quota reading sent to the status line recorder.
@@ -189,8 +188,8 @@ export type QuotaSent = {
   week: { used: number; resetsAt: number } | null
 }
 
-// First press of a two-press answer (the option marked, not yet sent), and the
-// questions whose answer was already sent.
+// The answer in progress (an option marked, not yet sent), and the questions
+// whose answer was already sent.
 export type AnswerState = {
   pending: { question: string; option: string } | null
   sent: string[]
@@ -235,15 +234,6 @@ export type BoardActions = {
   openDetail: (kind: DetailKind, id: string) => unknown
   // Flips a fold from its default: adds the key to `view.toggled`, or removes it.
   toggle: (key: string) => unknown
-  // Runs `agent-check <branch> --json` (never `--merged`), one at a time. A
-  // branch that is not a plain ref name is refused.
-  runCheck: (branch: string) => unknown
-  // First press of an answer: marks `option` of `question` (`Q<n>`, a letter).
-  chooseAnswer: (question: string, option: string) => unknown
-  // Second press: puts `text` in the prompt box, not sent. `text` is `Q<n> <letter>`
-  // or `Q<n> <free text>` on one line, 500 characters at most. A question
-  // already answered is refused.
-  sendAnswer: (text: string) => unknown
 }
 
 // What every section renderer of the Cockpit receives.

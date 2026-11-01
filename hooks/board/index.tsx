@@ -3,22 +3,13 @@ import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
 import type {
   Activity,
-  AnswerState,
   BoardActions,
-  CheckResult,
   Heavy,
   Light,
   View,
 } from '../../types/board'
 import { renderCockpit } from './cockpit'
-import {
-  answerOf,
-  hasProfile,
-  isBranch,
-  readCheck,
-  readHeavy,
-  readLight,
-} from './sensors'
+import { hasProfile, readHeavy, readLight } from './sensors'
 
 // The engine lists what a module reads and writes from the atoms declared in
 // this file, with literal references. The shape tag changes with the shape of
@@ -65,8 +56,6 @@ type Run = {
   cancel: (() => void) | undefined
   isHeavyRunning: boolean
   isLightRunning: boolean
-  isCheckRunning: boolean
-  isSending: boolean
   lastHeavyAt: number | undefined
   // The last `bodyColumns` logged.
   columns: number | undefined
@@ -101,7 +90,6 @@ const refreshLight = async ($: EngineInterface, run: Run, root: string) => {
     const previous = await read($, lightAtom)
     const next: Light = await readLight($, root, previous)
     await update($, lightAtom, () => next)
-    await settleAnswers($, next)
   } finally {
     run.isLightRunning = false
   }
@@ -133,83 +121,6 @@ const refreshHeavy = async (
   } finally {
     run.isHeavyRunning = false
   }
-}
-
-// One agent-check at a time, whatever the branch: the script takes a lock of
-// its own and a second run would only fail on it.
-const runCheck = async (
-  $: EngineInterface,
-  run: Run,
-  branch: string,
-) => {
-  if (!isBranch(branch)) {
-    $.ui.log('board: agent-check refused a branch name', { to: 'debug' })
-
-    return
-  }
-  if (run.isCheckRunning) {
-    return
-  }
-  run.isCheckRunning = true
-  try {
-    const root = await ensure($, run)
-    if (root === undefined) {
-      return
-    }
-    const now = await $.clock.now()
-    const running: CheckResult = { at: now, state: 'running', checks: [] }
-    await update($, checksAtom, (all: Record<string, CheckResult>) => ({ ...all, [branch]: running }))
-    const result: CheckResult = await readCheck($, root, branch)
-    await update($, checksAtom, (all: Record<string, CheckResult>) => ({ ...all, [branch]: result }))
-  } finally {
-    run.isCheckRunning = false
-  }
-}
-
-const chooseAnswer = async ($: EngineInterface, question: string, option: string) => {
-  if (!/^Q\d+$/.test(question) || !/^[a-z]$/.test(option)) {
-    return
-  }
-  await update($, answerAtom, (answer: AnswerState) =>
-    answer.sent.includes(question) ? answer : { ...answer, pending: { question, option } },
-  )
-}
-
-// Second press: the text goes to the prompt box and is not sent; the person
-// presses Enter. One fill per question while it is still waiting.
-const sendAnswer = async ($: EngineInterface, run: Run, text: string) => {
-  const question = answerOf(text)
-  if (question === undefined || run.isSending) {
-    return
-  }
-  run.isSending = true
-  try {
-    const answer = await read($, answerAtom)
-    if (answer.sent.includes(question)) {
-      return
-    }
-    await $.prompt.fill({ text })
-    await update($, answerAtom, (current: AnswerState) => ({
-      pending: null,
-      sent: [...current.sent, question],
-    }))
-  } finally {
-    run.isSending = false
-  }
-}
-
-// A question that left the state file's waiting list is settled: its mark and
-// its sent flag go, so the file is the only record.
-const settleAnswers = async ($: EngineInterface, light: Light) => {
-  const waiting = light.state?.value.pending
-  if (waiting === undefined) {
-    return
-  }
-  await update($, answerAtom, (answer: AnswerState) => ({
-    pending:
-      answer.pending !== null && waiting.includes(answer.pending.question) ? answer.pending : null,
-    sent: answer.sent.filter(question => waiting.includes(question)),
-  }))
 }
 
 // The gate of rule A4: with no profile nothing is started, and a profile that
@@ -245,8 +156,6 @@ export const register: Register = (on, options) => {
     cancel: undefined,
     isHeavyRunning: false,
     isLightRunning: false,
-    isCheckRunning: false,
-    isSending: false,
     lastHeavyAt: undefined,
     columns: undefined,
   }
@@ -345,10 +254,6 @@ export const register: Register = (on, options) => {
             ? current.toggled.filter(item => item !== key)
             : [...current.toggled, key],
         })),
-      runCheck: branch => guarded($, 'check', () => runCheck($, run, branch)),
-      chooseAnswer: (question, option) =>
-        guarded($, 'answer', () => chooseAnswer($, question, option)),
-      sendAnswer: text => guarded($, 'answer', () => sendAnswer($, run, text)),
     }
     // Logged when the width changes, not at every redraw.
     if (run.columns !== e.props.bodyColumns) {

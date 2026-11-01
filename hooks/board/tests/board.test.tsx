@@ -1,8 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { answerOf, isBranch, readCheck } from '../sensors'
-
 type Kit = Parameters<TestBody>
 
 const PANE = {
@@ -543,93 +541,6 @@ for (const [bullet, isPending] of ANSWERS) {
     expect(found).toBe(isPending)
   })
 }
-
-test('only a plain ref name can become an agent-check argument', () => {
-  for (const branch of ['feat/board-foundation', 'fix/a.b_c', 'main']) {
-    expect([branch, isBranch(branch)]).toEqual([branch, true])
-  }
-  for (const branch of ['', '--merged', '-x', '../etc', 'a/../b', 'a b', 'a;b', 'a\nb', '$(x)']) {
-    expect([branch, isBranch(branch)]).toEqual([branch, false])
-  }
-})
-
-test('an answer is Q<n> and a letter, or Q<n> and one line of at most 500 characters', () => {
-  expect(answerOf('Q37 a')).toBe('Q37')
-  expect(answerOf('Q41 oui, mais après la release')).toBe('Q41')
-  expect(answerOf(`Q5 ${'x'.repeat(497)}`)).toBe('Q5')
-  for (const text of ['', 'Q37', 'Q37 ', 'q37 a', 'Q37a', 'Q37 a\nrm -rf', `Q5 ${'x'.repeat(498)}`, ' Q37 a']) {
-    expect([text, answerOf(text)]).toEqual([text, undefined])
-  }
-})
-
-// A bare engine for `readCheck`: the argv it was given and a canned answer.
-const checkEngine = (answer: () => unknown) => {
-  const argvs: (readonly string[])[] = []
-  const engine = {
-    clock: { now: async () => START },
-    plugin: { root: '/plugin' },
-    process: {
-      run: async (argv: readonly string[]) => {
-        argvs.push(argv)
-
-        return answer()
-      },
-    },
-  }
-
-  return { argvs, engine: engine as never }
-}
-
-test('agent-check runs with --json on the branch, never with --merged, and keeps each check', async () => {
-  const out = JSON.stringify({
-    v: 1,
-    branch: 'feat/x',
-    base: 'main',
-    verdict: 'needs-fixes',
-    commits: [],
-    checks: [
-      { name: 'commits', state: 'ok', detail: '2 commits', lines: [] },
-      { name: 'profile:lint', state: 'fail', detail: 'exit 1', lines: ['a.ts:3 unused'] },
-      { name: 'patterns', state: 'skip', detail: '', lines: [] },
-    ],
-  })
-  const { argvs, engine } = checkEngine(() => ({ exitCode: 1, stdout: out }))
-
-  const result = await readCheck(engine, '/work/demo', 'feat/x')
-
-  expect(argvs).toEqual([['node', '/plugin/bin/agent-check', 'feat/x', '--json']])
-  expect(result.state).toBe('done')
-  expect(result.verdict).toBe('needs-fixes')
-  expect(result.checks.map(check => [check.name, check.state])).toEqual([
-    ['commits', 'ok'],
-    ['profile:lint', 'fail'],
-    ['patterns', 'skip'],
-  ])
-  expect(result.checks[1]?.lines).toEqual(['a.ts:3 unused'])
-})
-
-test('an agent-check that fails or prints something else is an error result with its reason', async () => {
-  const cases: [unknown, RegExp][] = [
-    [{ exitCode: 2, stdout: JSON.stringify({ v: 1, branch: 'x', error: 'branch not found' }) }, /branch not found/],
-    [{ exitCode: 0, stdout: 'oops' }, /unreadable output/],
-    [{ exitCode: 0, stdout: '{"v":1}' }, /unreadable output/],
-    [{ exitCode: 0, stdout: 'null' }, /unreadable output/],
-  ]
-
-  for (const [answer, reason] of cases) {
-    const { engine } = checkEngine(() => answer)
-    const result = await readCheck(engine, '/work/demo', 'feat/x')
-
-    expect(result.state).toBe('error')
-    expect(result.verdict).toBeUndefined()
-    expect(result.error).toMatch(reason)
-  }
-
-  const { engine } = checkEngine(() => {
-    throw new Error('node not found')
-  })
-  expect((await readCheck(engine, '/work/demo', 'feat/x')).error).toMatch(/node not found/)
-})
 
 test('the body is one column below 110 and two above', async ($, on) => {
   world(on)
