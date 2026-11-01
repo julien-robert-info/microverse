@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { freeText, parseBlocks, parseStateQuestions } from '../questions'
+import { counterText, fillAnswer, freeText, parseBlocks, parseStateQuestions } from '../questions'
 
 type Kit = Parameters<TestBody>
 
@@ -107,8 +107,17 @@ const world = (on: Kit[1], initial: Record<string, string>) => {
   on('prompt.read', () => ({ value: { text: box.draft, cursor: box.draft.length } }))
   on('prompt.fill', (_, e) => {
     box.fills.push({ text: e.text, mode: e.mode })
+    if (box.result.isFilled) {
+      box.draft = e.text
+    }
 
     return { text: e.text, cursor: e.text.length, ...box.result } as never
+  })
+  // The box is emptied by the send, after the hooks ran.
+  on('prompt.submit', (_, e) => {
+    box.draft = ''
+
+    return e
   })
   mock.clock(on, { now: START })
 
@@ -248,8 +257,8 @@ for (const surface of SURFACES) {
     expect((await ui.find({ key: 'fill:Q37' }))?.text).toBe('Fill Q37 a')
     await press(ui, 'fill:Q37')
     expect(box.fills).toEqual([{ text: 'Q37 a', mode: 'replace' }])
-    expect(await shows(ui, /Q37 is in your input box/)).toBe(true)
-    expect(await has(ui, 'answer:Q37:a')).toBe(false)
+    expect(await shows(ui, /^1 answer waits in your input box: press Enter there to send it.$/)).toBe(true)
+    expect(await has(ui, 'answer:Q37:a')).toBe(true)
     await ui.unmount()
   })
 
@@ -330,11 +339,11 @@ for (const surface of SURFACES) {
     await press(ui, 'fill:Q37')
     expect(await shows(ui, /did not take the text/)).toBe(true)
     expect(await has(ui, 'fill:Q37')).toBe(true)
-    expect(await shows(ui, /is in your input box/)).toBe(false)
+    expect(await shows(ui, /answer waits in your input box/)).toBe(false)
     box.result = { isFilled: true }
     await press(ui, 'fill:Q37')
     expect(box.fills.map(one => one.text)).toEqual(['Q37 a', 'Q37 a'])
-    expect(await shows(ui, /Q37 is in your input box/)).toBe(true)
+    expect(await shows(ui, /^1 answer waits in your input box/)).toBe(true)
     await ui.unmount()
   })
 
@@ -374,6 +383,9 @@ for (const surface of SURFACES) {
     await press(ui, 'answer:Q37:a')
     await press(ui, 'fill:Q37')
     expect(box.fills).toHaveLength(1)
+    await $.prompt.submit({ text: 'Q37 a' })
+    await settle()
+    expect(await shows(ui, /^Q37 was sent\.$/)).toBe(true)
     files[`${ROOT}/CLAUDE.local.md`] = `${M10}\n- Q37 reste ouverte\n`
     await press(ui, 'refresh')
     await press(ui, 'answer:Q37:c')
@@ -427,4 +439,178 @@ test('freeText builds one line of at most 500 characters from an Id and clean te
   expect(freeText('Q37', '\u0007')).toBeNull()
   expect(freeText('37; rm', 'x')).toBeNull()
   expect(Array.from(freeText('Q37', 'é'.repeat(900)) ?? '')).toHaveLength(500)
+})
+
+// ---- Several answers in one message ----------------------------------------
+
+const TWO = {
+  'CLAUDE.local.md': STATE('- Q96 (notes/E9.md) : un', '- Q97 (notes/E10.md) : deux'),
+  'notes/E9.md': BLOCK('Q96', RECOMMENDED),
+  'notes/E10.md': ['### Q97. Other one?', '', '- **a.** Yes : go', '- **b.** No : stop', '', '**Recommendation: b.**'].join(
+    '\n',
+  ),
+}
+
+const answer = async (ui: Mounted, id: string, letter: string) => {
+  await press(ui, `answer:${id}:${letter}`)
+  await press(ui, `fill:${id}`)
+}
+
+const texts = (box: { fills: Fill[] }) => box.fills.map(one => one.text)
+
+test('B1 two answers fill one text, in replace mode', async ($, on) => {
+  const { box } = await start($, on, TWO)
+  const ui = await $.ui.mount(pane('desktop', WIDE))
+
+  await answer(ui, 'Q96', 'a')
+  await answer(ui, 'Q97', 'b')
+  expect(box.fills).toEqual([
+    { text: 'Q96 a', mode: 'replace' },
+    { text: 'Q96 a, Q97 b', mode: 'replace' },
+  ])
+  expect(await shows(ui, /^2 answers wait in your input box: press Enter there to send them\.$/)).toBe(true)
+  await ui.unmount()
+})
+
+test('B2 a change of mind replaces the answer and keeps the order', async ($, on) => {
+  const { box } = await start($, on, TWO)
+  const ui = await $.ui.mount(pane('desktop', WIDE))
+
+  await answer(ui, 'Q96', 'a')
+  await answer(ui, 'Q96', 'c')
+  expect(texts(box)).toEqual(['Q96 a', 'Q96 c'])
+  await answer(ui, 'Q97', 'a')
+  await answer(ui, 'Q96', 'b')
+  expect(texts(box).slice(2)).toEqual(['Q96 c, Q97 a', 'Q96 b, Q97 a'])
+  await ui.unmount()
+})
+
+test('B3 a typed box is refused and nothing moves', async ($, on) => {
+  const { box } = await start($, on, TWO)
+  const ui = await $.ui.mount(pane('desktop', WIDE))
+
+  await answer(ui, 'Q96', 'a')
+  box.draft = 'Q96 a, and a few words'
+  await answer(ui, 'Q97', 'b')
+  expect(texts(box)).toEqual(['Q96 a'])
+  expect(await shows(ui, /holds a draft/)).toBe(true)
+  expect(await shows(ui, /^1 answer waits/)).toBe(true)
+  await ui.unmount()
+})
+
+test('B4 the box read back with a line end or a space is still ours', async ($, on) => {
+  const { box } = await start($, on, TWO)
+  const ui = await $.ui.mount(pane('desktop', WIDE))
+
+  await answer(ui, 'Q96', 'a')
+  box.draft = 'Q96 a \r\n'
+  await answer(ui, 'Q97', 'b')
+  expect(texts(box)).toEqual(['Q96 a', 'Q96 a, Q97 b'])
+  await ui.unmount()
+})
+
+test('B5 sending both tokens marks both as sent and clears the list', async ($, on) => {
+  const { box } = await start($, on, TWO)
+  const ui = await $.ui.mount(pane('desktop', WIDE))
+
+  await answer(ui, 'Q96', 'a')
+  await answer(ui, 'Q97', 'b')
+  await $.prompt.submit({ text: 'Q96 a, Q97 b' })
+  await settle()
+  expect(await shows(ui, /^Q96 was sent\.$/)).toBe(true)
+  expect(await shows(ui, /^Q97 was sent\.$/)).toBe(true)
+  expect(await shows(ui, /answers? waits?/)).toBe(false)
+  await ui.unmount()
+  expect(box.fills).toHaveLength(2)
+})
+
+test('B6 sending one token only leaves the other answerable once the box is empty', async ($, on) => {
+  const { box } = await start($, on, TWO)
+  const ui = await $.ui.mount(pane('desktop', WIDE))
+
+  await answer(ui, 'Q96', 'a')
+  await answer(ui, 'Q97', 'b')
+  await $.prompt.submit({ text: 'Q96 a' })
+  await settle()
+  expect(await shows(ui, /^Q96 was sent\.$/)).toBe(true)
+  expect(await has(ui, 'answer:Q97:b')).toBe(true)
+  await answer(ui, 'Q97', 'a')
+  expect(texts(box).at(-1)).toBe('Q97 a')
+  await ui.unmount()
+})
+
+test('B7 a box emptied by hand marks nothing and the next answer starts clean', async ($, on) => {
+  const { box } = await start($, on, TWO)
+  const ui = await $.ui.mount(pane('desktop', WIDE))
+
+  await answer(ui, 'Q96', 'a')
+  box.draft = ''
+  await answer(ui, 'Q97', 'b')
+  expect(texts(box)).toEqual(['Q96 a', 'Q97 b'])
+  expect(await shows(ui, /was sent/)).toBe(false)
+  await ui.unmount()
+})
+
+test('B8 a free answer with a comma and a Q id inside is one token, never re-read', async ($, on) => {
+  const { box } = await start($, on, TWO)
+  const ui = await $.ui.mount(pane('desktop', WIDE))
+
+  await answer(ui, 'Q96', 'a')
+  box.draft = 'Q96 a'
+  await press(ui, 'open:question:Q97')
+  await ui.input({ key: 'free:Q97', text: 'no, see Q96 b' })
+  await settle()
+  box.draft = 'Q96 a, Q97 no, see Q96 b'
+  await answer(ui, 'Q96', 'c')
+  expect(texts(box)).toEqual(['Q96 a', 'Q96 a, Q97 no, see Q96 b', 'Q96 c, Q97 no, see Q96 b'])
+  await ui.unmount()
+})
+
+test('B9 a stored value of the first shape (no list, no filled) works', async () => {
+  const seen: string[] = []
+  const $ = {
+    prompt: {
+      read: async () => ({ text: '' }),
+      fill: async (one: { text: string }) => (seen.push(one.text), { isFilled: true }),
+    },
+  }
+  const out = await fillAnswer($ as never, { pending: null, sent: [] } as never, [
+    { question: 'Q96', token: 'Q96 a' },
+  ])
+
+  expect(out).toEqual({ refusal: null, answers: [{ question: 'Q96', token: 'Q96 a' }], filled: 'Q96 a' })
+  expect(seen).toEqual(['Q96 a'])
+})
+
+test('B10 prompt.submit never blocks: odd events pass, meta and commands are ignored', async ($, on) => {
+  await start($, on, TWO)
+  const ui = await $.ui.mount(pane('desktop', WIDE))
+
+  await answer(ui, 'Q96', 'a')
+  await $.prompt.submit({ text: 'Q96 a', isMeta: true } as never)
+  await $.prompt.submit({ text: 'Q96 a', command: 'board' } as never)
+  await $.prompt.submit({ text: '' })
+  await settle()
+  expect(await shows(ui, /was sent/)).toBe(false)
+  expect(await shows(ui, /^1 answer waits/)).toBe(true)
+  await ui.unmount()
+})
+
+test('B11 the counter says one answer or N answers', async () => {
+
+  expect(counterText(1)).toBe('1 answer waits in your input box: press Enter there to send it.')
+  expect(counterText(3)).toBe('3 answers wait in your input box: press Enter there to send them.')
+})
+
+test('B12 "Fill all recommended" fills every recommendation at once and respects a draft', async ($, on) => {
+  const { box } = await start($, on, TWO)
+  const ui = await $.ui.mount(pane('desktop', WIDE))
+
+  box.draft = 'typing'
+  await press(ui, 'fill:recommended')
+  expect(box.fills).toEqual([])
+  box.draft = ''
+  await press(ui, 'fill:recommended')
+  expect(box.fills).toEqual([{ text: 'Q96 a, Q97 b', mode: 'replace' }])
+  await ui.unmount()
 })

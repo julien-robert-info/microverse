@@ -1,6 +1,8 @@
 import type { EngineInterface } from 'claude-code'
 
 import type {
+  AnswerState,
+  AnswerToken,
   AnsweredQuestion,
   BoardContext,
   PendingQuestion,
@@ -329,21 +331,74 @@ export const freeText = (id: string, text: string): string | null => {
 
 export type Refusal = 'dialog' | 'no_composer' | 'draft' | 'unknown'
 
-// Fills the prompt box, never over a draft: `fill` without `mode` replaces it.
-// A function declaration, so that the engine sees `$.prompt` here. Null when the
-// box holds the text.
-export async function fillAnswer($: Engine, text: string): Promise<Refusal | null> {
+// Tokens are joined with a comma: `Q96 a, Q97 b`.
+const joinTokens = (answers: AnswerToken[]) => answers.map(one => one.token).join(', ')
+
+// What the engine hands back from the box may differ from what `fill` wrote by
+// a line end or a trailing space.
+const bare = (text: string) => text.replace(/\s+$/, '')
+
+// An answer for a question already in the list replaces it in place; another
+// question goes last.
+export const withAnswers = (answers: AnswerToken[], added: AnswerToken[]) =>
+  added.reduce(
+    (list, one) =>
+      list.some(item => item.question === one.question)
+        ? list.map(item => (item.question === one.question ? one : item))
+        : [...list, one],
+    answers,
+  )
+
+export type Filled = { refusal: Refusal | null; answers: AnswerToken[]; filled: string | null }
+
+// Fills the prompt box with the answers waiting plus the new ones, never over a
+// draft. The text is rebuilt from the list, never parsed from the box: the box
+// is only compared with what was written last. A function declaration, so that
+// the engine sees `$.prompt` here. On a refusal `answers` and `filled` are the
+// ones given, untouched.
+export async function fillAnswer(
+  $: Engine,
+  state: Pick<AnswerState, 'answers' | 'filled'>,
+  added: AnswerToken[],
+): Promise<Filled> {
+  const kept = state.answers ?? []
+  const filled = state.filled ?? null
+  const untouched = { answers: kept, filled }
   try {
-    if ((await $.prompt.read()).text !== '') {
-      return 'draft'
+    const box = (await $.prompt.read()).text
+    const isOurs = filled !== null && bare(box) === bare(filled)
+    if (box.trim() !== '' && !isOurs) {
+      return { refusal: 'draft', ...untouched }
     }
+    const answers = withAnswers(box.trim() === '' ? [] : kept, added)
+    const text = joinTokens(answers)
     const result = await $.prompt.fill({ text, mode: 'replace' })
 
-    return result.isFilled ? null : (result.refusal ?? 'unknown')
+    return result.isFilled
+      ? { refusal: null, answers, filled: text }
+      : { refusal: result.refusal ?? 'unknown', ...untouched }
   } catch {
-    return 'unknown'
+    return { refusal: 'unknown', ...untouched }
   }
 }
+
+// The entries of the list whose token is in the message just sent.
+export const submittedIn = (answers: AnswerToken[], text: string) =>
+  answers.filter(one => text.includes(one.token))
+
+export const counterText = (count: number) =>
+  count === 1
+    ? '1 answer waits in your input box: press Enter there to send it.'
+    : `${count} answers wait in your input box: press Enter there to send them.`
+
+// The recommended option of every pending question that has a readable one.
+export const recommendedTokens = (questions: QuestionsLight): AnswerToken[] =>
+  questions.pending.flatMap(question => {
+    const letter = blockOf(questions, question)?.recommended ?? null
+    const token = letter === null ? null : optionText(question.id, letter)
+
+    return token === null ? [] : [{ question: question.id, token }]
+  })
 
 // ---- Renders ---------------------------------------------------------------
 
@@ -375,7 +430,7 @@ const answerParts = (context: BoardContext, question: PendingQuestion, block: Qu
       <Box flexDirection="column">
         {isSent ? (
           <Text color="success">
-            {`${question.id} is in your input box: press Enter there to send it.`}
+            {`${question.id} was sent.`}
           </Text>
         ) : (
           <Box flexDirection="column">
@@ -409,11 +464,23 @@ export const renderQuestions = (context: BoardContext) => {
     return null
   }
   const isOpen = board.view.toggled.includes('answered')
+  const waiting = board.answer.answers?.length ?? 0
+  const recommended = recommendedTokens(questions).filter(
+    one => !board.answer.sent.includes(sentKey(one.question, questions.stateStamp)),
+  ).length
 
   return (
     <Box flexDirection="column">
       <Text weight="semibold">{`Needs your decision (${questions.pending.length})`}</Text>
       {questions.pending.length === 0 && <Text dimColor>Nothing waits on you.</Text>}
+      {waiting > 0 && <Text color="success">{counterText(waiting)}</Text>}
+      {recommended >= 2 && (
+        <Button
+          key="fill:recommended"
+          label="Fill all recommended"
+          onPress={() => actions.sendRecommended()}
+        />
+      )}
       {questions.pending.map(question => (
         <Box key={`question:${question.id}`} flexDirection="column">
           <Box gap={1}>

@@ -260,7 +260,16 @@ export type AnswerState = {
     // `unknown`: the engine refused without a cause. Never read as `no_composer`.
     cause: 'dialog' | 'no_composer' | 'draft' | 'unknown'
   } | null
+  // The answers the box waits to send, in the order they were given. Optional:
+  // an older stored value has none (empty list).
+  answers?: AnswerToken[]
+  // The last text the board wrote into the box; null (or absent) when the box
+  // holds nothing of ours.
+  filled?: string | null
 }
+
+// One question's answer as it appears in the box: `Q37 a` or `Q37 <free text>`.
+export type AnswerToken = { question: string; token: string }
 
 // Questions to Julien (hooks/board/questions.tsx).
 export type QuestionOption = { letter: string; title: string; effect: string }
@@ -378,6 +387,8 @@ export type BoardActions = {
   // Second press: fills the prompt box with what `chooseAnswer` marked. It takes
   // no text: the text is built from the marked question and option.
   sendAnswer: () => unknown
+  // Adds the recommended option of every pending question to the box at once.
+  sendRecommended: () => unknown
   // Julien's own words, from an `Input`; the only text a render hands over.
   sendFreeAnswer: (id: string, text: string) => unknown
   // E33g: opens an agent's detail and reads its brief and branch; runs
