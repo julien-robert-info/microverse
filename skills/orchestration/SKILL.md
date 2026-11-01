@@ -84,7 +84,11 @@ any other launch, and a launch with no `model`):
   wrong type: it cannot be approved, ask the user to fix it. `unapproved (main
   worktree not found)` means there is nothing to approve from here: ask the
   user to start from the main worktree.
-- **Budget**: `orch-quota --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --file '${user_config.quota_file}'`
+- **Budget**: under Claude Desktop (the tool `mcp__ccd_session_mgmt__get_usage`
+  exists; load it with `ToolSearch` if deferred), first call `get_usage` and run
+  `orch-reading --five-hour <pct> --five-hour-resets <iso> --week <pct> --week-resets <iso>`
+  so that `orch-quota` and the quota guard see a fresh reading; elsewhere skip
+  this. Then `orch-quota --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --file '${user_config.quota_file}'`
   (single quotes: an unset option stays literal and double quotes would make
   bash fail on it; write an apostrophe inside a value as `'\''`). Do not pass `--running` or `--agent-cost`: without them it
   counts the agents running on the whole account and uses their learned cost,

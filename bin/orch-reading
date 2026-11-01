@@ -1,0 +1,76 @@
+#!/usr/bin/env node
+"use strict";
+
+// Records the quota counters read by the model in Claude Desktop, where neither
+// the VS Code extension nor the status line runs, as the reading of the fixed
+// session `desktop`. orch-quota and the quota guard read it like any status
+// line reading. Desktop gives the model a `get_usage` tool; a script cannot
+// call it, so the model runs this command with the values.
+//
+//   orch-reading --five-hour <pct> --five-hour-resets <ISO-8601>
+//                --week <pct> --week-resets <ISO-8601>
+//
+// Each window is a percentage (0-100) and its reset time (ISO-8601 with a
+// zone, e.g. 2026-11-06T20:00:00.199Z); one window is enough. Exit 0 on
+// success, 2 on invalid input (nothing written), 1 when the write failed.
+
+const { readFileSync } = require("node:fs");
+const { join } = require("node:path");
+const statusline = require("../scripts/statusline.js");
+
+const SESSION = "desktop";
+const FLAGS = new Set(["--five-hour", "--five-hour-resets", "--week", "--week-resets"]);
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+
+function refuse(message) {
+  console.error(`orch-reading: ${message}`);
+  process.exit(2);
+}
+
+const args = process.argv.slice(2);
+const given = {};
+for (let i = 0; i < args.length; i += 2) {
+  const flag = args[i];
+  if (!FLAGS.has(flag)) refuse(`unknown argument ${JSON.stringify(flag)}`);
+  if (flag in given) refuse(`${flag} given twice`);
+  if (i + 1 >= args.length) refuse(`${flag} needs a value`);
+  given[flag] = args[i + 1];
+}
+
+const now = Date.now();
+
+function windowOf(label, pctFlag, resetsFlag) {
+  const p = given[pctFlag];
+  const r = given[resetsFlag];
+  if (p === undefined && r === undefined) return undefined;
+  if (p === undefined || r === undefined) refuse(`${pctFlag} and ${resetsFlag} go together`);
+  if (!/^\d+(\.\d+)?$/.test(p) || Number(p) > 100) refuse(`${pctFlag} must be a number from 0 to 100, got ${JSON.stringify(p)}`);
+  const resetsAt = ISO.test(r) ? Date.parse(r) : NaN;
+  if (!Number.isFinite(resetsAt)) refuse(`${resetsFlag} must be an ISO-8601 date with a zone, got ${JSON.stringify(r)}`);
+  if (resetsAt <= now) refuse(`${resetsFlag} ${r} is already past`);
+  return { used: Number(p), resetsAt };
+}
+
+const five = windowOf("5h", "--five-hour", "--five-hour-resets");
+const week = windowOf("week", "--week", "--week-resets");
+if (!five && !week) refuse("give at least one window: --five-hour and --five-hour-resets, or --week and --week-resets");
+
+const reading = { v: 1, at: now, ...(five && { five }), ...(week && { week }) };
+
+// The previous reading is read before the write replaces it.
+let previous = null;
+try {
+  previous = JSON.parse(readFileSync(join(statusline.readingsDir(), `${SESSION}.json`), "utf8"));
+} catch {}
+
+// The reading first: a history line appended before a failed write would make
+// the retry look like a repeat and skip its line.
+if (!statusline.writeReading(SESSION, reading)) {
+  console.error("orch-reading: could not write the reading");
+  process.exit(1);
+}
+statusline.appendHistory(statusline.historyLines(reading, previous));
+
+const iso = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, "Z");
+const part = (label, w) => `${label} ${Math.round(w.used)} % (resets ${iso(w.resetsAt)})`;
+console.log(`Recorded: ${[five && part("5h", five), week && part("week", week)].filter(Boolean).join(", ")}`);
