@@ -6,7 +6,7 @@ import type {
   LightRateLimit,
   QuotaJson,
 } from '../../types/board'
-import { renderAgents } from './agents'
+import { renderAgentDetail, renderAgents } from './agents'
 import { renderMissionDetail, renderMissions } from './missions'
 import { renderQuestions } from './questions'
 import { renderUsage } from './usage'
@@ -47,8 +47,6 @@ const resetOf = (limit: LightRateLimit) => {
 
 const thousands = (tokens: number) =>
   tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens)
-
-const minutes = (ms: number) => `${Math.max(0, Math.round(ms / 60_000))} min`
 
 const family = (model: string) =>
   /opus/i.test(model)
@@ -200,21 +198,6 @@ export const renderCockpit = (context: BoardContext) => {
     </Box>
   )
 
-  const running = (
-    <Box flexDirection="column">
-      {heading(`Agents (${agents.length})`)}
-      {agents.length === 0 && (
-        <Text dimColor>{light?.agents === null || light === null ? 'Unavailable.' : 'None running.'}</Text>
-      )}
-      {agents.map(agent => (
-        <Text wrap="truncate">
-          <Text color="warning">●</Text> {agent.type}{' '}
-          <Text dimColor>{`${agent.status} · ${agent.description} · ${minutes((light?.at ?? 0) - agent.firstSeenAt)}`}</Text>
-        </Text>
-      ))}
-    </Box>
-  )
-
   const footer = (
     <Box flexDirection="column">
       {failures.map(line => (
@@ -234,7 +217,6 @@ export const renderCockpit = (context: BoardContext) => {
       {cost}
       {renderMissions(context)}
       {renderAgents(context)}
-      {running}
       {renderQuestions(context)}
     </Box>
   )
@@ -251,6 +233,8 @@ export const renderCockpit = (context: BoardContext) => {
       <Text dimColor>Nothing selected.</Text>
     ) : detail.kind === 'mission' ? (
       renderMissionDetail(context)
+    ) : detail.kind === 'agent' ? (
+      renderAgentDetail(context)
     ) : (
       <Box flexDirection="column">
         <Text weight="semibold">{`${detail.kind} ${detail.id}`}</Text>
