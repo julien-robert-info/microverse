@@ -84,7 +84,7 @@ test("a counter read from the status line says so", () => {
 });
 
 test("without any source: off on one line, exit code 0, with the error key kept", () => {
-  const { code, out, raw } = json(["--file", join(tmpdir(), "microverse-missing.json")]);
+  const { code, out, raw } = json([], process.cwd(), { APPDATA: mkdtempSync(join(tmpdir(), "microverse-appdata-")) });
   assert.equal(code, 0);
   assert.deepEqual(Object.keys(out), ["v", "mode", "reason", "error", "advice"]);
   assert.equal(out.v, 1);

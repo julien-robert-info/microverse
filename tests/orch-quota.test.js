@@ -51,8 +51,9 @@ test("the 5h room bounds new agents by their cost and the running ones", () => {
   assert.match(advice(0.1, 0.8, ["--agent-cost", "5"]), /Advice: (speed up|normal)/);
 });
 
-test("a missing counters file and no other source is quota off, exit 0", () => {
-  const r = script("orch-quota", ["--file", join(tmpdir(), "microverse-missing.json")], process.cwd());
+test("no counters file at the default location and no other source is quota off, exit 0", () => {
+  // The default location, under an empty APPDATA: no explicit path to be absent.
+  const r = script("orch-quota", [], process.cwd(), { APPDATA: mkdtempSync(join(tmpdir(), "microverse-appdata-")) });
   assert.equal(r.code, 0);
   assert.match(r.out, /^Quota: off \(no counter source\)$/m);
 });
