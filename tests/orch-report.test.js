@@ -197,3 +197,99 @@ test("commit subjects are printed without control or invisible characters", () =
   assert.doesNotMatch(r.out, /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u{e0000}-\u{e007f}]/u);
   assert.match(r.out, /fix: a\]52;c;QQbcde/);
 });
+
+const jsonOf = (r) => {
+  assert.equal(r.out.trim().split("\n").length, 1, "one line");
+  return JSON.parse(r.out);
+};
+
+test("T1 --json: the merges with their sub-commits, direct commits with none", () => {
+  const { dir, since } = series();
+  const r = script("orch-report", ["--json", "--since", since, "--file", quotaFile(0.1, 0.1)], dir, emptyHome());
+  assert.equal(r.code, 0, r.out);
+  const j = jsonOf(r);
+  assert.equal(j.v, 1);
+  assert.equal(j.since.sha, git(dir, "rev-parse", since).out.trim());
+  assert.equal(j.since.at, Number(git(dir, "log", "-1", "--format=%ct", since).out.trim()) * 1000);
+  assert.equal(j.base, "main");
+  assert.deepEqual(
+    j.merged.map((m) => [m.subject, m.commits.map((c) => c.subject)]),
+    [["merge: one", ["feat: a1", "feat: a2"]], ["fix: direct", []], ["merge: two", ["feat: b1"]]],
+  );
+  for (const m of j.merged) {
+    assert.match(m.sha, /^[0-9a-f]{7,}$/);
+    assert.ok(m.at > 0 && m.at <= Date.now());
+  }
+  assert.match(j.merged[0].commits[0].sha, /^[0-9a-f]{7,}$/);
+  // The quota is the object of orch-quota, without its version.
+  assert.equal(j.quota.counters.week.used, 10);
+  assert.equal(j.quota.v, undefined);
+});
+
+test("T1b --json: agent runs and the advisor calls of conversations and agents", () => {
+  const { dir, since } = series();
+  const home = mkdtempSync(join(tmpdir(), "microverse-home-"));
+  const sessions = join(home, ".claude", "projects", dir.replace(/[^A-Za-z0-9]/g, "-").toLowerCase());
+  const subagents = join(sessions, "sess1", "subagents");
+  mkdirSync(subagents, { recursive: true });
+  const ts = new Date(Date.now() + 60e3).toISOString();
+  const line = (id, advisorInput) =>
+    JSON.stringify({
+      timestamp: ts,
+      requestId: `r-${id}`,
+      message: {
+        id,
+        model: "claude-sonnet-5-5",
+        usage: {
+          input_tokens: 1e6,
+          output_tokens: 0,
+          iterations: [
+            { type: "message", input_tokens: 1e6, output_tokens: 0 },
+            { type: "advisor_message", model: "claude-opus-5-5", input_tokens: advisorInput, output_tokens: 0 },
+          ],
+        },
+      },
+    }) + "\n";
+  writeFileSync(join(sessions, "sess1.jsonl"), line("m1", 250000));
+  writeFileSync(join(subagents, "agent-a1.jsonl"), line("m2", 500000) + line("m3", 250000));
+  writeFileSync(join(subagents, "agent-a1.meta.json"), JSON.stringify({ agentType: "microverse:morty", description: "Add the thing" }));
+  const r = script("orch-report", ["--json", "--since", since, "--file", quotaFile(0.1, 0.1)], dir, { HOME: home, USERPROFILE: home });
+  const j = jsonOf(r);
+  assert.equal(j.agents.runs.length, 1);
+  assert.equal(j.agents.runs[0].description, "Add the thing");
+  assert.equal(j.agents.total.advisor.calls, 2, "the agents' own");
+  assert.deepEqual(j.advisor, { calls: 3, cost: 4 });
+  assert.match(j.context.session, /sess1/);
+});
+
+test("T2 --json: a quota in error leaves the other keys", () => {
+  const { dir, since } = series();
+  const none = join(mkdtempSync(join(tmpdir(), "microverse-quota-")), "none.json");
+  const r = script("orch-report", ["--json", "--since", since, "--file", none], dir, emptyHome());
+  assert.equal(r.code, 0, r.out);
+  const j = jsonOf(r);
+  assert.match(j.quota.error, /no status line reading/);
+  assert.deepEqual(Object.keys(j.quota), ["error"]);
+  assert.equal(j.merged.length, 3);
+  assert.match(j.agents.error, /no conversation for/);
+  assert.match(j.context.error, /no conversation for/);
+  assert.equal(j.advisor, null);
+});
+
+test("--json: usage errors are JSON with exit code 2, and the flag does not swallow the next option", () => {
+  const { dir, since } = series();
+  const bad = script("orch-report", ["--json", "--since", "does-not-exist"], dir, emptyHome());
+  assert.equal(bad.code, 2);
+  assert.deepEqual(JSON.parse(bad.out), { v: 1, error: "not a commit: does-not-exist" });
+  const ok = script("orch-report", ["--since", since, "--json", "--file", quotaFile(0.1, 0.1)], dir, emptyHome());
+  assert.equal(jsonOf(ok).quota.counters.week.used, 10);
+});
+
+test("--json: strings are free of control and invisible characters", () => {
+  const { dir, since } = series();
+  const [ls, rlo] = [String.fromCharCode(0x2028), String.fromCharCode(0x202e)];
+  commit(dir, "evil.txt", `fix: a\u001b]52;c;QQ\u0007b\u009bc${ls}d${rlo}e\u{e0041}f`);
+  const r = script("orch-report", ["--json", "--since", since, "--file", quotaFile(0.1, 0.1)], dir, emptyHome());
+  assert.doesNotMatch(r.out, new RegExp("[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f-\\u009f\\u2028\\u202e\\u{e0000}-\\u{e007f}]", "u"));
+  assert.ok(jsonOf(r).merged.some((m) => m.subject === "fix: a]52;c;QQbcdef"));
+});

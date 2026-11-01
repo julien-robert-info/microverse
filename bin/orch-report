@@ -3,19 +3,28 @@
 // agent runs and their cost, the quota, the context size.
 //
 // orch-report --since <commit> [--base main] [--target N] [--reserve N] [--five-hour N] [--file <quota file>]
-//             [--no-write] [--session <id>]
+//             [--no-write] [--session <id>] [--json]
 //
 // Run from the repository root. --since is the commit of the previous report;
 // the other options are those of orch-quota, which gets --no-write too, and
 // --session names the conversation whose context is shown (orch-usage
 // --context; default: the most recent). A sibling script that fails has
 // its message printed in its section and the report goes on.
+//
+// --json prints one JSON object on one line instead of the Markdown: the
+// merges (first-parent commits with the commits they brought), and the objects
+// of orch-usage --agents, orch-quota and orch-usage --context, each replaced
+// by { "error" } when that script fails. `advisor` counts the advisor calls of
+// the conversations and of the agents (the agents' own are in agents.total).
+// A usage error is { "v": 1, "error" } with exit code 2.
 "use strict";
 
 const { join } = require("node:path");
-const { defaultBase, fail, git, parseArgs, repoRoot, run, sanitize } = require("../scripts/orch-lib.js");
+const { defaultBase, fail, failAsJson, git, parseArgs, repoRoot, run, sanitize } = require("../scripts/orch-lib.js");
+const { siblingJson } = require("../scripts/sibling-json.js");
 
-const opts = parseArgs(process.argv.slice(2), { flags: ["no-write"] });
+const opts = parseArgs(process.argv.slice(2), { flags: ["no-write", "json"] });
+if (opts.json) failAsJson();
 const root = repoRoot();
 if (typeof opts.since !== "string") fail("usage: orch-report --since <commit> [--base main] [--target N] [--reserve N] [--five-hour N] [--file <quota file>]");
 const verify = git(["rev-parse", "--verify", "--quiet", `${opts.since}^{commit}`], root);
@@ -29,6 +38,46 @@ const lines = (r) => r.out.split(/\r?\n/).filter(Boolean);
 function sibling(name, args) {
   const r = run(process.execPath, [join(__dirname, name), ...args], { cwd: process.cwd() });
   return { ok: r.code === 0, text: (r.out + (r.code === 0 ? "" : r.err)).trim() };
+}
+
+const quotaArgs = [];
+for (const o of ["target", "reserve", "five-hour", "file"]) if (typeof opts[o] === "string") quotaArgs.push(`--${o}`, opts[o]);
+if (opts["no-write"]) quotaArgs.push("--no-write");
+const contextArgs = ["--context"];
+if (typeof opts.session === "string") contextArgs.push("--session", opts.session);
+
+if (opts.json) {
+  const date = git(["log", "-1", "--format=%cI", since], root).out.trim();
+  const log = git(["log", "--first-parent", "--reverse", "--format=%h%x09%p%x09%ct%x09%s", `${since}..${base}`], root);
+  const sub = (l) => {
+    const i = l.indexOf(" ");
+    return { sha: l.slice(0, i), subject: l.slice(i + 1) };
+  };
+  const merged = log.code !== 0 ? { error: log.err.trim() } : lines(log).map((c) => {
+    const [sha, parents, at, ...subject] = c.split("\t");
+    const [first, second] = parents.split(" ");
+    const commits = second ? lines(git(["log", "--reverse", "--format=%h %s", `${first}..${second}`], root)).map(sub) : [];
+    return { sha, subject: subject.join("\t"), at: Number(at) * 1000, commits };
+  });
+  const agents = siblingJson("orch-usage", ["--agents", "--since", date], process.cwd());
+  // The per-model table holds the advisor rows of conversations and agents.
+  let advisor = null;
+  if (!agents.error) {
+    const rows = siblingJson("orch-usage", ["--since", date], process.cwd());
+    if (!rows.error) {
+      advisor = { calls: 0, cost: 0 };
+      for (const r of rows.rows.filter((x) => x.model.endsWith(" (advisor)"))) {
+        advisor.calls += r.requests;
+        advisor.cost += r.cost ?? 0;
+      }
+      advisor.cost = Number(advisor.cost.toFixed(2));
+    }
+  }
+  const quota = siblingJson("orch-quota", quotaArgs, process.cwd());
+  const context = siblingJson("orch-usage", contextArgs, process.cwd());
+  // Commit subjects are repository text: sanitized, never cut.
+  console.log(JSON.stringify({ v: 1, since: { sha: since, at: Date.parse(date) }, base, merged, agents, advisor, quota, context }, (_k, x) => (typeof x === "string" ? sanitize(x) : x)));
+  return;
 }
 
 const short = git(["rev-parse", "--short", since], root).out.trim();
@@ -72,13 +121,8 @@ if (agents.ok) {
   if (calls) out.push(`Advisor: ${calls} call${calls > 1 ? "s" : ""}, ${advisorCost.toFixed(2)} $`);
 }
 
-const quotaArgs = [];
-for (const o of ["target", "reserve", "five-hour", "file"]) if (typeof opts[o] === "string") quotaArgs.push(`--${o}`, opts[o]);
-if (opts["no-write"]) quotaArgs.push("--no-write");
 out.push("", "## Quota", "", "```", sibling("orch-quota", quotaArgs).text, "```");
 
-const contextArgs = ["--context"];
-if (typeof opts.session === "string") contextArgs.push("--session", opts.session);
 out.push("", "## Context", "", "```", sibling("orch-usage", contextArgs).text, "```");
 
 // Commit subjects (merged upstream ones too) are repository text. The agents
