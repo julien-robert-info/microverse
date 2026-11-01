@@ -9,6 +9,7 @@ import type {
   View,
 } from '../../types/board'
 import { renderCockpit } from './cockpit'
+import { isDue, readQuota, sendQuota } from './quota'
 import { hasProfile, readHeavy, readLight } from './sensors'
 
 // The engine lists what a module reads and writes from the atoms declared in
@@ -42,7 +43,7 @@ const answerAtom = atom(
 const activityAtom = atom({ plugin: 'microverse', key: 'activity' } as const, {}, {
   shape: 'activity-1',
 })
-void [checksAtom, quotaSentAtom, answerAtom, activityAtom]
+void [checksAtom, answerAtom, activityAtom]
 
 const PANE = 'microverse-board'
 const LIGHT_MS = 30_000
@@ -71,6 +72,34 @@ const guarded = async ($: EngineInterface, what: string, body: () => Promise<voi
   } catch (error) {
     $.ui.log(`board: ${what} failed: ${reasonOf(error)}`, { to: 'debug' })
   }
+}
+
+// Rule C1: from the main loop's end of turn only, with or without a profile.
+// A failed write is one line at the foot of the pane and is tried again at the
+// next turn, since `quotaSent` moves only on success.
+const recordQuota = async ($: EngineInterface) => {
+  const reading = await readQuota($)
+  if (reading === null) {
+    return
+  }
+  const now = await $.clock.now()
+  if (!isDue(await read($, quotaSentAtom), reading.sent, now)) {
+    return
+  }
+  try {
+    await sendQuota($, reading.payload)
+  } catch (error) {
+    const line = `quota: ${reasonOf(error)}`
+    $.ui.log(`board: ${line}`, { to: 'debug' })
+    await update($, lightAtom, (light: Light | null) =>
+      light === null
+        ? light
+        : { ...light, failures: [...light.failures.filter(item => !item.startsWith('quota: ')), line] },
+    )
+
+    return
+  }
+  await update($, quotaSentAtom, () => ({ at: now, ...reading.sent }))
 }
 
 const stop = (run: Run) => {
@@ -211,6 +240,7 @@ export const register: Register = (on, options) => {
     const done = await next(e)
     // A subagent's end carries agentId: it is not a turn of the orchestrator.
     if (e.agentId === undefined) {
+      void guarded($, 'quota', () => recordQuota($))
       void guarded($, 'turn', async () => {
         const root = await ensure($, run)
         if (root !== undefined) {
