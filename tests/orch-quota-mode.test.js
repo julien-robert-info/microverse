@@ -140,6 +140,20 @@ test("T5c: a history file older than 15 days with no current reading asks, it is
   assert.equal(lib.quotaMode({ now, option: "auto", marker: null, readings: { historyObs: [] } }).mode, "off");
 });
 
+test("T5d: off mode still prunes old files, except with --no-write", () => {
+  const fx = account({ readings: { s1: { at: now - 20 * 24 * HOUR, week: { used: 40, resetsAt: now - 14 * 24 * HOUR } } } });
+  const reading = join(fx.acc.home, ".claude", "microverse", "statusline", "s1.json");
+  const hist = oldHistory(fx, 30);
+  const run = (extra) => script("orch-quota", ["--mode", "off", "--running", "0", "--agent-cost", "15", ...extra], fx.cwd, fx.env);
+  const kept = run(["--no-write"]);
+  assert.match(kept.out, /^Quota: off \(quota_mode=off\)$/m);
+  assert.ok(existsSync(reading) && existsSync(hist));
+  const r = run([]);
+  assert.match(r.out, /^Quota: off \(quota_mode=off\)$/m);
+  assert.ok(!existsSync(reading), "old reading pruned");
+  assert.ok(!existsSync(hist), "old history pruned");
+});
+
 test("T6: no source at all is off (no counter source), nothing written", () => {
   const fx = account();
   const t = quota(fx);

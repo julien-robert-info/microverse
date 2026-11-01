@@ -26,7 +26,8 @@
 // { "v": 1, "error" } with exit code 1. It writes exactly what the text does.
 //
 // --no-write leaves everything as found: the installed status line script is
-// not refreshed, expired readings are not deleted and a calibration is not
+// not refreshed, expired readings are not deleted (they are, otherwise, once the
+// mode is off or a current reading is found) and a calibration is not
 // saved (a stale one is recomputed in memory, with the same result).
 //
 // --running is the number of agents working now; with --agent-cost (points of
@@ -132,6 +133,7 @@ const REASON = {
 const claudeObs = observations.filter((o) => (o.provider ?? "claude") === "claude");
 const unreadable = existsSync(file) ? Boolean(fileProblem) || !claudeObs.length : lib.setOption(opts.file);
 if (decided.mode === "off" && !(decided.reason === "no-source" && unreadable)) {
+  prune();
   if (json) {
     const text = REASON[decided.reason];
     emit({
