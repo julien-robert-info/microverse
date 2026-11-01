@@ -6,6 +6,7 @@
     "name": "Julien Robert"
   },
   "license": "MIT",
+  "types": "./types/board.d.ts",
   "keywords": [
     "orchestration",
     "agents",

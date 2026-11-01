@@ -16,8 +16,8 @@ cleans up; the launch pace follows the usage quota.
 | agent `meeseeks` (Haiku; Sonnet for a code map; writes only the new file its prompt names) | answers one question with facts and their evidence, writes a code map or runs measurement recipes |
 | agent `rick` (Opus, Sonnet for a small mission; writes only its notes file) | designs a mission: measurements, rules, draft brief, questions for the user |
 | agent `council` (Opus; writes only its review file) | reviews a risky diff, writes the full review to a file, returns a verdict and one line per defect |
-| `orch-quota` | reads the quota counters (extension and terminal status line readings, merged; the status line also keeps a 15-day history that serves the period start and, without a recent extension reading, the calibration) and advises the launch pace, counting the agents running on the account and learning their cost (`--calibrate`); `--no-write` reads without refreshing, pruning or saving anything |
-| `orch-usage` | tokens and API-equivalent cost per model (advisor calls on their own `<model> (advisor)` rows) or per agent run, context size of a session |
+| `orch-quota` | reads the quota counters (extension and terminal status line readings, merged; the status line also keeps a 15-day history that serves the period start and, without a recent extension reading, the calibration) and advises the launch pace, counting the agents running on the account and learning their cost (`--calibrate`); `--no-write` reads without refreshing, pruning or saving anything; `--json` prints the counters, period, pace, advice (with how many agents may still launch) and the readings of the current window as one JSON object, and writes what the text writes |
+| `orch-usage` | tokens and API-equivalent cost per model (advisor calls on their own `<model> (advisor)` rows) or per agent run, context size of a session; `--json` prints the same figures as one JSON object (tokens as counts, dates in milliseconds, `finished` per run) |
 | `orch-report --since <commit>` | merges since a commit, agent runs and their cost, quota and context size, in Markdown (`--no-write` is passed to `orch-quota`, `--session <id>` picks the conversation of the context line) |
 | `orch-speak` | turns a spoken text (stdin or `--file`) into an mp3 with edge-tts for the optional audio report and prints its path; `MICROVERSE_EDGE_TTS` names the edge-tts command when it is not on PATH |
 | `orch-status [<commit>]` | plain-text overview, read-only: missions and questions of `CLAUDE.local.md`, agent worktrees, merges since the last report, agent runs, quota, context (the command behind `/microverse:status`) |
@@ -32,11 +32,13 @@ cleans up; the launch pace follows the usage quota.
 | `SubagentStop` hook | stops servers left running by a finished agent |
 | `UserPromptSubmit` hook (`context-guard`) | once, when the context nears the auto-compaction window: update the state file; once, when it is past it (`autoCompactWindow` probably unset); once, when `autoCompactWindow` is below `compact_window` + 33000; once, when `CLAUDE.local.md` exceeds 60 lines; ignores a prompt starting with `/microverse:status` |
 | `SessionStart` hook (matcher `compact\|startup\|resume\|clear`) | in a project with a profile, tells every conversation to load the orchestration skill first; after a compaction, restates that `CLAUDE.local.md` is the state of reference and lists the agent worktrees, merged or not; on a new, cleared or resumed conversation, lists them with their last commit and uncommitted changes to resume an interrupted series (silent without a profile) |
+| `board` mod (`hooks/board/`, module of `hooks.json`) | Board pane for Claude Desktop (command `/board`): launch pace, context, series cost and running agents of the project; see [Board](#board) |
 | `user/CLAUDE.md` | writing rules (README, comments, commits), to import into `~/.claude/CLAUDE.md` |
 
 ## Requirements
 
-- Claude Code 2.1.293 or newer (`haiku` model alias for Claude Haiku 5.5).
+- Claude Code 2.1.306 or newer (`haiku` model alias for Claude Haiku 5.5; the
+  `board` mod's hooks module and `plugin test`).
 - Node.js 20 or newer, for the scripts in `bin/`.
 - Git.
 - Optional, for the quota counters: the VS Code extension "Claude Code Usage"
@@ -144,6 +146,29 @@ total and the quota and context detail. `--agents` lists each agent run and
 `--verbose` adds the Pace, Running, Agent cost and Advice lines of the quota
 (`/microverse:status --agents --verbose`). With hooks disabled, the
 skill asks the model to run `orch-status` instead, which costs one request.
+
+### Board
+
+`/board` opens the Board pane of Claude Desktop; on Desktop the pane also opens
+by itself at the start of a session, and on a terminal only `/board` opens it.
+The Cockpit tab shows the launch pace, the context, the series cost and the
+running agents of the project, read from `orch-status --json`; the Usage tab is
+not available yet.
+
+- **Refresh** reads everything again at once. Otherwise the git worktrees, the
+  agent roster, the rate limits and `CLAUDE.local.md` are read every 30 s while
+  the pane is open, and `orch-status` runs when the pane opens and at the end of
+  a main turn (not a subagent's), at most once per 120 s and never two at a
+  time.
+- A reading that fails keeps the previous value and adds one line at the foot
+  of the pane.
+- Below 110 columns the pane has one column and a detail replaces it, with a
+  Back button; from 110 it has two, with a drawer.
+- In a project with no `.claude/orchestration/profile.json` the mod is inert:
+  no timer, no `/board` command, no process.
+- The project is the one of the session's folder, whichever it is, and the
+  `week_target`, `weekday_reserve`, `five_hour_limit` and `quota_file` options
+  are passed to `orch-status` when set.
 
 ### Talking to the orchestrator
 
