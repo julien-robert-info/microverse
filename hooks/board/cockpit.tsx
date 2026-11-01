@@ -8,7 +8,7 @@ import type {
 } from '../../types/board'
 import { renderAgents } from './agents'
 import { renderMissionDetail, renderMissions } from './missions'
-import { renderQuestions } from './questions'
+import { renderQuestionDetail, renderQuestions } from './questions'
 import { renderUsage } from './usage'
 
 // Pane body width (columns) from which the detail drawer sits on the right.
@@ -251,6 +251,8 @@ export const renderCockpit = (context: BoardContext) => {
       <Text dimColor>Nothing selected.</Text>
     ) : detail.kind === 'mission' ? (
       renderMissionDetail(context)
+    ) : detail.kind === 'question' ? (
+      renderQuestionDetail(context)
     ) : (
       <Box flexDirection="column">
         <Text weight="semibold">{`${detail.kind} ${detail.id}`}</Text>
