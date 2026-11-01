@@ -9,8 +9,9 @@ import type {
   View,
 } from '../../types/board'
 import { renderCockpit } from './cockpit'
+import { readFacts, readMissions } from './notes'
 import { isDue, readQuota, sendQuota } from './quota'
-import { hasProfile, readHeavy, readLight } from './sensors'
+import { hasProfile, readHeavy, readLight, samePath } from './sensors'
 
 // The engine lists what a module reads and writes from the atoms declared in
 // this file, with literal references. The shape tag changes with the shape of
@@ -117,7 +118,17 @@ const refreshLight = async ($: EngineInterface, run: Run, root: string) => {
   run.isLightRunning = true
   try {
     const previous = await read($, lightAtom)
-    const next: Light = await readLight($, root, previous)
+    const sensed: Light = await readLight($, root, previous)
+    const next: Light = {
+      ...sensed,
+      missions: await readMissions(
+        $,
+        root,
+        previous !== null && samePath(previous.root, root) ? previous.missions : undefined,
+        (sensed.agents?.value ?? []).map(agent => agent.id),
+        sensed.failures,
+      ),
+    }
     await update($, lightAtom, () => next)
   } finally {
     run.isLightRunning = false
@@ -145,7 +156,28 @@ const refreshHeavy = async (
     }
     run.lastHeavyAt = now
     const previous = await read($, heavyAtom)
-    const next: Heavy = await readHeavy($, root, options, previous)
+    const sensed: Heavy = await readHeavy($, root, options, previous)
+    const status = sensed.status?.value
+    const light = await read($, lightAtom)
+    // The rows come from the light reading; a heavy one that races ahead of the
+    // first light reading reads them itself.
+    const rows =
+      light?.missions?.rows ?? (await readMissions($, root, undefined, [], [])).rows
+    const runs = status?.report?.agents ?? status?.agents ?? undefined
+    const next: Heavy = {
+      ...sensed,
+      missions:
+        status === undefined
+          ? previous?.missions
+          : await readFacts(
+              $,
+              root,
+              status.base.name,
+              rows,
+              runs !== undefined && 'runs' in runs ? runs.runs.map(run => run.agentId) : [],
+              previous?.missions,
+            ),
+    }
     await update($, heavyAtom, () => next)
   } finally {
     run.isHeavyRunning = false

@@ -7,7 +7,7 @@ import type {
   QuotaJson,
 } from '../../types/board'
 import { renderAgents } from './agents'
-import { renderMissions } from './missions'
+import { renderMissionDetail, renderMissions } from './missions'
 import { renderQuestions } from './questions'
 import { renderUsage } from './usage'
 
@@ -249,6 +249,8 @@ export const renderCockpit = (context: BoardContext) => {
   const drawer =
     detail === null ? (
       <Text dimColor>Nothing selected.</Text>
+    ) : detail.kind === 'mission' ? (
+      renderMissionDetail(context)
     ) : (
       <Box flexDirection="column">
         <Text weight="semibold">{`${detail.kind} ${detail.id}`}</Text>
