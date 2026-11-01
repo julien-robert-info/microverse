@@ -190,6 +190,10 @@ not available yet.
   it. The board never sends it, never overwrites a draft, and says when the box
   refused the text. Without a block, a free answer is offered on terminal and
   Desktop.
+- **Agents** are cards with the brief's summary (Goal, Rules, Tests, Zone; the
+  text as written when the brief has no template), the last tool call and, for a
+  morty, its step. The brief is captured when the agent is launched from this
+  session. Its detail has a button that runs `agent-check` on the branch.
 - **Refresh** reads everything again at once. Otherwise the git worktrees, the
   agent roster, the rate limits and `CLAUDE.local.md` are read every 30 s while
   the pane is open, and `orch-status` runs when the pane opens and at the end of

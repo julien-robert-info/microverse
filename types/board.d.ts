@@ -230,9 +230,13 @@ export type CheckItem = {
 // agent-check result of a branch, by branch name. `running` has no checks yet.
 export type CheckResult = {
   at: number
-  state: 'running' | 'done'
+  // `error`: nothing could be checked (E33g); `error` below says why.
+  state: 'running' | 'done' | 'error'
   verdict?: 'green' | 'needs-fixes'
   checks: CheckItem[]
+  error?: string
+  // A click that found the check already running.
+  note?: string
 }
 
 // Last quota reading sent to the status line recorder.
@@ -299,6 +303,42 @@ export type Activity = {
   step: string
   startedAt: number
   updatedAt: number
+  // E33g: the one-line summary of the last tool call, and the last calls.
+  lastSummary?: string
+  tools?: AgentTool[]
+  // The roster call was refused: not the same as "not read yet" (no entry).
+  unavailable?: boolean
+  // Commits ahead of the base, null when it could not be counted.
+  ahead?: number | null
+  // Read when the detail opens.
+  brief?: BriefRecord | null
+  branch?: AgentBranch
+}
+
+// What the brief store holds under `brief:<agentId>`.
+export type BriefRecord = {
+  at: number
+  type: string
+  model: string
+  description: string
+  branch: string | null
+  mission: string | null
+  text: string
+}
+
+export type AgentTool = { tool: string; summary: string; state: 'ok' | 'error' | 'running' }
+
+// `added` and `removed` are null for a binary file, which git counts as `-`.
+export type AgentFile = { path: string; added: number | null; removed: number | null }
+
+// The branch of an agent, null where git could not answer.
+export type AgentBranch = {
+  at: number
+  files: AgentFile[] | null
+  // Files changed in all, beyond the eight listed.
+  total: number | null
+  // Files not committed.
+  dirty: number | null
 }
 
 export type BoardData = {
@@ -340,6 +380,10 @@ export type BoardActions = {
   sendAnswer: () => unknown
   // Julien's own words, from an `Input`; the only text a render hands over.
   sendFreeAnswer: (id: string, text: string) => unknown
+  // E33g: opens an agent's detail and reads its brief and branch; runs
+  // agent-check on a branch.
+  openAgent: (id: string) => unknown
+  runCheck: (branch: string) => unknown
 }
 
 // What every section renderer of the Cockpit receives.
