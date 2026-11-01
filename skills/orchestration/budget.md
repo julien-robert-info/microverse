@@ -12,8 +12,9 @@ counter it takes the latest window not yet reset and, in it, the highest value
 (a counter does not fall within a window, and an idle session may rewrite an old
 value late); the `Counters:` line gives the source and age of each. If neither
 source exists, `orch-quota` answers `Quota: off (no counter source)` and there is
-no pacing. When readings exist but none is current, it says
-`No current weekly reading`: ask the user for both counters
+no pacing. When readings exist but none is current (it says
+`No current weekly reading`), or the newest is more than two hours old (the
+`Warning: last reading … ago` line), ask the user for both counters
 (`5h x% | wk y%`) at the next opportunity, without blocking, and apply the
 same rules by hand; if their plan has no limits, run
 `orch-reading --none --source user` instead. The status line also appends each rising reading
