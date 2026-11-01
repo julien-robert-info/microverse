@@ -1,0 +1,177 @@
+#!/usr/bin/env node
+// Diagnoses what the plugin needs on this machine and says what to do about
+// it. Read-only: nothing is written, nothing under ~/.claude is touched.
+//
+// orch-doctor [--json] [--project <dir>] [--transcript <file>] [--from-hook]
+//
+// The project is --project, else CLAUDE_PROJECT_DIR, else the current
+// directory. --transcript is the conversation transcript the Claude Code
+// version is read from (the hook passes its own); --from-hook says the hooks
+// ran, which the `hooks` control cannot otherwise know.
+//
+// One record per control: { name, state: ok|warn|fix, detail, action }. `fix`
+// means the plugin will not work as intended until corrected, `warn` that it
+// works degraded or untested; both carry an action. --json prints
+// { v, project, records, summary }.
+//
+// Exit code: 0 when no control is `fix`, 1 otherwise, 2 on a usage error.
+"use strict";
+
+const { spawnSync } = require("node:child_process");
+const { existsSync, readFileSync } = require("node:fs");
+const { homedir } = require("node:os");
+const { join, resolve } = require("node:path");
+const { fail, git, mainRoot, parseArgs, profileTrust, sanitize } = require("../scripts/orch-lib.js");
+
+const USAGE = "usage: orch-doctor [--json] [--project <dir>] [--transcript <file>] [--from-hook]";
+const GIT_MIN = [2, 38];
+
+const opts = parseArgs(process.argv.slice(2), { flags: ["json", "from-hook"] });
+const known = new Set(["_", "json", "from-hook", "project", "transcript"]);
+if (opts._.length || Object.keys(opts).some((k) => !known.has(k)) || opts.project === true || opts.transcript === true) fail(USAGE);
+const json = opts.json === true;
+const project = resolve(typeof opts.project === "string" ? opts.project : process.env.CLAUDE_PROJECT_DIR || process.cwd());
+
+// "2.1.306 (Claude Code)", "v22.5.0" or "git version 2.43.0.windows.1" -> [2, 1, 306], or null.
+function parseVersion(text) {
+  const m = /(\d+)\.(\d+)(?:\.(\d+))?/.exec(String(text ?? ""));
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)] : null;
+}
+
+// Segment by segment, as numbers: 2.1.10 is after 2.1.9.
+function compare(a, b) {
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
+  return 0;
+}
+
+const records = [];
+function add(name, state, detail, action = "") {
+  records.push({ name, state, detail, action: state === "ok" ? "" : action });
+}
+
+// The versions this release was tested with, from the plugin's package.json.
+function testedWith() {
+  try {
+    const t = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")).testedWith;
+    const claude = parseVersion(t?.claudeCode);
+    const nodes = Array.isArray(t?.node) && t.node.every(Number.isInteger) ? [...t.node].sort((a, b) => a - b) : [];
+    if (claude && nodes.length) return { claudeCode: String(t.claudeCode), claude, node: nodes };
+  } catch {}
+  return null;
+}
+
+function checkNode(tested) {
+  const raw = process.env.MICROVERSE_NODE_VERSION || process.versions.node;
+  const v = parseVersion(raw);
+  if (!tested) return add("node", "warn", `Node.js ${raw}, tested versions unknown`, "Reinstall the plugin: its package.json does not say which versions it was tested with");
+  const list = tested.node.join(", ");
+  if (!v) return add("node", "warn", `Node.js version unknown (${raw})`, `Check \`node --version\`: microverse is tested with Node.js ${list}`);
+  if (v[0] < tested.node[0]) return add("node", "fix", `Node.js ${raw} is older than ${tested.node[0]}`, `Install Node.js ${tested.node[0]} or newer`);
+  if (!tested.node.includes(v[0])) return add("node", "warn", `untested Node.js version ${raw} (tested with ${list})`, "Untested version: report problems with the output of this command");
+  add("node", "ok", `Node.js ${raw}`);
+}
+
+// The last transcript line that carries a top-level "version" (the version of
+// Claude Code that wrote it).
+function transcriptVersion(file) {
+  try {
+    const lines = readFileSync(file, "utf8").split(/\r?\n/);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (!lines[i].includes('"version"')) continue;
+      try {
+        const v = JSON.parse(lines[i]).version;
+        if (typeof v === "string" && parseVersion(v)) return v;
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
+
+// `<claude> --version`. A test double ending in .js runs under this node.
+function binaryVersion() {
+  const bin = process.env.MICROVERSE_CLAUDE_BIN || "claude";
+  const script = /\.[cm]?js$/.test(bin);
+  // `claude` can be a .cmd shim on Windows, which only a shell resolves; that
+  // command line is a constant, never user text.
+  const shim = process.platform === "win32" && bin === "claude";
+  const opts_ = { encoding: "utf8", timeout: 5000 };
+  const r = shim
+    ? spawnSync("claude --version", { ...opts_, shell: true })
+    : spawnSync(script ? process.execPath : bin, script ? [bin, "--version"] : ["--version"], opts_);
+  return !r.error && r.status === 0 && parseVersion(r.stdout) ? r.stdout.trim() : null;
+}
+
+function checkClaudeCode(tested) {
+  if (!tested) return add("claude-code", "warn", "tested versions unknown", "Reinstall the plugin: its package.json does not say which versions it was tested with");
+  const raw = (typeof opts.transcript === "string" && transcriptVersion(opts.transcript)) || binaryVersion();
+  const v = parseVersion(raw);
+  if (!v) return add("claude-code", "warn", `version unknown (tested with ${tested.claudeCode})`, `Run \`claude --version\`: microverse is tested with ${tested.claudeCode}`);
+  const shown = `${v.join(".")} (tested with ${tested.claudeCode})`;
+  if (compare(v, tested.claude) < 0) return add("claude-code", "fix", `${shown}, older`, "Update Claude Code (`claude update`)");
+  if (v[0] === tested.claude[0] && v[1] === tested.claude[1]) return add("claude-code", "ok", shown);
+  add("claude-code", "warn", `${shown}, newer`, "Untested version: report problems with the output of this command");
+}
+
+function checkGit() {
+  const v = spawnSync("git", ["--version"], { encoding: "utf8", timeout: 5000 });
+  if (v.error || v.status !== 0) return add("git", "fix", "git not found", "Install Git");
+  const ver = parseVersion(v.stdout);
+  const inRepo = git(["rev-parse", "--show-toplevel"], project).code === 0;
+  if (!inRepo) return add("git", "fix", `${project} is not in a git repository`, "Run doctor from the project's repository");
+  if (!ver) return add("git", "warn", `git version unknown (${v.stdout.trim()})`, `Check \`git --version\`: agent-check needs git ${GIT_MIN.join(".")} or newer for its merge check`);
+  if (compare(ver, [...GIT_MIN, 0]) < 0) return add("git", "warn", `git ${ver.join(".")}`, `agent-check needs git ${GIT_MIN.join(".")} or newer for its merge check`);
+  add("git", "ok", `git ${ver.join(".")}`);
+}
+
+function checkProfile() {
+  const trust = profileTrust(mainRoot(project));
+  if (trust.state === "none") return add("profile", "warn", "no orchestration profile", "Run /microverse:init");
+  if (trust.state === "invalid") return add("profile", "fix", `profile invalid: ${trust.reason}`, `Correct ${trust.file}, or run /microverse:init to write it again`);
+  if (trust.state === "unapproved") {
+    return add("profile", "fix", "profile not approved", `Approve it: run \`orch-trust --project ${project}\` and follow its output`);
+  }
+  add("profile", "ok", `approved, ${trust.commands.length} command${trust.commands.length === 1 ? "" : "s"}`);
+  // Only an approved profile is read for what it makes the plugin stop.
+  const patterns = (trust.profile.servers ?? []).filter(Boolean);
+  const short = patterns.filter((p) => p.length < 3);
+  if (short.length) {
+    return add("servers", "warn", `pattern too short: ${short.map((p) => `"${p}"`).join(", ")}`, "Pattern too short: the SubagentStop hook may stop unrelated processes");
+  }
+  add("servers", "ok", patterns.length ? patterns.join(", ") : "no pattern");
+}
+
+function checkHooks() {
+  if (opts["from-hook"] === true) return add("hooks", "ok", "the plugin's hooks run");
+  const seen = new Set();
+  const files = [join(homedir(), ".claude", "settings.json"), join(project, ".claude", "settings.json"), join(project, ".claude", "settings.local.json")].filter((f) => {
+    const k = process.platform === "win32" ? f.toLowerCase() : f;
+    return !seen.has(k) && seen.add(k);
+  });
+  for (const f of files) {
+    try {
+      if (existsSync(f) && JSON.parse(readFileSync(f, "utf8"))?.disableAllHooks === true) {
+        return add("hooks", "fix", `disableAllHooks is true in ${f}`, `Remove disableAllHooks from ${f}`);
+      }
+    } catch {}
+  }
+  add("hooks", "warn", "no sign that the hooks ran", "The plugin's hooks did not run: run /reload-plugins, then /microverse:doctor again");
+}
+
+const tested = testedWith();
+checkNode(tested);
+checkClaudeCode(tested);
+checkGit();
+checkProfile();
+checkHooks();
+
+const summary = { ok: 0, warn: 0, fix: 0 };
+for (const r of records) summary[r.state]++;
+if (json) {
+  console.log(JSON.stringify({ v: 1, project, records, summary }, (_k, x) => (typeof x === "string" ? sanitize(x) : x)));
+} else {
+  for (const r of records) {
+    console.log(sanitize(`${r.state} ${r.name}  ${r.detail}`));
+    if (r.action) console.log(sanitize(`     -> ${r.action}`));
+  }
+}
+process.exitCode = summary.fix ? 1 : 0;

@@ -132,12 +132,12 @@ test("T19: the skill is hidden from the model and the hook is declared with its 
   assert.match(skill, /^disable-model-invocation: true$/m);
   assert.match(skill, /^name: status$/m);
   const hooks = JSON.parse(readFileSync(join(ROOT, "hooks", "hooks.json"), "utf8")).hooks.UserPromptExpansion;
-  assert.equal(hooks.length, 1);
-  assert.equal(hooks[0].matcher, "^microverse:status$");
-  const h = hooks[0].hooks[0];
+  const entry = hooks.filter((e) => e.matcher === "^microverse:status$");
+  assert.equal(entry.length, 1);
+  const h = entry[0].hooks[0];
   assert.equal(h.command, "node");
   const script_ = h.args[0].replace("${CLAUDE_PLUGIN_ROOT}", ROOT);
   assert.equal(existsSync(script_), true);
-  assert.ok(new RegExp(hooks[0].matcher).test("microverse:status"));
-  assert.equal(new RegExp(hooks[0].matcher).test("microverse:statusx"), false);
+  assert.ok(new RegExp(entry[0].matcher).test("microverse:status"));
+  assert.equal(new RegExp(entry[0].matcher).test("microverse:statusx"), false);
 });

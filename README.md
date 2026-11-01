@@ -12,6 +12,7 @@ cleans up; the launch pace follows the usage quota.
 | skill `orchestration` | procedure: roles and models, budget, brief, review of an agent's branch, series report, compaction, talking to the user, a series that runs on its own, stopping and resuming |
 | skill `init` | writes a project's orchestration profile; offers to set `autoCompactWindow`, `"model": "sonnet"` and `"advisorModel": "opus"` in `.claude/settings.local.json` (the conversation runs on Sonnet and consults Opus at decision points) |
 | skill `status` plus `UserPromptExpansion` hook | `/microverse:status`: overview of the orchestration in the terminal, with no model request |
+| skill `doctor` plus `UserPromptExpansion` hook (`doctor-command`, matcher `^microverse:doctor$`) | `/microverse:doctor`: checks Node.js, Claude Code and Git versions, the profile and its approval, the servers patterns and the hooks, and says what to do (`orch-doctor [--json] [--project <dir>]`, read-only); see [Doctor](#doctor) |
 | agent `morty` (Sonnet) | implements a brief in its worktree |
 | agent `meeseeks` (Haiku; Sonnet for a code map; writes only the new file its prompt names) | answers one question with facts and their evidence, writes a code map or runs measurement recipes |
 | agent `rick` (Opus, Sonnet for a small mission; writes only its notes file) | designs a mission: measurements, rules, draft brief, questions for the user |
@@ -147,6 +148,21 @@ total and the quota and context detail. `--agents` lists each agent run and
 `--verbose` adds the Pace, Running, Agent cost and Advice lines of the quota
 (`/microverse:status --agents --verbose`). With hooks disabled, the
 skill asks the model to run `orch-status` instead, which costs one request.
+
+### Doctor
+
+`/microverse:doctor` checks what the plugin needs on the machine and says what
+to do about each problem, with no model request (a `UserPromptExpansion` hook
+runs `orch-doctor`; with hooks disabled the skill asks the model to run it).
+One line per control, `ok`, `warn` or `fix`, and an arrow line with the action
+for the last two: `node` and `claude-code` (against the versions this release
+was tested with, `testedWith` in `package.json`: Claude Code 2.1.306,
+Node.js 22 and 24), `git` (2.38 or newer for `agent-check`'s merge check, and a repository),
+`profile` (present, valid, approved), `servers` (patterns long enough for the
+`SubagentStop` hook) and `hooks` (`disableAllHooks`). `fix` means the plugin will
+not work as intended until corrected, `warn` that it works degraded or untested.
+Nothing is written. `orch-doctor --json` prints the same records; its exit code
+is 1 when a control is `fix`.
 
 ### Board
 

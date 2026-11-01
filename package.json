@@ -3,6 +3,7 @@
   "private": true,
   "description": "Test runner entry for the microverse plugin; the plugin itself has no dependencies.",
   "engines": { "node": ">=20" },
+  "testedWith": { "claudeCode": "2.1.306", "node": [22, 24] },
   "scripts": {
     "test": "node --test",
     "release": "node tools/release.js",
