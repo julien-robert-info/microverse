@@ -19,11 +19,22 @@
 // --no-write). Run from anywhere in the repository, even from an agent's
 // worktree: the project is the main worktree. Exits 0, except 2 on a usage
 // error such as a commit that does not exist.
+//
+// --json prints one JSON object on one line instead of the text, from the same
+// readings: the state file sections, the worktrees, the branches without one,
+// the object of orch-report (null without a last report), the agent runs
+// (`agents`, read directly when there is no `report`), and the objects of
+// orch-quota and orch-usage --context, always at the top level (those of the
+// report when it succeeded, else direct readings). A sibling that fails is
+// { "error" } under its key. Lists are bounded as in the text, which cuts
+// neither lines nor the whole output in the JSON. A usage error is
+// { "v": 1, "error" } with exit code 2.
 "use strict";
 
 const { existsSync, readFileSync } = require("node:fs");
 const { basename, join } = require("node:path");
-const { agentWorktrees, fail, git, listWorktrees, parseArgs, run, sanitize, validBranch } = require("../scripts/orch-lib.js");
+const { agentWorktrees, failAsJson, fail, fmtAge, fmtDate, git, listWorktrees, parseArgs, run, sanitize, validBranch } = require("../scripts/orch-lib.js");
+const { siblingJson } = require("../scripts/sibling-json.js");
 
 // git status in the agents' worktrees would refresh and rewrite their index,
 // racing with the agents' own git commands.
@@ -37,7 +48,8 @@ const AGENT_ROWS = 15;
 const LINE_MAX = 100;
 const SECTION_TITLE = /^(missions?|questions?|resume|reprise)/;
 
-const opts = parseArgs(process.argv.slice(2), { flags: ["agents", "verbose"] });
+const opts = parseArgs(process.argv.slice(2), { flags: ["agents", "verbose", "json"] });
+if (opts.json) failAsJson();
 const given = opts._.map((a) => a.trim()).find(Boolean);
 const cwd = process.cwd();
 
@@ -48,10 +60,11 @@ for (const o of ["target", "reserve", "five-hour", "file"]) {
 }
 const session = typeof opts.session === "string" && opts.session ? ["--session", opts.session] : [];
 
-// A sibling script's output, or its error message when it fails.
-function sibling(name, args, dir) {
+// The text of a sibling script, for a message that spans several lines: the
+// --json error of orch-quota joins them with spaces.
+function siblingText(name, args, dir) {
   const r = run(process.execPath, [join(__dirname, name), ...args], { cwd: dir });
-  return { ok: r.code === 0, text: (r.out + (r.code === 0 ? "" : r.err)).trim() };
+  return (r.out + (r.code === 0 ? "" : r.err)).trim();
 }
 
 const lines = (s) => s.split(/\r?\n/);
@@ -90,30 +103,53 @@ function gauge(pct, marker = null) {
   return cells.join("");
 }
 
-// What the summary block takes from the text of orch-quota; the rest of the
-// text stays in the Quota section. A text without the counters (an error
-// message) gives no figures.
-function quotaView(text) {
-  const ls = lines(text);
-  const num = (re, l) => {
-    const m = re.exec(l ?? "");
-    return m ? Number(m[1]) : null;
-  };
-  const counters = ls.find((l) => l.startsWith("Counters:"));
-  const advice = /^Advice: (.*)$/.exec(ls.find((l) => l.startsWith("Advice:")) ?? "")?.[1];
+const HOUR = 3600e3;
+const K = (n) => `${Math.round(n / 1e3)}K`;
+
+// What the summary block takes from the object of orch-quota; without counters
+// (an error) there are no figures.
+function quotaView(q) {
+  if (q.error !== undefined) return { ok: false, five: null, week: null, pace: null, advice: undefined };
   return {
-    ok: Boolean(counters),
-    five: num(/\b5h (\d+) %/, counters),
-    week: num(/\bweek (\d+) %/, counters),
-    pace: num(/\bexpected (\d+) %/, ls.find((l) => l.startsWith("Pace:"))),
-    advice: advice?.replace(/\s*\(morty on distinct zones[^)]*\)/, ""),
-    detail: ls.filter((l) => opts.verbose || !/^(Pace|Running|Agent cost|Advice):/.test(l)),
+    ok: true,
+    // Without a current 5h window the counter is back to 0, as in the text.
+    five: q.counters.five?.used ?? 0,
+    week: q.counters.week.used,
+    pace: q.pace.expected,
+    advice: q.advice.text.replace(/\s*\(morty on distinct zones[^)]*\)/, ""),
   };
 }
 
-function contextView(text) {
-  const m = /context (\d+)K tokens, threshold (\d+)K/.exec(text ?? "");
-  return m ? { used: Number(m[1]), limit: Number(m[2]) } : null;
+// The lines orch-quota prints, from its object. The warnings are in one list:
+// the "Warning:" ones (stale readings) come after the counters, the others
+// (calibration, refresh) before them. The age of a reading is counted from now.
+function quotaLines(q, dir) {
+  if (q.error !== undefined) return lines(siblingText("orch-quota", ["--no-write", ...common], dir) || q.error);
+  const now = Date.now();
+  const hours = (ms) => `${Math.max(0, ms / HOUR).toFixed(ms < 10 * HOUR ? 1 : 0)} h`;
+  const src = (r) => `${r.source === "statusline" ? "status line" : "extension"}, ${fmtAge(now - r.observedAt)} ago`;
+  const { five, week } = q.counters;
+  const { period, pace, running, agentCost, advice } = q;
+  const late = q.warnings.filter((w) => w.startsWith("Warning:"));
+  const res = [
+    ...q.warnings.filter((w) => !w.startsWith("Warning:")),
+    `Counters: 5h ${five?.used ?? 0} %${five ? ` (resets ${fmtDate(five.resetsAt)}; ${src(five)})` : ""}, week ${week.used} % (resets ${fmtDate(week.resetsAt)}; ${src(week)})`,
+    ...late,
+    `Period: ${period.name} until ${fmtDate(period.end)}, ${hours(period.end - now)} left, target ${period.target} %`,
+    `Pace: expected ${pace.expected} % by now, actual ${pace.actual} % (${pace.delta >= 0 ? "+" : ""}${pace.delta} points); ${pace.left} points left for the period`,
+    `Running: ${running.total} agent${running.total === 1 ? "" : "s"} (${running.others === null ? "given" : `${running.others} in other projects`})`,
+    agentCost.runs === null ? `Agent cost: ${agentCost.points} points of 5h (default)` : `Agent cost: ~${agentCost.points} points of 5h (learned from ${agentCost.runs} runs)`,
+    `Advice: ${advice.text}`,
+  ];
+  return res.filter((l) => opts.verbose || !/^(Pace|Running|Agent cost|Advice):/.test(l));
+}
+
+function contextView(c) {
+  return c.error === undefined ? { used: Math.round(c.tokens / 1e3), limit: Math.round(c.threshold / 1e3) } : null;
+}
+
+function contextLines(c) {
+  return c.error === undefined ? [`Session ${c.session} (${c.model}): context ${K(c.tokens)} tokens, threshold ${K(c.threshold)}; ${c.verdict}`] : lines(c.error);
 }
 
 // Two or three lines: both quota counters as gauges (the week with the
@@ -124,22 +160,29 @@ function summary(q, ctx) {
   const f = q.five === null ? "5h no data" : `5h ${gauge(q.five)} ${q.five} %`;
   res.push(`quota    ${f}   ${w}`);
   if (q.advice) res.push(`advice   ${cut(q.advice, 90)}`);
-  if (ctx !== undefined) {
+  if (ctx != null) {
     const c = contextView(ctx);
     res.push(`context  ${c ? `${gauge((c.used / c.limit) * 100)} ${c.used}K of ${c.limit}K` : "no data"}`);
   }
   return res;
 }
 
-let quotaText = null;
-let contextText;
-// Direct readings, for the paths where orch-report does not provide them.
+// The readings of orch-quota and orch-usage --context as objects, and the
+// directory they were read from. Direct readings serve the paths where
+// orch-report does not provide them.
+let quota = null;
+let context = null;
+let quotaDir = cwd;
 function readQuota(dir) {
-  quotaText = sibling("orch-quota", ["--no-write", ...common], dir).text;
+  quotaDir = dir;
+  quota = siblingJson("orch-quota", ["--no-write", ...common], dir);
 }
 function readContext(dir) {
-  contextText = sibling("orch-usage", ["--context", ...session], dir).text;
+  context = siblingJson("orch-usage", ["--context", ...session], dir);
 }
+
+// What --json prints, filled as the readings are made.
+const data = { project: null, base: null, lastReport: null, state: { exists: false, sections: [], hidden: 0 }, worktrees: [], free: [], freeMore: 0, report: null, agents: null };
 
 const stateOut = [];
 const header = [];
@@ -147,6 +190,8 @@ const header = [];
 function notOrchestrated(message) {
   header.push(message);
   readQuota(cwd);
+  // The text shows no context here; the JSON always carries one.
+  if (opts.json) readContext(cwd);
 }
 
 // Sections of the state file whose title is about missions, questions or
@@ -190,61 +235,64 @@ const KIND_ORDER = { mi: 0, qu: 1 };
 // otherwise, the state is whatever the file says.
 function stateLines(text) {
   const wanted = stateSections(text).sort((a, b) => (KIND_ORDER[a.kind] ?? 2) - (KIND_ORDER[b.kind] ?? 2));
+  // `raw` is the line as the JSON gives it (a question without its bullet),
+  // `text` the line cut for the terminal; the size budget counts the latter.
   const flat = [];
   const push = (title, body, kind) => {
-    flat.push({ title });
+    flat.push({ title, kind });
     let b = body.filter((l) => l !== null);
     while (b.length && !b[0].trim()) b.shift();
     while (b.length && !b[b.length - 1].trim()) b.pop();
     for (const l of b) {
       const t = l.trimEnd();
-      flat.push({ text: cut(kind === "qu" && t.trim() ? `? ${t.trim().replace(/^([-*+]|\d+[.)])\s+/, "")}` : t) });
+      const raw = kind === "qu" && t.trim() ? t.trim().replace(/^([-*+]|\d+[.)])\s+/, "") : t;
+      flat.push({ raw, text: cut(kind === "qu" && t.trim() ? `? ${raw}` : t) });
     }
   };
   if (wanted.length) for (const s of wanted) push(s.title, s.body, s.kind);
-  else flat.push(...text.split(/\r?\n/).filter((l) => !/^\s*(```|~~~)/.test(l)).map((l) => ({ text: cut((row(l) ?? "").replace(/^#{1,6}\s+/, "")) })));
+  else {
+    flat.push({ title: "CLAUDE.local.md", kind: "file" });
+    for (const l of text.split(/\r?\n/).filter((l) => !/^\s*(```|~~~)/.test(l))) {
+      const t = (row(l) ?? "").replace(/^#{1,6}\s+/, "");
+      flat.push({ raw: t, text: cut(t) });
+    }
+  }
   const res = [];
   let size = 0;
   let i = 0;
   for (; i < flat.length; i++) {
-    const cost = (flat[i].title ?? flat[i].text).length + 3;
+    // The title standing for the whole file in the fallback is not in the text.
+    const cost = flat[i].kind === "file" ? 0 : (flat[i].title ?? flat[i].text).length + 3;
     if (size + cost > STATE_MAX) break;
     size += cost;
     res.push(flat[i]);
   }
-  return { shown: res, hidden: flat.length - i };
+  return { shown: res, hidden: flat.length - i, fallback: !wanted.length };
 }
 
 function stateSection(text) {
-  const { shown, hidden } = stateLines(text);
+  const { shown, hidden, fallback } = stateLines(text);
+  data.state = { exists: true, sections: [], hidden };
   for (const l of shown) {
+    if (l.title !== undefined) data.state.sections.push({ title: l.title, kind: { mi: "missions", qu: "questions", file: "file" }[l.kind] ?? "resume", lines: [] });
+    else data.state.sections[data.state.sections.length - 1]?.lines.push(l.raw);
+    // The text of the fallback has no title line.
+    if (l.title !== undefined && fallback) continue;
     if (l.title !== undefined) stateOut.push("", l.title);
     else stateOut.push(l.text === "" ? "" : `  ${l.text}`);
   }
   if (hidden) stateOut.push(`  … ${hidden} more lines in CLAUDE.local.md`);
 }
 
-// First commit-looking token of the "last report" line that git accepts.
+// The "last report" line and the first commit-looking token of it that git
+// accepts, as { sha, line }.
 function reportCommit(text, dir) {
   const line = lines(text).find((l) => /last report|dernier rapport/i.test(l));
   for (const tok of line?.match(/\b[0-9a-f]{7,40}\b/gi) ?? []) {
     const v = git(["rev-parse", "--verify", "--quiet", `${tok}^{commit}`], dir);
-    if (v.code === 0) return v.out.trim();
+    if (v.code === 0) return { sha: v.out.trim(), line };
   }
   return null;
-}
-
-// Report sections by their "## " title, without the code fences around them.
-function reportSections(text) {
-  const res = {};
-  let cur = null;
-  for (const l of lines(text)) {
-    const h = /^## (.*)$/.exec(l);
-    if (h) res[(cur = h[1].split(" ")[0])] = [];
-    else if (cur && !l.startsWith("```")) res[cur].push(l);
-  }
-  for (const k of Object.keys(res)) res[k] = res[k].filter((l) => l.trim() !== "");
-  return res;
 }
 
 function main() {
@@ -272,8 +320,11 @@ function main() {
   }
 
   const name = basename(dir);
+  data.project = dir;
+  quotaDir = dir;
   if (base) {
     const tip = git(["rev-parse", "--short", base], dir).out.trim();
+    data.base = { name: base, tip };
     header.push(`microverse status: ${name} · ${base} ${tip}`);
   } else header.push(`microverse status: ${name} · base unknown (neither main nor master; pass --base)`);
 
@@ -289,6 +340,7 @@ function main() {
   try {
     rows = agentWorktrees(dir, { details: true });
   } catch {}
+  data.worktrees = rows.map((w) => ({ branch: w.branch != null && validBranch(w.branch) ? w.branch : null, path: w.path, rel: w.rel, merged: w.merged, last: w.last, dirty: w.dirty }));
   // ✔ merged, ! merged but with uncommitted changes (worth a look), ● the
   // branch still has work to merge.
   section(
@@ -305,15 +357,19 @@ function main() {
   if (base) {
     const inTree = new Set(listWorktrees(dir).map((w) => w.branch).filter(Boolean));
     const refs = git(["for-each-ref", `--no-merged=${base}`, "--format=%(refname:short)%09%(objectname:short)%09%(subject)", "refs/heads"], dir);
-    const free = lines(refs.out)
+    const freeAll = lines(refs.out)
       .filter(Boolean)
       .map((l) => l.split("\t"))
-      .filter(([b]) => !inTree.has(b))
-      .map((c) => c.join("  "));
+      .filter(([b]) => !inTree.has(b));
+    data.free = freeAll.slice(0, MERGED_MAX).map(([branch, sha, ...subject]) => ({ branch, sha, subject: subject.join("\t") }));
+    data.freeMore = Math.max(0, freeAll.length - MERGED_MAX);
+    const free = freeAll.map((c) => c.join("  "));
     if (free.length) section(`Branches not merged into ${base}, without a worktree`, more(free, MERGED_MAX, "more"));
   }
 
-  const commit = base ? given_ ?? (state === null ? null : reportCommit(state, dir)) : null;
+  const last = base && state !== null ? reportCommit(state, dir) : null;
+  data.lastReport = last;
+  const commit = base ? given_ ?? last?.sha ?? null : null;
   if (!commit) {
     if (base) {
       note('Last report: no commit found (a "Last report"/"Dernier rapport" line with a commit in CLAUDE.local.md, or /microverse:status <commit>)');
@@ -321,81 +377,90 @@ function main() {
       // Merges cannot be listed without a base, but the runs since the commit can.
       const short = git(["rev-parse", "--short", given_], dir).out.trim();
       note(`Merged since ${short}: not listed, no base branch to compare with (pass --base)`);
-      const date = git(["log", "-1", "--format=%cI", given_], dir).out.trim();
-      const u = sibling("orch-usage", ["--agents", "--since", date], dir);
-      const ls = lines(u.text).filter((l) => l.trim());
-      if (u.ok) {
-        const sum = ls.slice(2).reduce((t, l) => t + (Number(l.split("\t")[4]) || 0), 0);
-        ls.push(`Total: $${sum.toFixed(2)} (API-equivalent)`);
-      }
-      agentsSection(ls);
     }
+    if (given_ && !base) agentsSection(readAgents(dir, given_));
+    else if (opts.json) readAgents(dir, null);
     readQuota(dir);
     readContext(dir);
     return;
   }
 
-  const rep = sibling("orch-report", ["--since", commit, "--base", base, "--no-write", ...common, ...session], dir);
-  if (!rep.ok) {
-    section("Report", lines(rep.text));
+  const rep = siblingJson("orch-report", ["--since", commit, "--base", base, "--no-write", ...common, ...session], dir);
+  if (rep.error !== undefined) {
+    section("Report", lines(rep.error));
+    data.report = rep;
+    if (opts.json) readAgents(dir, commit);
     readQuota(dir);
     readContext(dir);
     return;
   }
-  const sec = reportSections(rep.text);
+  data.report = rep;
   const short = git(["rev-parse", "--short", commit], dir).out.trim();
-  // The first-parent line only: a merge is one line, its sub-commits (the
-  // indented ones of the report) are left out.
-  const merged = (sec.Merged ?? []).filter((l) => !l.startsWith(" ")).map((l) => (l.startsWith("- ") ? cut(`✔ ${l.slice(2)}`) : l));
+  // The first-parent line only: a merge is one line, its sub-commits are left
+  // out. A failed git log is its message.
+  const merged = rep.merged.error !== undefined ? lines(rep.merged.error) : rep.merged.map((m) => cut(`✔ ${m.sha} ${m.subject}`));
   section(`Merged since ${short} (last report)`, more(merged.length ? merged : ["nothing"], MERGED_MAX, "more"));
 
-  agentsSection(sec.Agents ?? []);
-  quotaText = (sec.Quota ?? ["no output"]).join("\n");
-  contextText = (sec.Context ?? ["no output"]).join("\n");
+  agentsSection(rep.agents, rep.advisor);
+  quota = rep.quota;
+  context = rep.context;
 }
 
-// `agents`: orch-usage --agents lines (title, columns, runs), then the Total
-// and Advisor lines; without a Total line they are an error message. The runs
-// are listed only with --agents.
-function agentsSection(agents) {
-  const total = agents.find((l) => l.startsWith("Total:"));
-  const advisor = agents.find((l) => l.startsWith("Advisor:"));
-  const title = /^Agents since (\S+)/.exec(agents[0] ?? "");
-  if (!total || !title) return section("Agents", agents.length ? agents : ["no output"]);
-  const runs = agents.slice(2, agents.indexOf(total)).map((l) => l.replace(/\t/g, "  "));
-  const cost = /\$([\d.]+)/.exec(total)?.[1] ?? "?";
+// The agent runs read directly, since the commit (the last 7 days without
+// one, which only the JSON shows); kept for the JSON and returned for the text.
+function readAgents(dir, commit) {
+  const date = commit ? git(["log", "-1", "--format=%cI", commit], dir).out.trim() : null;
+  data.agents = siblingJson("orch-usage", ["--agents", ...(date ? ["--since", date] : [])], dir);
+  return data.agents;
+}
+
+// `agents`: the object of orch-usage --agents (an { error } is its message),
+// `advisor` the calls of the report. The runs are listed only with --agents.
+function agentsSection(agents, advisor = null) {
+  if (agents.error !== undefined) return section("Agents", agents.error ? lines(agents.error) : ["no output"]);
+  const runs = agents.runs.map((r) =>
+    [new Date(r.started).toISOString().slice(0, 16), r.type, r.model, r.requests, r.cost === null ? "?" : r.cost.toFixed(2), r.description.replace(/\n/g, " ")].join("  "),
+  );
   const shown = opts.agents ? runs.slice(-AGENT_ROWS) : [];
-  section(`Agents since ${title[1]}: ${runs.length} runs, $${cost} (API-equivalent)`, [
+  const calls = advisor?.calls ?? 0;
+  section(`Agents since ${new Date(agents.since).toISOString().slice(0, 16)}Z: ${runs.length} runs, $${agents.total.cost.toFixed(2)} (API-equivalent)`, [
     ...(opts.agents && runs.length > shown.length ? [`… ${runs.length - shown.length} earlier runs`] : []),
     ...shown,
-    ...(advisor ? [advisor] : []),
+    ...(calls ? [`Advisor: ${calls} call${calls > 1 ? "s" : ""}, ${advisor.cost.toFixed(2)} $`] : []),
   ]);
 }
 
 main();
 
-// Blocks separated by an empty line; a block starts without one.
-const blocks = [];
-const add = (b) => {
-  const l = [...b];
-  while (l.length && l[0] === "") l.shift();
-  if (l.length) blocks.push(l);
-};
-const q = quotaView(quotaText ?? "");
-const quotaLines = quotaText === null ? [] : q.ok ? q.detail : lines(quotaText);
-add(header);
-add(summary(q.ok ? q : { ...q, advice: undefined }, contextText));
-add(stateOut);
-add(out);
-if (quotaLines.length) add(["Quota", ...quotaLines.map((l) => `  ${l}`)]);
-if (contextText !== undefined) add(["Context", ...lines(contextText).map((l) => `  ${l}`)]);
+if (opts.json) {
+  // Commit subjects, branch names and state lines are repository text:
+  // sanitized, never cut.
+  const { report, agents, ...rest } = data;
+  console.log(JSON.stringify({ v: 1, ...rest, report, agents, quota, context }, (_k, x) => (typeof x === "string" ? sanitize(x) : x)));
+} else {
+  // Blocks separated by an empty line; a block starts without one.
+  const blocks = [];
+  const add = (b) => {
+    const l = [...b];
+    while (l.length && l[0] === "") l.shift();
+    if (l.length) blocks.push(l);
+  };
+  const q = quotaView(quota ?? { error: "" });
+  add(header);
+  add(summary(q, context));
+  add(stateOut);
+  add(out);
+  const ql = quota === null ? [] : quotaLines(quota, quotaDir);
+  if (ql.length) add(["Quota", ...ql.map((l) => `  ${l}`)]);
+  if (context !== null) add(["Context", ...contextLines(context).map((l) => `  ${l}`)]);
 
-// Text copied from files, commit subjects and branch names is sanitized; ▶ is
-// the marker of the orchestration skill's own trace lines.
-let text = sanitize(blocks.map((b) => b.join("\n")).join("\n\n")).replace(/▶/g, "");
-// No newline before the limit (one huge first line): cut in the line.
-if (text.length > TOTAL_MAX) {
-  const cutAt = text.lastIndexOf("\n", TOTAL_MAX - 60);
-  text = `${text.slice(0, cutAt > 0 ? cutAt : TOTAL_MAX - 60)}\n… output truncated`;
+  // Text copied from files, commit subjects and branch names is sanitized; ▶ is
+  // the marker of the orchestration skill's own trace lines.
+  let text = sanitize(blocks.map((b) => b.join("\n")).join("\n\n")).replace(/▶/g, "");
+  // No newline before the limit (one huge first line): cut in the line.
+  if (text.length > TOTAL_MAX) {
+    const cutAt = text.lastIndexOf("\n", TOTAL_MAX - 60);
+    text = `${text.slice(0, cutAt > 0 ? cutAt : TOTAL_MAX - 60)}\n… output truncated`;
+  }
+  console.log(text);
 }
-console.log(text);

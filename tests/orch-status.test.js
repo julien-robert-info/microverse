@@ -412,6 +412,130 @@ test("the summary comes right after the header, before the state file", () => {
   assert.ok(at("Agent worktrees") < at("Quota") && at("Quota") < at("Context"));
 });
 
+const jsonOf = (r) => {
+  assert.equal(r.out.trim().split("\n").length, 1, "one line");
+  return JSON.parse(r.out);
+};
+
+// A project with an account, a conversation and `n` agent runs after the
+// initial commit.
+function accProject(name, n = 3) {
+  const acc = makeAccount();
+  const dir = acc.project(name);
+  git(dir, "init", "-q", "-b", "main", ".");
+  git(dir, "config", "user.name", "Test");
+  git(dir, "config", "user.email", "test@example.com");
+  mkdirSync(join(dir, ".claude", "orchestration"), { recursive: true });
+  writeFileSync(join(dir, ".claude", "orchestration", "profile.json"), "{}");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-qm", "chore: init");
+  const t0 = Date.now();
+  acc.conversation(name, t0, 0.5);
+  for (let i = 0; i < n; i++) acc.agent(name, `a${i}`, "microverse:morty", [{ ts: t0 + i * 1000, dollars: 1 + i }], i * 1000);
+  return { acc, dir };
+}
+
+test("E33c T3 --json: worktrees (merged, dirty), branches without one, last report", () => {
+  const { dir, wt } = makeRepo(PROFILE);
+  mergeBranch(dir, "before");
+  const last = head(dir);
+  mergeBranch(dir, "after");
+  writeFileSync(join(wt, "dirty.txt"), "x\n");
+  const wts = join(dir, ".claude", "worktrees");
+  git(dir, "worktree", "add", "-q", "-b", "feat/merged", join(wts, "m"));
+  git(dir, "branch", "feat/free");
+  git(dir, "checkout", "-q", "feat/free");
+  commitFile(dir, "free.txt", "f\n", "feat: free work");
+  git(dir, "checkout", "-q", "main");
+  writeFileSync(join(dir, "CLAUDE.local.md"), `## Missions\n\nLast report: \`${last.slice(0, 7)}\`\n`);
+  const j = jsonOf(script("orch-status", ["--json"], dir));
+  assert.equal(j.v, 1);
+  assert.equal(j.base.name, "main");
+  assert.equal(j.base.tip, head(dir).slice(0, j.base.tip.length));
+  assert.equal(j.lastReport.sha, last);
+  assert.match(j.lastReport.line, /^Last report: /);
+  const byBranch = Object.fromEntries(j.worktrees.map((w) => [w.branch, w]));
+  assert.equal(byBranch["feat/x"].merged, false);
+  assert.equal(byBranch["feat/x"].dirty, true);
+  assert.equal(byBranch["feat/x"].rel, ".claude/worktrees/w");
+  assert.match(byBranch["feat/x"].last, /feat: a$/);
+  assert.equal(byBranch["feat/merged"].merged, true);
+  assert.equal(byBranch["feat/merged"].dirty, false);
+  assert.deepEqual(j.free.map((f) => [f.branch, f.subject]), [["feat/free", "feat: free work"]]);
+  assert.deepEqual(j.report.merged.map((m) => m.subject), ["merge: after"]);
+  assert.deepEqual(j.report.merged[0].commits.map((c) => c.subject), ["feat: after"]);
+  assert.deepEqual(j.state.sections.map((s) => [s.title, s.kind]), [["Missions", "missions"]]);
+});
+
+test("E33c T4 --json: no CLAUDE.local.md gives state.exists false", () => {
+  const { dir } = makeRepo(PROFILE);
+  const j = jsonOf(script("orch-status", ["--json"], dir));
+  assert.deepEqual(j.state, { exists: false, sections: [], hidden: 0 });
+  assert.equal(j.lastReport, null);
+  assert.equal(j.report, null);
+});
+
+test("E33c T5 --json: no last report, agents read directly, quota and context at the top level", () => {
+  const { acc, dir } = accProject("proj5", 3);
+  writeFileSync(join(dir, "CLAUDE.local.md"), "## Missions\n\nnothing here\n");
+  const j = jsonOf(script("orch-status", ["--json", "--file", quotaFile(0.2, 0.1)], dir, acc.env));
+  assert.equal(j.report, null);
+  assert.equal(j.lastReport, null);
+  assert.equal(j.agents.runs.length, 3);
+  assert.equal(j.agents.total.cost, 6);
+  assert.equal(j.quota.counters.week.used, 20);
+  assert.equal(typeof j.context.tokens, "number");
+});
+
+test("E33c T5 --json: orch-report failing gives report { error }, the rest is still produced", () => {
+  const { acc, dir } = accProject("proj5b", 2);
+  const sha = head(dir);
+  writeFileSync(join(dir, "CLAUDE.local.md"), `## Missions\n\nLast report: ${sha.slice(0, 7)}\n`);
+  const pre = join(mkdtempSync(join(tmpdir(), "microverse-pre-")), "pre.js");
+  writeFileSync(pre, 'if (/orch-report$/.test(process.argv[1])) { console.log(JSON.stringify({ v: 1, error: "boom" })); process.exit(2); }\n');
+  const env = { ...acc.env, NODE_OPTIONS: `--require=${pre.replace(/\\/g, "/")}` };
+  const j = jsonOf(script("orch-status", ["--json", "--file", quotaFile(0.2, 0.1)], dir, env));
+  assert.deepEqual(j.report, { error: "boom" });
+  assert.equal(j.agents.runs.length, 2);
+  assert.equal(j.quota.counters.week.used, 20);
+  assert.equal(typeof j.context.tokens, "number");
+  // The text path shows the message as before.
+  assert.match(script("orch-status", ["--file", quotaFile(0.2, 0.1)], dir, env).out, /^Report\n {2}boom$/m);
+});
+
+test("E33c --json: a sibling in error is { error } under its key; a usage error is { v, error } with exit 2", () => {
+  const { acc, dir } = accProject("proj5c", 1);
+  // No quota reading and the extension's folder is empty: orch-quota fails.
+  const j = jsonOf(script("orch-status", ["--json", "--file", join(tmpdir(), "microverse-missing-quota.json")], dir, acc.env));
+  assert.equal(typeof j.quota.error, "string");
+  assert.equal(typeof j.context.tokens, "number");
+  const bad = script("orch-status", ["--json", "0123abc0123abc"], dir);
+  assert.equal(bad.code, 2);
+  const e = jsonOf(bad);
+  assert.equal(e.v, 1);
+  assert.match(e.error, /not a commit/);
+});
+
+test("E33c T6 --json: bidi and control characters are stripped, long lines are not cut", () => {
+  const { dir } = makeRepo(PROFILE);
+  const bidi = String.fromCharCode(0x202e);
+  const zero = String.fromCharCode(0x200b);
+  const esc = String.fromCharCode(0x1b);
+  const long = "w".repeat(300);
+  writeFileSync(join(dir, "CLAUDE.local.md"), `## Missions\n\nfdp.${bidi}txt ${zero}zero${esc}[31mx ${long}\n`);
+  git(dir, "branch", "feat/free");
+  git(dir, "checkout", "-q", "feat/free");
+  commitFile(dir, "free.txt", "f\n", `feat: sub${bidi}ject${esc}[0m`);
+  git(dir, "checkout", "-q", "main");
+  const r = script("orch-status", ["--json"], dir);
+  const bad = new RegExp(`[${bidi}${zero}${esc}]`);
+  assert.doesNotMatch(r.out, bad);
+  assert.doesNotMatch(r.out, /\\u(202e|200b|001b)/i);
+  const j = JSON.parse(r.out);
+  assert.equal(j.state.sections[0].lines[0], `fdp.txt zero[31mx ${long}`);
+  assert.equal(j.free[0].subject, "feat: subject[0m");
+});
+
 test("the scripts are executable in git",{ skip: !existsSync(join(ROOT, ".git")) }, () => {
   for (const f of ["bin/orch-status", "bin/orch-report"]) {
     const r = spawnSync("git", ["ls-files", "-s", f], { cwd: ROOT, encoding: "utf8" });
