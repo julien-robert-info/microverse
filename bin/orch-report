@@ -81,7 +81,7 @@ if (opts.json) {
 }
 
 const short = git(["rev-parse", "--short", since], root).out.trim();
-const out =[`## Merged since ${short}`, ""];
+const out = [`## Merged since ${short}`, ""];
 
 const log = git(["log", "--first-parent", "--reverse", "--format=%h%x09%p%x09%s", `${since}..${base}`], root);
 if (log.code !== 0) out.push(log.err.trim());
