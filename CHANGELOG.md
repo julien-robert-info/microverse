@@ -21,6 +21,8 @@
 
 - `quota_mode` setting (`auto` or `off`) and `orch-reading --none [--source get_usage|user]`: a plan with no quota windows (API key, Bedrock, Vertex, gateway) is no longer asked for counters and its agents start without pacing. `orch-quota --mode` and the quota guard resolve the mode: the `off` setting, else a `--none` marker newer than every reading, else counters when a weekly reading is current. `orch-quota --json` gains `mode`; when off it still carries `error`. An old reading, a counters file that is unreadable or holds no Claude observation, or an explicit `--file` path that is absent, is never read as "no counter source": the counters are asked for.
 
+- `board` mod, questions: the pending questions of the state file with their context, options and recommendation (read from the `### Q<n>.` block of the notes file), an Answered history, and an answer that fills your input box (`Q37 a`, or a free one) for you to send. `agents/rick.md` fixes the block format.
+
 ### Changed
 
 - `/microverse:init` keeps `.claude/orchestration/` out of git by default (`.gitignore` line) and writes a `.worktreeinclude` that copies `rules.md` into the agents' worktrees; it offers `git rm -r --cached` for a profile already tracked.

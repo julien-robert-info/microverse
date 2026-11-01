@@ -182,6 +182,14 @@ not available yet.
   running agents, the worktrees and the commits cited; an agent is linked to its
   mission by its worktree branch or by an Id at the start of its `description`.
   A mission's detail lists its notes by type and its runs.
+- **Questions** are the bullets of the state file's Questions section that cite
+  a `Q<n>` and are not an answer; "Needs your decision" lists them, and the
+  detail shows the question's block of its notes file (context, options, the
+  recommended one, what waits) when it has one. Pressing an option marks it,
+  and "Fill Q37 a" then fills it into your input box: you press Enter to send
+  it. The board never sends it, never overwrites a draft, and says when the box
+  refused the text. Without a block, a free answer is offered on terminal and
+  Desktop.
 - **Agents** are cards with the brief's summary (Goal, Rules, Tests, Zone; the
   text as written when the brief has no template), the last tool call and, for a
   morty, its step. The brief is captured when the agent is launched from this

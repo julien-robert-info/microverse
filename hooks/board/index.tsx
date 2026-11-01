@@ -3,6 +3,7 @@ import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
 import type {
   Activity,
+  AnswerState,
   BoardActions,
   CheckResult,
   Heavy,
@@ -23,6 +24,15 @@ import {
   worktreeOf,
 } from './observe'
 import { isDue, readQuota, sendQuota } from './quota'
+import {
+  blockOf,
+  fillAnswer,
+  freeText,
+  optionText,
+  readBlockFiles,
+  readQuestionsLight,
+  sentKey,
+} from './questions'
 import { hasProfile, readHeavy, readLight, samePath } from './sensors'
 
 // The engine lists what a module reads and writes from the atoms declared in
@@ -71,6 +81,8 @@ type Run = {
   isHeavyRunning: boolean
   isLightRunning: boolean
   lastHeavyAt: number | undefined
+  // A fill of the prompt box is under way (questions).
+  isFilling: boolean
   // The last `bodyColumns` logged.
   columns: number | undefined
 }
@@ -123,6 +135,73 @@ const stop = (run: Run) => {
 const isPaneOpen = async ($: EngineInterface) =>
   (await $.ui.panes().catch(() => [])).some(pane => pane.id === PANE)
 
+// Marks an option: the first press of an answer. Nothing reaches the prompt box.
+async function markAnswer($: EngineInterface, id: string, letter: string) {
+  const questions = (await read($, lightAtom))?.questions
+  const question = questions?.pending.find(one => one.id === id)
+  if (questions === undefined || question === undefined) {
+    return
+  }
+  const block = blockOf(questions, question)
+  if (
+    block === null ||
+    !block.options.some(one => one.letter === letter) ||
+    optionText(id, letter) === null ||
+    (await read($, answerAtom)).sent.includes(sentKey(id, questions.stateStamp))
+  ) {
+    return
+  }
+  await update($, answerAtom, (answer: AnswerState) => ({
+    ...answer,
+    pending: { question: id, option: letter },
+    refusal: null,
+  }))
+}
+
+// The only place that fills the prompt box (the second press, or a free answer).
+// What it writes is rebuilt here from the marked question and option, checked
+// against the light reading as it stands now, never taken from a render.
+// A function declaration: the engine follows `$` only through those.
+async function fillFor($: EngineInterface, run: Run, free: { id: string; text: string } | null) {
+  // Taken before the first await: a second press arriving meanwhile finds it held.
+  if (run.isFilling) {
+    return
+  }
+  run.isFilling = true
+  try {
+    const questions = (await read($, lightAtom))?.questions
+    const current = await read($, answerAtom)
+    const id = free === null ? current.pending?.question : free.id
+    const question = questions?.pending.find(one => one.id === id)
+    if (questions === undefined || question === undefined) {
+      return
+    }
+    const key = sentKey(question.id, questions.stateStamp)
+    if (current.sent.includes(key)) {
+      return
+    }
+    const letter = current.pending?.option
+    const text =
+      free !== null
+        ? freeText(question.id, free.text)
+        : letter !== undefined && blockOf(questions, question)?.options.some(one => one.letter === letter)
+          ? optionText(question.id, letter)
+          : null
+    if (text === null) {
+      return
+    }
+    const cause = await fillAnswer($, text)
+    // A refusal never marks the question as sent.
+    await update($, answerAtom, (answer: AnswerState) =>
+      cause === null
+        ? { ...answer, pending: null, sent: [...answer.sent, key], refusal: null }
+        : { ...answer, refusal: { question: question.id, cause } },
+    )
+  } finally {
+    run.isFilling = false
+  }
+}
+
 const refreshLight = async ($: EngineInterface, run: Run, root: string) => {
   if (run.isLightRunning) {
     return
@@ -138,6 +217,12 @@ const refreshLight = async ($: EngineInterface, run: Run, root: string) => {
         root,
         previous !== null && samePath(previous.root, root) ? previous.missions : undefined,
         (sensed.agents?.value ?? []).map(agent => agent.id),
+        sensed.failures,
+      ),
+      questions: await readQuestionsLight(
+        $,
+        root,
+        previous !== null && samePath(previous.root, root) ? previous.questions : undefined,
         sensed.failures,
       ),
     }
@@ -349,6 +434,7 @@ export const register: Register = (on, options) => {
     isHeavyRunning: false,
     isLightRunning: false,
     lastHeavyAt: undefined,
+    isFilling: false,
     columns: undefined,
   }
   const watch: Watch = { cancel: undefined, isRunning: false, checking: new Set() }
@@ -482,6 +568,24 @@ export const register: Register = (on, options) => {
             ? current.toggled.filter(item => item !== key)
             : [...current.toggled, key],
         })),
+      openQuestion: id =>
+        guarded($, 'question', async () => {
+          await update($, viewAtom, (current: View) => ({ ...current, detail: { kind: 'question', id } }))
+          // Rule D-3: the other notes files are read now, not at every refresh.
+          const root = await ensure($, run)
+          const questions = (await read($, lightAtom))?.questions
+          if (root !== undefined && questions !== undefined) {
+            const files = await readBlockFiles($, root, null, questions.files)
+            await update($, lightAtom, (light: Light | null) =>
+              light?.questions === undefined
+                ? light
+                : { ...light, questions: { ...light.questions, files, isScanned: true } },
+            )
+          }
+        }),
+      chooseAnswer: (id, letter) => guarded($, 'answer', () => markAnswer($, id, letter)),
+      sendAnswer: () => guarded($, 'answer', () => fillFor($, run, null)),
+      sendFreeAnswer: (id, text) => guarded($, 'answer', () => fillFor($, run, { id, text })),
       ...agentActions($, watch),
     }
     // Logged when the width changes, not at every redraw.

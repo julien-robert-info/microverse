@@ -106,6 +106,7 @@ export type Light = {
   usage: Sensed<LightUsage> | null
   state: Sensed<LightState> | null
   missions?: MissionsLight
+  questions?: QuestionsLight
   failures: string[]
 }
 
@@ -249,7 +250,50 @@ export type QuotaSent = {
 // whose answer was already sent.
 export type AnswerState = {
   pending: { question: string; option: string } | null
+  // `<Q id>@<stamp of the state file>`: a question can be answered again once
+  // the state file has changed.
   sent: string[]
+  // Why the last fill left the box untouched. Optional: an older stored value
+  // has none.
+  refusal?: {
+    question: string
+    // `unknown`: the engine refused without a cause. Never read as `no_composer`.
+    cause: 'dialog' | 'no_composer' | 'draft' | 'unknown'
+  } | null
+}
+
+// Questions to Julien (hooks/board/questions.tsx).
+export type QuestionOption = { letter: string; title: string; effect: string }
+
+// A `### Q<n>. <question>` block of a notes file (rule D-1).
+export type QuestionBlock = {
+  id: string
+  title: string
+  context: string
+  options: QuestionOption[]
+  // A letter of `options`, or null.
+  recommended: string | null
+  waits: string | null
+}
+
+export type PendingQuestion = {
+  id: string
+  // `notes/<mission>.md`, when the bullet names one.
+  file: string | null
+  title: string
+}
+
+export type AnsweredQuestion = { id: string; answer: string; date: string | null }
+
+export type QuestionsLight = {
+  // `mtimeMs:size` of the state file the lists come from.
+  stateStamp: string | null
+  pending: PendingQuestion[]
+  answered: AnsweredQuestion[]
+  // By file name under `notes/`: the blocks of the files the bullets name, and
+  // of every notes file once a detail was opened (rule D-3).
+  files: Record<string, { stamp: string; blocks: QuestionBlock[] }>
+  isScanned: boolean
 }
 
 // Per agent id: what the board saw the agent do.
@@ -327,6 +371,15 @@ export type BoardActions = {
   openDetail: (kind: DetailKind, id: string) => unknown
   // Flips a fold from its default: adds the key to `view.toggled`, or removes it.
   toggle: (key: string) => unknown
+  // Opens the detail of a question and, once, reads the notes files for its block.
+  openQuestion: (id: string) => unknown
+  // First press: marks the option. Nothing is written to the prompt box.
+  chooseAnswer: (id: string, letter: string) => unknown
+  // Second press: fills the prompt box with what `chooseAnswer` marked. It takes
+  // no text: the text is built from the marked question and option.
+  sendAnswer: () => unknown
+  // Julien's own words, from an `Input`; the only text a render hands over.
+  sendFreeAnswer: (id: string, text: string) => unknown
   // E33g: opens an agent's detail and reads its brief and branch; runs
   // agent-check on a branch.
   openAgent: (id: string) => unknown

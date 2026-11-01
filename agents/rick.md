@@ -56,7 +56,16 @@ Sections in this order:
    keys, migrations, deletions, concurrency, with the file or function.
 5. **To confirm with the user**: open business rules, each understood without
    the rest of the file: what it is about, the options and what each changes,
-   the one you recommend and why, what waits on the answer.
+   the one you recommend and why, what waits on the answer. The Board pane
+   reads these blocks (the keywords work in English or French), so keep the
+   format exactly:
+   - a heading `### Q<n>. <question>`;
+   - the context, in one or more paragraphs;
+   - one bullet per option, `- **a.** <title> : <what it changes>`;
+   - a paragraph starting `**Recommendation: a.**` (`**Recommandation : a.**`),
+     left out when you recommend none;
+   - a last paragraph starting `**Waits:**` (`**Attend :**`), what waits on the
+     answer.
 
 ## Report
 Write it in the language of the prompt, at most 15 lines; the detail is in the

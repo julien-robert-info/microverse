@@ -251,6 +251,11 @@ series report. Numbers stay stable across conversations: a new question takes
 the next number after the highest in the state file and the notes, an answered
 number is never reused.
 
+In the state file a pending question is one bullet,
+`- Q<n> (notes/<mission>.md) : <title>`; the board panel reads it with the
+question's block in that notes file and fills the user's answer into his input
+box.
+
 ### What remains to ask
 
 Pushing, deploying, any write on a production machine. Build and tests do not
