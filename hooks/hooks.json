@@ -24,6 +24,17 @@
             "timeout": 20
           }
         ]
+      },
+      {
+        "matcher": "^microverse:doctor$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/doctor-command.js"],
+            "timeout": 20
+          }
+        ]
       }
     ],
     "SessionStart": [

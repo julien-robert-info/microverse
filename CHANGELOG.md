@@ -15,6 +15,8 @@
 
 - `board` mod: at the end of each main turn it records the 5 h and week counters of `session.usage` through `scripts/statusline.js`, so `orch-quota` and the week's curve get readings under Claude Desktop where no status line runs. Written when a value changed or after 5 min; it works in projects with no orchestration profile.
 
+- `/microverse:doctor` and `orch-doctor [--json]`: reports in one command, with the action to take, whether Node.js, Claude Code and Git are at tested versions, the orchestration profile is present, valid and approved, the `servers` patterns are long enough and the hooks are enabled. Read-only; exit code 1 when a control is `fix`. The tested versions are `testedWith` in `package.json`.
+
 ### Changed
 
 - `/microverse:init` keeps `.claude/orchestration/` out of git by default (`.gitignore` line) and writes a `.worktreeinclude` that copies `rules.md` into the agents' worktrees; it offers `git rm -r --cached` for a profile already tracked.
