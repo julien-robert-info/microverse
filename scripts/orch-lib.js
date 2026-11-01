@@ -728,7 +728,8 @@ function readQuotaMarker() {
 // `option` is the quota_mode setting (auto or off; any other non-empty value is
 // read as auto, with a warning). `marker` is readQuotaMarker(). `readings` is
 // { extensionObs, statuslineObs, historyObs } as read by the caller, without
-// pruning. The latest reading of any source wins over the marker, so a plan
+// pruning and, for the history, of any age (readHistory({ days: Infinity })):
+// an old file proves a subscription existed. The latest reading of any source wins over the marker, so a plan
 // change needs no command back: a fresh reading cancels the marker.
 // Reasons: option, get_usage, user, no-source (off); reading (metered); stale (ask).
 function quotaMode({ option, marker, readings, now }) {
@@ -739,7 +740,6 @@ function quotaMode({ option, marker, readings, now }) {
 
   const { extensionObs = [], statuslineObs = [], historyObs = [] } = readings ?? {};
   const all = [...extensionObs.filter((o) => (o.provider ?? "claude") === "claude"), ...statuslineObs, ...historyObs];
-  // A loop, not Math.max(...): a spread of a large file overflows the stack.
   // A loop, not Math.max(...): a spread of a large file overflows the stack.
   const latest = all.reduce((m, o) => (Number.isFinite(o.observedAt) && o.observedAt > m ? o.observedAt : m), -Infinity);
   if (marker && marker.at > latest) return done("off", marker.source);

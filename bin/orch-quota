@@ -103,13 +103,21 @@ else {
 // mode must see it. The pruning happens below, once a current reading is found.
 const statuslineObs = lib.statuslineObservations(statusline.readReadings({ now }));
 const historyObs = lib.risingOnly(statusline.readHistory({ now }));
+// The mode alone sees the history of any age: an old file proves a subscription.
+const modeHistoryObs = lib.risingOnly(statusline.readHistory({ now, days: Infinity }));
+// Deletes what the status line left beyond its retention; not with --no-write.
+const prune = () => {
+  if (!write) return;
+  statusline.readReadings({ now, prune: true });
+  statusline.readHistory({ now, prune: true });
+};
 
 // quota_mode: off, or no source at all, means no pacing and no counters asked.
 const modeOption = lib.setOption(opts.mode) ? opts.mode : process.env.CLAUDE_PLUGIN_OPTION_QUOTA_MODE;
 const decided = lib.quotaMode({
   option: modeOption,
   marker: lib.readQuotaMarker(),
-  readings: { extensionObs: observations, statuslineObs, historyObs },
+  readings: { extensionObs: observations, statuslineObs, historyObs: modeHistoryObs },
   now,
 });
 if (decided.warning) startNotes.push(decided.warning);
@@ -142,7 +150,7 @@ if (decided.mode === "off" && !(decided.reason === "no-source" && unreadable)) {
   return;
 }
 
-if (!claudeObs.length && !statuslineObs.length && !historyObs.length) {
+if (!claudeObs.length && !statuslineObs.length && !modeHistoryObs.length) {
   // A refresh failure is still reported in text mode, as before.
   if (!json) for (const l of startNotes) console.log(l);
   failed([
@@ -160,10 +168,7 @@ if (!w) {
   return;
 }
 
-if (write) {
-  statusline.readReadings({ now, prune: true });
-  statusline.readHistory({ now, prune: true });
-}
+prune();
 
 // Agents running and cost of one agent: given, else detected / learned.
 const files = lib.walkTranscripts();

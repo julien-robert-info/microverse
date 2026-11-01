@@ -120,6 +120,26 @@ test("T5b: an expired old status line reading still asks, and is not pruned befo
   }
 });
 
+// A history file dated `days` days ago holding one rising week reading.
+function oldHistory(fx, days) {
+  const day = new Date(now - days * 24 * HOUR).toISOString().slice(0, 10);
+  const dir = join(fx.acc.home, ".claude", "microverse", "statusline-history");
+  mkdirSync(dir, { recursive: true });
+  const at = now - days * 24 * HOUR;
+  writeFileSync(join(dir, `${day}.jsonl`), JSON.stringify({ v: 1, type: "seven-day", at, used: 40, resetsAt: at + 24 * HOUR }) + "\n");
+  return join(dir, `${day}.jsonl`);
+}
+
+test("T5c: a history file older than 15 days with no current reading asks, it is not 'no source'", () => {
+  const fx = account();
+  oldHistory(fx, 30);
+  const t = quota(fx);
+  assert.equal(t.code, 1, t.out);
+  assert.doesNotMatch(t.out, /Quota: off/);
+  assert.equal(asJson(fx).code, 1);
+  assert.equal(lib.quotaMode({ now, option: "auto", marker: null, readings: { historyObs: [] } }).mode, "off");
+});
+
 test("T6: no source at all is off (no counter source), nothing written", () => {
   const fx = account();
   const t = quota(fx);

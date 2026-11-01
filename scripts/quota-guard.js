@@ -70,7 +70,8 @@ function main() {
   const decided = lib.quotaMode({
     option: modeOption,
     marker: lib.readQuotaMarker(),
-    readings: { extensionObs, statuslineObs, historyObs },
+    // The history of any age: an old file proves a subscription.
+    readings: { extensionObs, statuslineObs, historyObs: lib.risingOnly(statusline.readHistory({ now, days: Infinity, prune: false })) },
     now,
   });
   if (decided.mode !== "metered") return;
