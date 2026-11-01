@@ -228,6 +228,7 @@ orch-usage --context
 orch-usage --agents
 orch-report --since a0f5690 --target 98 --reserve 30
 orch-report --since a0f5690 --no-write --session <id>   # read-only; context of that conversation
+orch-report --since a0f5690 --json              # same data as one JSON object (orch-status --json adds the state and worktrees)
 orch-trust                                     # fingerprint and commands of the profile
 orch-trust --project /path/to/project --status # any mode, from another directory
 agent-check feat/subject
