@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { BRIEF_KEEP, parseBrief, safeBranch } from '../brief'
+import { parseBrief, safeBranch } from '../brief'
 
 type Kit = Parameters<TestBody>
 
@@ -144,7 +144,7 @@ const world = (on: Kit[1], scene: Scene) => {
     value: { startedAt: 0, context: { window: 200_000, percent: 1 }, rateLimits: [] },
   }))
   on('store.get', (_, e) => ({ value: store.get(e.key) }))
-  on('store.set', (_, e) => {
+  on('store.set', async (_, e) => {
     if (scene.isStoreBroken === true) {
       throw new Error('disk full')
     }
@@ -492,7 +492,7 @@ for (const surface of SURFACES) {
 test('T3 the 41st brief deletes the oldest, whatever the order the store lists', async ($, on) => {
   const old: Record<string, unknown> = {}
   // Listed newest first: the oldest is the last key.
-  for (let at = BRIEF_KEEP; at >= 1; at -= 1) {
+  for (let at = 40; at >= 1; at -= 1) {
     old[`brief:old${at}`] = { at, type: 't', model: 'm', description: 'd', branch: null, mission: null, text: 'x' }
   }
   const seen = await start($, on, { store: old })
@@ -501,7 +501,7 @@ test('T3 the 41st brief deletes the oldest, whatever the order the store lists',
   await settle()
 
   const keys = [...seen.store.keys()]
-  expect(keys).toHaveLength(BRIEF_KEEP)
+  expect(keys).toHaveLength(40)
   expect(keys).not.toContain('brief:old1')
   expect(keys).toContain('brief:old2')
   expect(keys).toContain('brief:n1')
@@ -510,7 +510,12 @@ test('T3 the 41st brief deletes the oldest, whatever the order the store lists',
 test('T4 a resumed agent stores nothing', async ($, on) => {
   const seen = await start($, on, {})
 
-  await $.agent.spawn({ prompt: 'again', resume: 'a9' } as never)
+  await $.agent.spawn({
+    prompt: 'again',
+    description: 'E7 build it',
+    subagentType: 'microverse:morty',
+    resume: 'a9',
+  } as never)
   await settle()
 
   expect(seen.spawned).toHaveLength(1)
@@ -521,12 +526,15 @@ test('T4 a resumed agent stores nothing', async ($, on) => {
 test('T5 a failing store.set does not stop the launch', async ($, on) => {
   const seen = await start($, on, { isStoreBroken: true })
 
-  const out = await $.agent.spawn({ prompt: 'go', description: 'd', subagentType: 'microverse:morty' })
+  // No description: the capture itself throws, besides the store failing.
+  const out = await $.agent.spawn({ prompt: 'go', subagentType: 'microverse:morty' })
   await settle()
 
   expect(out.agentId).toBe('n1')
   expect(seen.spawned).toHaveLength(1)
   expect(seen.spawned[0].prompt).toBe('go')
+  // The failure took effect: nothing was stored.
+  expect(seen.store.size).toBe(0)
 })
 
 test('the brief of an agent launched before the mod loaded is its first message', async ($, on) => {
