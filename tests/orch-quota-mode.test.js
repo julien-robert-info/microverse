@@ -178,6 +178,16 @@ test("quotaMode: the latest of the three sources wins, reasons and option handli
   assert.equal(m({ option: "${user_config.quota_mode}", marker: null, readings: {} }).warning, undefined);
 });
 
+test("quotaMode: a very large extension file does not overflow the stack", () => {
+  const n = 200000;
+  const extensionObs = Array.from({ length: n }, (_, i) => ({ periodType: "seven-day", usedFraction: 0.3, resetAt: now + 48 * HOUR, observedAt: now - (n - i) * 1000 }));
+  const m = (at) => lib.quotaMode({ now, option: "auto", marker: at === null ? null : { at, source: "user" }, readings: { extensionObs } }).mode;
+  assert.equal(m(null), "metered");
+  // The newest of the 200000 readings (one second old) is the one compared with the marker.
+  assert.equal(m(now), "off");
+  assert.equal(m(now - 2000), "metered");
+});
+
 test("T11: orch-status next to an off orch-quota exits 0 and reports off", () => {
   const { dir } = makeRepo({ checks: [] });
   // The scripts' default home is an empty temporary one; the profile approval lives there.

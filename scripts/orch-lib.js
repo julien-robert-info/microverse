@@ -622,7 +622,7 @@ function currentReading(observations, now) {
   const group = live.slice(start);
   const newest = group.reduce((a, b) => (b.observedAt >= a.observedAt ? b : a));
   return {
-    usedFraction: Math.max(...group.map((o) => o.usedFraction)),
+    usedFraction: group.reduce((m, o) => Math.max(m, o.usedFraction), -Infinity),
     resetAt: newest.resetAt,
     observedAt: newest.observedAt,
     source: newest.source,
@@ -739,7 +739,9 @@ function quotaMode({ option, marker, readings, now }) {
 
   const { extensionObs = [], statuslineObs = [], historyObs = [] } = readings ?? {};
   const all = [...extensionObs.filter((o) => (o.provider ?? "claude") === "claude"), ...statuslineObs, ...historyObs];
-  const latest = Math.max(-Infinity, ...all.map((o) => o.observedAt).filter(Number.isFinite));
+  // A loop, not Math.max(...): a spread of a large file overflows the stack.
+  // A loop, not Math.max(...): a spread of a large file overflows the stack.
+  const latest = all.reduce((m, o) => (Number.isFinite(o.observedAt) && o.observedAt > m ? o.observedAt : m), -Infinity);
   if (marker && marker.at > latest) return done("off", marker.source);
   if (mergeReadings({ extensionObs, statuslineObs, historyObs, now }).w) return done("metered", "reading");
   return all.length ? done("ask", "stale") : done("off", "no-source");
