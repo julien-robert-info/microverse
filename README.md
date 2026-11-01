@@ -46,7 +46,10 @@ cleans up; the launch pace follows the usage quota.
   (growthjack), or the microverse status line in a terminal session (set up by
   `/microverse:init`; the VS Code panel runs no status line). `orch-quota`
   merges the readings of both. With neither,
-  the orchestrator asks the user for the counters. The status bar shows the 5h
+  there is no counter source and no pacing: `orch-quota` says so and the
+  orchestrator asks nothing (a plan with no quota windows: API key, Bedrock,
+  Vertex, gateway). When readings exist but none is current, it asks the user
+  for the counters. The status bar shows the 5h
   and 7d counters as five-cell gauges, green below the expected pace, yellow up
   to the target (defaults 90 and 98 %), red above; `NO_COLOR` or `TERM=dumb`
   gives plain text.
@@ -96,6 +99,7 @@ Plugin settings (`/config`):
 | `weekday_reserve` | 30 | points kept for weekdays; the weekend rises to `week_target` minus this value |
 | `five_hour_limit` | 90 | beyond it, no new agent until the 5h counter resets; 5 points higher, no more resuming (%) |
 | `compact_window` | 150000 | context size (tokens, 100000 to 1000000) at which Claude Code compacts the orchestrating conversation; `/microverse:init` writes it + 33000 as `autoCompactWindow` in `.claude/settings.local.json`, because Claude Code compacts about 33K below that setting |
+| `quota_mode` | auto | `auto`: pace agents on the 5-hour and weekly counters when a source exists; `off`: no pacing (API key, Bedrock, Vertex, gateway). Any other value is read as `auto` |
 | `quota_file` | — | readings file, if the extension is not at its default location |
 | `speak_voice` | fr-FR-HenriNeural | voice of the audio report, from `edge-tts --list-voices` |
 | `speak_rate` | +10% | speaking rate of the audio report, such as +20% or -5% |

@@ -51,10 +51,18 @@ test("the 5h room bounds new agents by their cost and the running ones", () => {
   assert.match(advice(0.1, 0.8, ["--agent-cost", "5"]), /Advice: (speed up|normal)/);
 });
 
-test("a missing counters file is reported with exit code 1", () => {
+test("a missing counters file and no other source is quota off, exit 0", () => {
   const r = script("orch-quota", ["--file", join(tmpdir(), "microverse-missing.json")], process.cwd());
+  assert.equal(r.code, 0);
+  assert.match(r.out, /^Quota: off \(no counter source\)$/m);
+});
+
+test("an unreadable counters file is still reported with exit code 1", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "microverse-quota-")), "quota.json");
+  writeFileSync(file, "{not json");
+  const r = script("orch-quota", ["--file", file], process.cwd());
   assert.equal(r.code, 1);
-  assert.match(r.out, /not found/);
+  assert.match(r.out, /unreadable/);
 });
 
 test("an unexpanded plugin option falls back to the default location", () => {

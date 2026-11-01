@@ -46,6 +46,12 @@
       "min": 100000,
       "max": 1000000
     },
+    "quota_mode": {
+      "type": "string",
+      "title": "Quota mode",
+      "description": "auto: pace agents on the 5-hour and weekly counters when a source exists; off: no pacing (API key, Bedrock, Vertex, gateway).",
+      "default": "auto"
+    },
     "quota_file": {
       "type": "file",
       "title": "Quota counters file",

@@ -10,7 +10,13 @@
 // extension while it has a reading under 48 hours old, else that history.
 //
 // orch-quota [--target 98] [--reserve 30] [--five-hour 90] [--running 0]
-//             [--agent-cost 15] [--file <path>] [--no-write] [--json]
+//             [--agent-cost 15] [--file <path>] [--mode auto|off] [--no-write] [--json]
+//
+// --mode (else CLAUDE_PLUGIN_OPTION_QUOTA_MODE, else auto) is the quota_mode
+// setting. off, a `orch-reading --none` marker newer than every reading, or no
+// source at all, print "Quota: off (<reason>)" and exit 0: no counters, no pacing.
+// JSON then carries mode "off", reason, advice and an `error` key (older readers
+// of this output take it as "no counters"); otherwise it carries mode "metered".
 //
 // --json prints one JSON object on one line instead of the text, with the same
 // figures (dates in milliseconds, percentages as integers): counters, limits,
@@ -94,6 +100,43 @@ else {
 }
 const statuslineObs = lib.statuslineObservations(statusline.readReadings({ now, prune: write }));
 const historyObs = lib.risingOnly(statusline.readHistory({ now, prune: write }));
+
+// quota_mode: off, or no source at all, means no pacing and no counters asked.
+const modeOption = lib.setOption(opts.mode) ? opts.mode : process.env.CLAUDE_PLUGIN_OPTION_QUOTA_MODE;
+const decided = lib.quotaMode({
+  option: modeOption,
+  marker: lib.readQuotaMarker(),
+  readings: { extensionObs: observations, statuslineObs, historyObs },
+  now,
+});
+if (decided.warning) startNotes.push(decided.warning);
+const REASON = {
+  option: "quota_mode=off",
+  get_usage: "no quota windows, from get_usage",
+  user: "no quota windows, said by the user",
+  "no-source": "no counter source",
+};
+// An unreadable extension file is not "no source": the counters may exist.
+const unreadable = fileProblem && existsSync(file);
+if (decided.mode === "off" && !(decided.reason === "no-source" && unreadable)) {
+  if (json) {
+    const text = REASON[decided.reason];
+    emit({
+      mode: "off",
+      reason: text,
+      // Kept for consumers that read counters unless this key is set.
+      error: `Quota off (${text}): no pacing.`,
+      advice: { level: "off", text: "no quota: no pacing", more: 0 },
+      ...(startNotes.length && { warnings: startNotes.map((t) => lib.sanitize(t)) }),
+    });
+  } else {
+    for (const l of startNotes) console.log(l);
+    console.log(`Quota: off (${REASON[decided.reason]})`);
+    console.log("Advice: no quota: no pacing");
+  }
+  return;
+}
+
 if (!observations.length && !statuslineObs.length && !historyObs.length) {
   // A refresh failure is still reported in text mode, as before.
   if (!json) for (const l of startNotes) console.log(l);
@@ -108,7 +151,7 @@ if (!observations.length && !statuslineObs.length && !historyObs.length) {
 const { extensionObs, week, f, w } = lib.mergeReadings({ extensionObs: observations, statuslineObs, historyObs, now });
 if (!w) {
   if (!json) for (const l of startNotes) console.log(l);
-  failed(["No current weekly reading: ask the user for the counters."]);
+  failed(["No current weekly reading: ask the user for the counters, or run orch-reading --none if the plan has no limits."]);
   return;
 }
 
@@ -188,6 +231,7 @@ if (json) {
     .slice(-500)
     .map((o) => ({ at: o.observedAt, used: Math.round(o.usedFraction * 100) }));
   const out = {
+    mode: "metered",
     project: lib.mainRoot(process.cwd()) ?? process.cwd(),
     counters: { five: counter(f, used5), week: counter(w, used7) },
     limits: { target, reserve, fiveHour: fiveLimit },

@@ -84,17 +84,20 @@ any other launch, and a launch with no `model`):
   wrong type: it cannot be approved, ask the user to fix it. `unapproved (main
   worktree not found)` means there is nothing to approve from here: ask the
   user to start from the main worktree.
-- **Budget**: under Claude Desktop (the tool `mcp__ccd_session_mgmt__get_usage`
-  exists; load it with `ToolSearch` if deferred), first call `get_usage` and run
+- **Budget**: when the tool `mcp__ccd_session_mgmt__get_usage` exists (load it
+  with `ToolSearch` if deferred), always call it first, then run
   `orch-reading --five-hour <pct> --five-hour-resets <iso> --week <pct> --week-resets <iso>`
-  so that `orch-quota` and the quota guard see a fresh reading; elsewhere skip
-  this. Then `orch-quota --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --file '${user_config.quota_file}'`
+  when it returns counters, or `orch-reading --none` when it returns none
+  (`not_applicable`: the plan has no quota windows); elsewhere skip this. Then
+  `orch-quota --mode '${user_config.quota_mode}' --target ${user_config.week_target} --reserve ${user_config.weekday_reserve} --five-hour ${user_config.five_hour_limit} --file '${user_config.quota_file}'`
   (single quotes: an unset option stays literal and double quotes would make
   bash fail on it; write an apostrophe inside a value as `'\''`). Do not pass `--running` or `--agent-cost`: without them it
   counts the agents running on the whole account and uses their learned cost,
   which several orchestrators need to share one room; they only override
-  that. Follow its advice (speed up, normal, smooth out, no new
-  agent, stop); details and the no-file case in
+  that. When it says `Quota: off`, there is no pacing and nothing to ask: launch
+  without a rhythm. If the user says their plan has no limits, run
+  `orch-reading --none --source user`. Otherwise follow its advice (speed up,
+  normal, smooth out, no new agent, stop); details and the no-file case in
   `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/budget.md`.
 - **Parallelism**: as many agents (`morty` or `rick`) as the advice allows,
   `morty` on distinct code zones and never two on the same `shared` resource

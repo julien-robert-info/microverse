@@ -62,6 +62,13 @@ function main() {
   }
   const statuslineObs = lib.statuslineObservations(statusline.readReadings({ now, prune: false }));
   const historyObs = lib.risingOnly(statusline.readHistory({ now, prune: false }));
+  const decided = lib.quotaMode({
+    option: process.env.CLAUDE_PLUGIN_OPTION_QUOTA_MODE,
+    marker: lib.readQuotaMarker(),
+    readings: { extensionObs, statuslineObs, historyObs },
+    now,
+  });
+  if (decided.mode !== "metered") return;
   const { week, f, w } = lib.mergeReadings({ extensionObs, statuslineObs, historyObs, now });
   const state = lib.quotaState({ week, f, w, now, target, reserve });
   if (!state) return;

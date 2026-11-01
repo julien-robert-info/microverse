@@ -11,7 +11,7 @@ const HOOK = join(ROOT, "scripts", "quota-guard.js");
 const HOUR = 3600e3;
 const MIN = 60e3;
 
-const OPTIONS = ["WEEK_TARGET", "WEEKDAY_RESERVE", "FIVE_HOUR_LIMIT", "QUOTA_FILE"].map((k) => `CLAUDE_PLUGIN_OPTION_${k}`);
+const OPTIONS = ["WEEK_TARGET", "WEEKDAY_RESERVE", "FIVE_HOUR_LIMIT", "QUOTA_FILE", "QUOTA_MODE"].map((k) => `CLAUDE_PLUGIN_OPTION_${k}`);
 
 // Calibration whose learned cost is `points` per agent: 1 dollar costs 1 point
 // of 5h, and the larger of a rick and a morty with its council review is `points`.
@@ -231,4 +231,16 @@ test("a 5h reading 20 minutes old allows with the warning as context; 10 minutes
 test("a stale 5h reading alone does not ask", () => {
   const out = guard(setup({ five: 20, week: 10, fiveAge: 4 * HOUR }));
   assert.equal(out.permissionDecision, undefined);
+});
+
+test("T10: with quota off (setting, or a marker newer than the readings) a morty passes silently", () => {
+  assert.equal(guard(setup({ five: 95, week: 33 }), { env: { CLAUDE_PLUGIN_OPTION_QUOTA_MODE: "off" } }), null);
+  const fx = setup({ five: 95, week: 33 });
+  asked(guard(fx));
+  const dir = join(fx.acc.home, ".claude", "microverse");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "quota-mode.json"), JSON.stringify({ v: 1, mode: "off", at: Date.now() + MIN, source: "get_usage" }));
+  assert.equal(guard(fx), null);
+  // An unknown value is read as auto: the limit still asks.
+  asked(guard(setup({ five: 95, week: 33 }), { env: { CLAUDE_PLUGIN_OPTION_QUOTA_MODE: "banana" } }));
 });
