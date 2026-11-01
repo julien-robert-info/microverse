@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
-const { mkdirSync, readdirSync, statSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { ROOT, makeAccount } = require("./helpers.js");
 
@@ -231,6 +231,30 @@ test("a 5h reading 20 minutes old allows with the warning as context; 10 minutes
 test("a stale 5h reading alone does not ask", () => {
   const out = guard(setup({ five: 20, week: 10, fiveAge: 4 * HOUR }));
   assert.equal(out.permissionDecision, undefined);
+});
+
+test("quota_mode=off returns before reading any source, even an unreadable counters file", () => {
+  const fx = setup({ five: 95, week: 33 });
+  // A folder where the counters file should be: reading it fails.
+  const bad = join(fx.acc.home, "folder.json");
+  mkdirSync(bad);
+  // Preload that logs every readFileSync of that path.
+  const log = join(fx.acc.home, "reads.log");
+  const preload = join(fx.acc.home, "spy.js");
+  writeFileSync(
+    preload,
+    `const fs = require("node:fs"); const real = fs.readFileSync;
+fs.readFileSync = function (p, ...a) { if (p === ${JSON.stringify(bad)}) fs.appendFileSync(${JSON.stringify(log)}, "read\\n"); return real.call(this, p, ...a); };`,
+  );
+  const env = { CLAUDE_PLUGIN_OPTION_QUOTA_FILE: bad, NODE_OPTIONS: `--require ${JSON.stringify(preload.replace(/\\/g, "/"))}` };
+  const reads = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).length : 0);
+  // Control: in auto mode the spy sees the read.
+  assert.equal(guard(fx, { env }), null);
+  assert.equal(reads(), 1);
+  for (const value of ["off", " OFF "]) {
+    assert.equal(guard(fx, { env: { ...env, CLAUDE_PLUGIN_OPTION_QUOTA_MODE: value } }), null);
+    assert.equal(reads(), 1, `quota_mode ${JSON.stringify(value)} read the file`);
+  }
 });
 
 test("T10: with quota off (setting, or a marker newer than the readings) a morty passes silently", () => {
