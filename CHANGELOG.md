@@ -4,6 +4,7 @@
 
 ### Added
 
+- `board` mod: questions section and detail in the style kit (a card per question with a Pending pill, the recommended option as the primary button, "Why it is asked" and option cards in the detail, folded Answered list).
 - `board` mod: agent cards and detail in the style kit (avatar, state pill, steps, Summary / Full text for the brief, tool call rows, usage split); briefs with numbered labels and no bold are read as templates.
 - Audio report: the default voice follows the language (`orch-speak --lang <code>`, else the system language, else en-US-AndrewNeural) instead of being French. `orch-speak --check` looks for the engine and prints the voice, without a sound.
 - `board` mod, foundation: a Board pane for Claude Desktop with the Cockpit tab (launch pace, context, series cost, running agents), the `/board` command and the types of its state. Inert without an orchestration profile. CI runs `plugin test` and uses Claude Code 2.1.306.

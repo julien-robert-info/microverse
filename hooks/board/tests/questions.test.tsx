@@ -1,7 +1,16 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { counterText, fillAnswer, freeText, parseBlocks, parseStateQuestions } from '../questions'
+import { lookFor, withLook } from '../kit'
+import {
+  counterText,
+  fillAnswer,
+  freeText,
+  parseBlocks,
+  parseStateQuestions,
+  renderQuestionDetail,
+  renderQuestions,
+} from '../questions'
 
 type Kit = Parameters<TestBody>
 
@@ -198,16 +207,20 @@ for (const surface of SURFACES) {
     await start($, on, { 'CLAUDE.local.md': M10, 'notes/E9.md': BLOCK('Q37', RECOMMENDED) })
     const ui = await $.ui.mount(pane(surface, WIDE))
 
-    expect((await ui.find({ key: 'answer:Q37:a' }))?.text).toMatch(/^a\. Fixed \(recommended\)$/)
+    expect((await ui.find({ key: 'answer:Q37:a' }))?.text).toMatch(/^a\. Fixed$/)
     expect((await ui.find({ key: 'answer:Q37:b' }))?.text).toMatch(/^b\. Free$/)
     expect(await has(ui, 'answer:Q37:c')).toBe(true)
     await press(ui, 'open:question:Q37')
-    expect(await shows(ui, /^a\. Fixed · recommended$/)).toBe(true)
-    expect(await shows(ui, /^b\. Free$/)).toBe(true)
+    expect(await shows(ui, /^recommended$/)).toBe(true)
+    expect(await shows(ui, /^Fixed$/)).toBe(true)
+    expect(await shows(ui, /^Free$/)).toBe(true)
     expect(await shows(ui, /^one rule for every question$/)).toBe(true)
     expect(await shows(ui, /^Waits on: the report of M14\.$/)).toBe(true)
     expect(await shows(ui, /^Mission E9$/)).toBe(true)
-    expect(await ui.find({ type: 'Markdown', text: /First paragraph of context\./ })).toBeDefined()
+    expect(await shows(ui, /^Why it is asked$/)).toBe(true)
+    expect(await shows(ui, /^First paragraph of context\.$/)).toBe(true)
+    expect(await shows(ui, /^• notes\/E9\.md$/)).toBe(true)
+    expect(await shows(ui, /^Pending$/)).toBe(true)
     await ui.unmount()
   })
 
@@ -243,7 +256,8 @@ for (const surface of SURFACES) {
 
     expect(await has(ui, 'answer:Q37:a')).toBe(false)
     await press(ui, 'open:question:Q37')
-    expect(await shows(ui, /^a\. Fixed · recommended$/)).toBe(true)
+    expect(await shows(ui, /^recommended$/)).toBe(true)
+    expect(await has(ui, 'answer:Q37:a')).toBe(true)
     await ui.unmount()
   })
 
@@ -293,8 +307,8 @@ for (const surface of SURFACES) {
     const ui = await $.ui.mount(pane(surface, WIDE))
 
     expect(await shows(ui, /^Needs your decision \(2\)$/)).toBe(true)
-    expect((await ui.find({ key: 'answer:Q37:a' }))?.text).toBe('a. Fixed (recommended)')
-    expect((await ui.find({ key: 'answer:Q38:b' }))?.text).toBe('b. No (recommended)')
+    expect((await ui.find({ key: 'answer:Q37:a' }))?.text).toBe('a. Fixed')
+    expect((await ui.find({ key: 'answer:Q38:b' }))?.text).toBe('b. No')
     expect(await has(ui, 'answer:Q38:c')).toBe(false)
     expect(await has(ui, 'answer:Q37:c')).toBe(true)
     await ui.unmount()
@@ -614,3 +628,147 @@ test('B12 "Fill all recommended" fills every recommendation at once and respects
   expect(box.fills).toEqual([{ text: 'Q96 a, Q97 b', mode: 'replace' }])
   await ui.unmount()
 })
+
+// ---- Style of the section and of the detail --------------------------------
+
+type Node = { type?: unknown; key?: unknown; props?: Record<string, unknown>; children?: unknown }
+
+const kids = (node: Node): Node[] =>
+  [node.children, node.props?.children]
+    .flat(Infinity)
+    .filter((one): one is Node => typeof one === 'object' && one !== null)
+
+const textOf = (node: Node) =>
+  [node.children, node.props?.children]
+    .flat(Infinity)
+    .filter((one): one is string => typeof one === 'string')
+    .join('')
+
+const walk = (node: Node, visit: (node: Node, parent: Node | null) => void, parent: Node | null = null) => {
+  visit(node, parent)
+  for (const child of kids(node)) {
+    walk(child, visit, node)
+  }
+}
+
+const collect = (tree: Node, test: (node: Node) => boolean) => {
+  const found: { node: Node; parent: Node | null }[] = []
+  walk(tree, (node, parent) => {
+    if (test(node)) {
+      found.push({ node, parent })
+    }
+  })
+
+  return found
+}
+
+const EFFECT = 'e'.repeat(200)
+
+const direct = (surface: 'terminal' | 'desktop', render: typeof renderQuestions, columns = 40) => {
+  const ui = withLook(
+    { Box: 'Box', Text: 'Text', Button: 'Button', Input: 'Input' } as never,
+    lookFor(surface, surface === 'desktop' ? 'dark' : null),
+  )
+  const block = {
+    id: 'Q37',
+    title: 'Which format?',
+    context: 'First paragraph.\n\nSecond paragraph.',
+    options: [
+      { letter: 'a', title: 'Fixed', effect: EFFECT },
+      { letter: 'b', title: 'Free', effect: 'short' },
+    ],
+    recommended: 'a',
+    waits: 'the report',
+  }
+
+  return render({
+    ui,
+    columns,
+    actions: { toggle: () => undefined, openQuestion: () => undefined, chooseAnswer: () => undefined } as never,
+    board: {
+      light: {
+        questions: {
+          stateStamp: 's',
+          pending: [
+            { id: 'Q37', file: 'notes/E9.md', title: 'Which format?' },
+            { id: 'Q38', file: 'notes/E9.md', title: 'Other?' },
+          ],
+          answered: [{ id: 'Q1', answer: 'a', date: null }],
+          files: { 'E9.md': { stamp: 'x', blocks: [block, { ...block, id: 'Q38' }] } },
+          isScanned: false,
+        },
+      },
+      view: { tab: 'cockpit', detail: { kind: 'question', id: 'Q37' }, toggled: [] },
+      answer: { pending: null, sent: [] },
+    },
+  } as never) as Node
+}
+
+for (const surface of SURFACES) {
+  test(`S1 the recommended option is a primary action, the others secondary (${surface})`, () => {
+    for (const render of [renderQuestions, renderQuestionDetail]) {
+      const tree = direct(surface, render)
+      const variant = (key: string) =>
+        collect(tree, node => node.type === 'Button' && node.props?.key === key)[0].node.props?.variant
+
+      expect(variant('answer:Q37:a')).toBe('primary')
+      expect(variant('answer:Q37:b')).toBe('secondary')
+    }
+  })
+
+  test(`S2 no coloured Text sits inside a Text in the section nor the detail (${surface})`, () => {
+    const found: string[] = []
+    for (const render of [renderQuestions, renderQuestionDetail]) {
+      const tree = direct(surface, render)
+      // Every ancestor counts, not only the parent.
+      const visit = (node: Node, inText: boolean) => {
+        if (node.type === 'Text' && inText && node.props?.color !== undefined) {
+          found.push(`${String(node.props.color)}:${textOf(node)}`)
+        }
+        kids(node).forEach(child => visit(child, inText || node.type === 'Text'))
+      }
+      visit(tree, false)
+      expect(collect(tree, node => node.type === 'Text' && node.props?.color !== undefined).length).toBeGreaterThan(1)
+    }
+
+    expect(found).toEqual([])
+  })
+
+  test(`S3 at 40 columns an effect of 200 characters wraps in a box that can shrink (${surface})`, () => {
+    const tree = direct(surface, renderQuestionDetail, 40)
+    const effect = collect(tree, node => node.type === 'Text' && textOf(node) === EFFECT)[0]
+
+    expect(effect.node.props?.wrap).toBe('wrap')
+    expect(effect.parent?.props?.flexShrink).toBe(1)
+    expect(effect.parent?.props?.minWidth).toBe(0)
+    // The title of a question in the section wraps too.
+    const title = collect(
+      direct(surface, renderQuestions, 40),
+      node => node.type === 'Text' && textOf(node) === ' Which format?',
+    )
+
+    expect(title[0].node.props?.wrap).toBe('wrap')
+  })
+
+  test(`S4 the keys of the section and of the detail are unchanged (${surface})`, async ($, on) => {
+    await start($, on, TWO)
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    for (const key of ['open:question:Q96', 'open:question:Q97', 'answer:Q96:a', 'answer:Q96:c', 'answer:Q97:b', 'fill:recommended']) {
+      expect(await has(ui, key)).toBe(true)
+    }
+    await press(ui, 'open:question:Q96')
+    expect(await has(ui, 'free:Q96')).toBe(true)
+    expect(await has(ui, 'answer:Q96:b')).toBe(true)
+    expect((await ui.find({ key: 'fill:recommended' }))?.text).toBe('Fill all recommended')
+    await ui.unmount()
+  })
+
+  test(`S5 the answered questions fold under fold:answered (${surface})`, async ($, on) => {
+    await start($, on, { 'CLAUDE.local.md': M10, 'notes/E9.md': BLOCK('Q37', RECOMMENDED) })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+
+    expect(await has(ui, 'fold:answered')).toBe(true)
+    await ui.unmount()
+  })
+}
