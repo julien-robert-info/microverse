@@ -2,9 +2,13 @@
 // Turns a spoken text into an mp3 with edge-tts (installed separately) and
 // prints the absolute path of the file, one line.
 //
-// orch-speak [--file <text>] [--out <mp3>] [--name <prefix>] [--voice V] [--rate R] [--pitch P]
-//            [--volume V] [--timeout S]
+// orch-speak [--file <text>] [--out <mp3>] [--name <prefix>] [--voice V] [--lang <code>]
+//            [--rate R] [--pitch P] [--volume V] [--timeout S] [--check]
 //
+// The voice is --voice, else the one of --lang (en, fr-CA, pt-PT…), else the
+// one of the system language, else en-US-AndrewNeural; an unknown --lang is
+// skipped. --check looks for the engine, says nothing aloud, prints the
+// command found and the voice it would use (exit 0, or 3 when not found).
 // The text comes from --file (UTF-8) or, without it, from stdin. Without
 // --out the file goes to <tmpdir>/microverse-speak/<name>-<date>-<time>.mp3,
 // where mp3 and .part files older than 7 days are deleted at each run.
@@ -20,7 +24,19 @@ const { tmpdir } = require("node:os");
 const { dirname, extname, join, resolve } = require("node:path");
 const { parseArgs, run, sanitize } = require("../scripts/orch-lib.js");
 
-const DEFAULTS = { voice: "fr-FR-HenriNeural", rate: "+10%", pitch: "+0Hz", volume: "+0%" };
+const DEFAULTS = { rate: "+10%", pitch: "+0Hz", volume: "+0%" };
+const FALLBACK_VOICE = "en-US-AndrewNeural";
+// Full code first (as "ll-RR"), then the language alone.
+const VOICES = {
+  en: "en-US-AndrewNeural", "en-GB": "en-GB-RyanNeural",
+  fr: "fr-FR-HenriNeural", "fr-CA": "fr-CA-AntoineNeural",
+  de: "de-DE-ConradNeural",
+  es: "es-ES-AlvaroNeural", "es-MX": "es-MX-JorgeNeural",
+  it: "it-IT-DiegoNeural",
+  pt: "pt-BR-AntonioNeural", "pt-PT": "pt-PT-DuarteNeural",
+  nl: "nl-NL-MaartenNeural", ja: "ja-JP-KeitaNeural", zh: "zh-CN-YunxiNeural", ko: "ko-KR-InJoonNeural",
+  pl: "pl-PL-MarekNeural", ru: "ru-RU-DmitryNeural", sv: "sv-SE-MattiasNeural", tr: "tr-TR-AhmetNeural",
+};
 const KEEP_MS = 7 * 24 * 3600e3;
 const INSTALL = 'orch-speak: edge-tts not found; install it with "pip install --user edge-tts" (or "pipx install edge-tts"), or set MICROVERSE_EDGE_TTS';
 
@@ -38,6 +54,39 @@ function given(v, name) {
   return v === "" || v.includes("${") ? undefined : v;
 }
 
+// Locale of the system, as a BCP 47 tag, or undefined. Windows and Git Bash do
+// not expose the language through LANG, hence Intl alone there.
+function systemLocale({ env = process.env, platform = process.platform, intl } = {}) {
+  const fromIntl = () => {
+    try {
+      return intl ?? Intl.DateTimeFormat().resolvedOptions().locale;
+    } catch {
+      return undefined;
+    }
+  };
+  if (platform === "win32") return fromIntl();
+  for (const k of ["LC_ALL", "LC_MESSAGES", "LANG"]) {
+    const v = (env[k] ?? "").replace(/[.@].*$/, "").replace(/_/g, "-");
+    if (v && v !== "C" && v !== "POSIX") return v;
+  }
+  return fromIntl();
+}
+
+// The voice of a language tag ("pt-PT", "de_DE", "fr"), or undefined.
+function voiceFor(tag) {
+  const m = /^([a-z]{2,3})(?:[-_](?:[A-Za-z]{4}[-_])?([A-Za-z]{2}))?(?![A-Za-z0-9])/i.exec(tag ?? "");
+  if (!m) return undefined;
+  const lang = m[1].toLowerCase();
+  return (m[2] && VOICES[`${lang}-${m[2].toUpperCase()}`]) || VOICES[lang];
+}
+
+// --voice, else --lang, else the system language, else the fallback.
+function chooseVoice(opts, locale) {
+  const voice = given(opts.voice, "voice");
+  if (voice !== undefined) return voice;
+  return voiceFor(given(opts.lang, "lang")) ?? voiceFor(locale) ?? FALLBACK_VOICE;
+}
+
 // Patterns are those edge-tts itself enforces; a sign-less number gets "+".
 function setting(opts, name, pattern, signed) {
   const v = given(opts[name], name) ?? DEFAULTS[name];
@@ -46,8 +95,9 @@ function setting(opts, name, pattern, signed) {
 }
 
 function parseOptions(argv) {
-  const opts = parseArgs(argv);
-  const voice = setting(opts, "voice", /^[a-z]{2,}-[A-Z]{2,}-\S+Neural$/, false);
+  const opts = parseArgs(argv, { flags: ["check"] });
+  const voice = chooseVoice(opts, systemLocale());
+  if (!/^[a-z]{2,}-[A-Z]{2,}-\S+Neural$/.test(voice)) throw new Exit(2, `orch-speak: invalid --voice: ${voice}`);
   const rate = setting(opts, "rate", /^[+-]?\d+%$/, true);
   const pitch = setting(opts, "pitch", /^[+-]?\d+Hz$/, true);
   const volume = setting(opts, "volume", /^[+-]?\d+%$/, true);
@@ -55,7 +105,7 @@ function parseOptions(argv) {
   if (!/^\d+$/.test(timeout) || Number(timeout) < 1 || Number(timeout) > 600) throw new Exit(2, `orch-speak: invalid --timeout (1 to 600 seconds): ${timeout}`);
   const name = given(opts.name, "name") ?? "report";
   if (!/^[a-z0-9-]{1,40}$/.test(name)) throw new Exit(2, `orch-speak: invalid --name: ${name}`);
-  return { voice, rate, pitch, volume, timeout: Number(timeout), name, file: given(opts.file, "file"), out: given(opts.out, "out") };
+  return { check: opts.check === true, voice, rate, pitch, volume, timeout: Number(timeout), name, file: given(opts.file, "file"), out: given(opts.out, "out") };
 }
 
 function readText(file) {
@@ -172,6 +222,11 @@ function removeWhenFree(file) {
 
 function main() {
   const o = parseOptions(process.argv.slice(2));
+  if (o.check) {
+    const found = findEngine(ENGINES["edge-tts"]);
+    console.log(`orch-speak: engine ${[found.cmd, ...found.pre].join(" ")}, voice ${o.voice}`);
+    return;
+  }
   const text = readText(o.file);
   if (!text.trim()) throw new Exit(2, "orch-speak: empty text");
   const dir = join(tmpdir(), "microverse-speak");
@@ -192,10 +247,14 @@ function main() {
   console.log(outFile);
 }
 
-try {
-  main();
-} catch (e) {
-  if (!(e instanceof Exit)) throw e;
-  console.error(sanitize(e.message));
-  process.exitCode = e.code;
+if (require.main === module) {
+  try {
+    main();
+  } catch (e) {
+    if (!(e instanceof Exit)) throw e;
+    console.error(sanitize(e.message));
+    process.exitCode = e.code;
+  }
 }
+
+module.exports = { systemLocale, voiceFor, chooseVoice };
