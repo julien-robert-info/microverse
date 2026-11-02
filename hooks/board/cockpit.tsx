@@ -12,8 +12,10 @@ import { renderQuestionDetail, renderQuestions } from './questions'
 import { renderUsage } from './usage'
 
 // Pane body width (columns) from which the detail drawer sits on the right.
-export const WIDE_AT = 110
-const DRAWER_COLUMNS = 44
+export const WIDE_AT = 130
+// The drawer takes 40 % of the row; the gap between the two zones is 2 columns.
+const DRAWER_SHARE = 0.4
+const GAP_COLUMNS = 2
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const LABELS: Record<string, string> = {
   five_hour: '5 h window',
@@ -84,6 +86,15 @@ export const renderCockpit = (context: BoardContext) => {
   const { light, heavy, view } = board
   const status = heavy?.status?.value
   const isWide = columns >= WIDE_AT
+  const detail = view.detail
+  // Each section is drawn in its own zone: it gets that zone's width.
+  const hasDrawer = isWide && detail !== null
+  const drawerColumns = Math.floor(columns * DRAWER_SHARE)
+  const mainContext = {
+    ...context,
+    columns: hasDrawer ? columns - drawerColumns - GAP_COLUMNS : columns,
+  }
+  const drawerContext = { ...context, columns: isWide ? drawerColumns : columns }
   const heading = (title: string) => <Text weight="semibold">{title}</Text>
 
   const project = (status?.project ?? light?.project ?? '')
@@ -206,6 +217,7 @@ export const renderCockpit = (context: BoardContext) => {
       <Box gap={1}>
         <Button key="refresh" label="Refresh" onPress={() => actions.refresh()} />
         {updatedAt > 0 && <Text dimColor>{`updated ${clock(updatedAt)}`}</Text>}
+        <Text dimColor>{`${columns} cols`}</Text>
       </Box>
     </Box>
   )
@@ -215,28 +227,25 @@ export const renderCockpit = (context: BoardContext) => {
       {pace}
       {contextBox}
       {cost}
-      {renderMissions(context)}
-      {renderAgents(context)}
-      {renderQuestions(context)}
+      {renderMissions(mainContext)}
+      {renderAgents(mainContext)}
+      {renderQuestions(mainContext)}
     </Box>
   )
   const body =
     view.tab === 'usage' ? (
-      (renderUsage(context) ?? <Text dimColor>Not yet available</Text>)
+      (renderUsage(mainContext) ?? <Text dimColor>Not yet available</Text>)
     ) : (
       cockpit
     )
 
-  const detail = view.detail
   const drawer =
-    detail === null ? (
-      <Text dimColor>Nothing selected.</Text>
-    ) : detail.kind === 'mission' ? (
-      renderMissionDetail(context)
+    detail === null ? null : detail.kind === 'mission' ? (
+      renderMissionDetail(drawerContext)
     ) : detail.kind === 'question' ? (
-      renderQuestionDetail(context)
+      renderQuestionDetail(drawerContext)
     ) : detail.kind === 'agent' ? (
-      renderAgentDetail(context)
+      renderAgentDetail(drawerContext)
     ) : (
       <Box flexDirection="column">
         <Text weight="semibold">{`${detail.kind} ${detail.id}`}</Text>
@@ -250,15 +259,30 @@ export const renderCockpit = (context: BoardContext) => {
       {tabs}
       {isWide ? (
         <Box key="layout:wide" flexDirection="row" gap={2}>
-          <Box key="main" flexDirection="column" flexGrow={1} gap={1}>
+          <Box
+            key="main"
+            flexDirection="column"
+            flexGrow={1}
+            flexShrink={1}
+            minWidth={0}
+            overflow="hidden"
+            gap={1}
+          >
             {body}
           </Box>
-          <Box key="drawer" flexDirection="column" width={DRAWER_COLUMNS}>
-            {detail !== null && (
+          {detail !== null && (
+            <Box
+              key="drawer"
+              flexDirection="column"
+              width="40%"
+              flexShrink={0}
+              minWidth={0}
+              overflow="hidden"
+            >
               <Button key="detail:close" label="Close" onPress={() => actions.closeDetail()} />
-            )}
-            {drawer}
-          </Box>
+              {drawer}
+            </Box>
+          )}
         </Box>
       ) : detail === null ? (
         <Box key="layout:narrow" flexDirection="column" gap={1}>
