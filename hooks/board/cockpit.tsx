@@ -54,7 +54,7 @@ const resetOf = (kind: 'five' | 'week', ms: number | undefined) =>
 const thousands = (tokens: number) =>
   tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens)
 
-const family = (model: string) =>
+export const family = (model: string) =>
   /opus/i.test(model)
     ? 'Opus'
     : /sonnet/i.test(model)
@@ -63,7 +63,7 @@ const family = (model: string) =>
         ? 'Haiku'
         : model
 
-const FAMILY_HUE: Record<string, string> = {
+export const FAMILY_HUE: Record<string, string> = {
   Opus: PALETTE.violet,
   Sonnet: PALETTE.teal,
   Haiku: PALETTE.blue,
@@ -341,7 +341,9 @@ export const renderCockpit = (context: CockpitContext) => {
         <Text {...roleProps(ui, 'caption')} wrap="truncate">{`! ${failure}`}</Text>
       ))}
       <Box flexDirection="row" flexWrap="wrap" gap={1}>
-        {Action(ui, { keyName: 'refresh', label: 'Refresh', onPress: () => actions.refresh() })}
+        {/* The Usage screen carries its own Refresh at the top: the key stays unique. */}
+        {view.tab !== 'usage' &&
+          Action(ui, { keyName: 'refresh', label: 'Refresh', onPress: () => actions.refresh() })}
         {updatedAt > 0 && <Text dimColor>{`updated ${clock(updatedAt)} ·`}</Text>}
         {isAudioOn && <Text dimColor>audio report on ·</Text>}
         <Text dimColor>{`${columns} cols`}</Text>
@@ -357,12 +359,7 @@ export const renderCockpit = (context: CockpitContext) => {
       {renderQuestions(mainContext)}
     </Box>
   )
-  const body =
-    view.tab === 'usage' ? (
-      (renderUsage(mainContext) ?? <Text dimColor>Not yet available</Text>)
-    ) : (
-      cockpit
-    )
+  const body = view.tab === 'usage' ? renderUsage(mainContext) : cockpit
 
   const drawer =
     detail === null ? null : detail.kind === 'mission' ? (
