@@ -203,10 +203,14 @@ also marked `▸` and figures stay bold.
   board never sends it, never overwrites a draft, and says when the box
   refused the text. Without a block, a free answer is offered on terminal and
   Desktop.
-- **Agents** are cards with the brief's summary (Goal, Rules, Tests, Zone; the
-  text as written when the brief has no template), the last tool call and, for a
-  morty, its step. The brief is captured when the agent is launched from this
-  session. Its detail has a button that runs `agent-check` on the branch.
+- **Agents** are cards with an avatar (R, M or C), a state pill, the mission,
+  the last tool call as a pill and, for a morty, its steps. The detail has the
+  brief as a Summary (Goal, Rules, Tests, Zone) or the Full text; a brief with no
+  template shows its first 8 lines and the count of the rest. Numbered labels
+  such as `3. Decided rules` are read without bold. The brief is captured when
+  the agent is launched from this session. The detail also lists the tool calls
+  with their state, the usage with its split and a button that runs
+  `agent-check` on the branch.
 - **Refresh** reads everything again at once. Otherwise the git worktrees, the
   agent roster, the rate limits and `CLAUDE.local.md` are read every 30 s while
   the pane is open, and `orch-status` runs when the pane opens and at the end of

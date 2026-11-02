@@ -784,7 +784,7 @@ for (const surface of SURFACES) {
     await start($, on, { agents: [MORTY] })
     const ui = await $.ui.mount(OPEN(surface))
 
-    const pill = await ui.find({ type: 'Text', text: 'running' })
+    const pill = await ui.find({ type: 'Text', text: /^running$/ })
     expect(pill?.props?.color).toBe('warning')
     expect(pill?.props?.weight).toBe('semibold')
     await ui.unmount()
