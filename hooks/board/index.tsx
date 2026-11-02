@@ -13,6 +13,7 @@ import type {
 } from '../../types/board'
 import { safeBranch } from './brief'
 import { renderCockpit } from './cockpit'
+import { lookFor, readTheme } from './kit'
 import { readFacts, readMissions } from './notes'
 import {
   captureBrief,
@@ -653,6 +654,7 @@ export const register: Register = (on, options) => {
       board: { light, heavy, view, checks, answer, activity: activity as Record<string, Activity> },
       columns: e.props.bodyColumns,
       actions,
+      look: lookFor(e.surface, await readTheme(() => $.config.list())),
     })
   })
 }

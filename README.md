@@ -178,7 +178,13 @@ is 1 when a control is `fix`.
 by itself at the start of a session, and on a terminal only `/board` opens it.
 The Cockpit tab shows the launch pace, the context, the series cost and the
 running agents of the project, read from `orch-status --json`; the Usage tab is
-not available yet.
+not available yet. The top is drawn as cards: a header with status pills, a
+segmented tab switch, then three bordered cards (launch pace with a bar per
+window and a marker at the limit or the expected pace, context with what is left
+before auto-compaction, series cost as a stacked bar by model family). Card
+backgrounds follow the host theme and are left out when it is `auto`; on the
+VS Code extension, which ignores some text and button props, the active tab is
+also marked `▸` and figures stay bold.
 
 - **Missions** are the rows of the state file's table, placed in Design, Brief,
   Building, Review, To merge or Merged (Other, folded, for the rest) from the
