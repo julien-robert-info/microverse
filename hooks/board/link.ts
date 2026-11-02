@@ -19,7 +19,7 @@ const treeOf = (agentId: string, trees: LinkTree[]) =>
   trees.find(tree => tree.path.replace(/\\/g, '/').replace(/\/+$/, '').endsWith(`/agent-${agentId}`))
 
 // In this order: the brief's branch, the branch of the agent's worktree, a
-// token of the description that is a mission Id (`E33a` gives `E33`). A range
+// token of the description that is a mission Id (`E33a` and `E33f2` give `E33`). A range
 // such as `E1-E29` is never a target. Null when nothing matches.
 export const linkAgent = (agent: LinkAgent, rows: LinkRow[], trees: LinkTree[]): string | null => {
   const targets = rows.filter(row => !row.isRange)
@@ -41,7 +41,9 @@ export const linkAgent = (agent: LinkAgent, rows: LinkRow[], trees: LinkTree[]):
     if (exact !== undefined) {
       return exact.id
     }
-    const stem = targets.find(row => row.id === token.replace(/[a-z]$/, ''))
+    // A sub-mission suffix is a letter and an optional number (`E33f2`); an
+    // exact row, tried above, always wins over the stem.
+    const stem = targets.find(row => row.id === token.replace(/[a-z]\d*$/, ''))
     if (stem !== undefined && token !== stem.id) {
       return stem.id
     }
