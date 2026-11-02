@@ -5,7 +5,8 @@
 // normally, the skill body running the same script through the model.
 //
 // The child gets neither CLAUDE_PLUGIN_DATA nor the plugin options, as the Bash
-// tool does not: the report must be the one the model would get.
+// tool does not: the report must be the one the model would get. The model
+// passes quota_mode as --mode (see the skill); so does this hook.
 "use strict";
 
 const { spawnSync } = require("node:child_process");
@@ -34,6 +35,10 @@ function main() {
   const args = ["--from-hook", "--project", cwd];
   const transcript = payload.transcript_path;
   if (typeof transcript === "string" && transcript && !transcript.startsWith("-")) args.push("--transcript", transcript);
+
+  // The one option doctor reads, passed as a flag.
+  const mode = process.env.CLAUDE_PLUGIN_OPTION_QUOTA_MODE;
+  if (typeof mode === "string" && mode.trim() && !mode.trim().startsWith("-")) args.push("--mode", mode.trim());
 
   const env = { ...process.env };
   for (const k of Object.keys(env)) if (k === "CLAUDE_PLUGIN_DATA" || k.startsWith("CLAUDE_PLUGIN_OPTION_")) delete env[k];

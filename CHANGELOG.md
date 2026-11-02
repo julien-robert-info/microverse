@@ -4,6 +4,7 @@
 
 ### Added
 
+- Audio report: the default voice follows the language (`orch-speak --lang <code>`, else the system language, else en-US-AndrewNeural) instead of being French. `orch-speak --check` looks for the engine and prints the voice, without a sound.
 - `board` mod, foundation: a Board pane for Claude Desktop with the Cockpit tab (launch pace, context, series cost, running agents), the `/board` command and the types of its state. Inert without an orchestration profile. CI runs `plugin test` and uses Claude Code 2.1.306.
 - `orch-quota --json` and `orch-usage --json` (by model, `--agents`, `--context`): one JSON object per run, with the same figures as the text, which is unchanged. A failure is `{ "v": 1, "error" }` with the exit code of the text. `orch-quota` also gives how many more agents the advice allows (`advice.more`).
 - `agent-check --json`: one JSON object with the verdict, the commits and each control (`commits`, `merge`, `behind`, `worktree`, `merged`, `profile:<name>`, `patterns`) as `ok`, `fail` or `skip` with its detail and lines (a profile check not run by `--no-checks` is `skip`). The verdict and exit code are those of the text, which is unchanged. A refusal (unapproved profile, unknown branch, usage, lock held) is `{ "v": 1, "branch", "error" }`.
@@ -23,6 +24,7 @@
 
 - `board` mod: at the end of each main turn it records the 5 h and week counters of `session.usage` through `scripts/statusline.js`, so `orch-quota` and the week's curve get readings under Claude Desktop where no status line runs. Written when a value changed or after 5 min; it works in projects with no orchestration profile.
 
+- `orch-doctor` `counters` control: says where the quota counters come from and how old they are, or, with none, what to set up for the environment (status line in a terminal, the VS Code extension, the Board or `get_usage` on Desktop, `orch-reading --none` with a provider, gateway or API key). Reads `quota_mode`, never writes.
 - `/microverse:doctor` and `orch-doctor [--json]`: reports in one command, with the action to take, whether Node.js, Claude Code and Git are at tested versions, the orchestration profile is present, valid and approved, the `servers` patterns are long enough and the hooks are enabled. Read-only; exit code 1 when a control is `fix`. The tested versions are `testedWith` in `package.json`.
 
 - `quota_mode` setting (`auto` or `off`) and `orch-reading --none [--source get_usage|user]`: a plan with no quota windows (API key, Bedrock, Vertex, gateway) is no longer asked for counters and its agents start without pacing. `orch-quota --mode` and the quota guard resolve the mode: the `off` setting, else a `--none` marker newer than every reading, else counters when a weekly reading is current. `orch-quota --json` gains `mode`; when off it still carries `error`. An old reading, a counters file that is unreadable or holds no Claude observation, or an explicit `--file` path that is absent, is never read as "no counter source": the counters are asked for.

@@ -103,7 +103,7 @@ Plugin settings (`/config`):
 | `compact_window` | 150000 | context size (tokens, 100000 to 1000000) at which Claude Code compacts the orchestrating conversation; `/microverse:init` writes it + 33000 as `autoCompactWindow` in `.claude/settings.local.json`, because Claude Code compacts about 33K below that setting |
 | `quota_mode` | auto | `auto`: pace agents on the 5-hour and weekly counters when a source exists; `off`: no pacing (API key, Bedrock, Vertex, gateway). Any other value is read as `auto` |
 | `quota_file` | — | readings file, if the extension is not at its default location |
-| `speak_voice` | fr-FR-HenriNeural | voice of the audio report, from `edge-tts --list-voices` |
+| `speak_voice` | a voice of the spoken language, else of the system language, else en-US-AndrewNeural | voice of the audio report, from `edge-tts --list-voices` |
 | `speak_rate` | +10% | speaking rate of the audio report, such as +20% or -5% |
 | `speak_pitch` | +0Hz | pitch of the audio report, such as -5Hz |
 | `speak_volume` | +0% | volume of the audio report, such as +20% |
@@ -164,7 +164,10 @@ for the last two: `node` and `claude-code` (against the versions this release
 was tested with, `testedWith` in `package.json`: Claude Code 2.1.306,
 Node.js 22 and 24), `git` (2.38 or newer for `agent-check`'s merge check, and a repository),
 `profile` (present, valid, approved), `servers` (patterns long enough for the
-`SubagentStop` hook) and `hooks` (`disableAllHooks`). `fix` means the plugin will
+`SubagentStop` hook), `hooks` (`disableAllHooks`) and `counters` (where the
+quota counters come from and how old they are, or what to set up in your
+environment when there are none; reads `quota_mode` and the provider, gateway
+and API key variables). `fix` means the plugin will
 not work as intended until corrected, `warn` that it works degraded or untested.
 Nothing is written. `orch-doctor --json` prints the same records; its exit code
 is 1 when a control is `fix`.
@@ -255,7 +258,10 @@ go to `microverse-speak/` in the system temporary folder and are deleted
 after 7 days. It needs edge-tts (see Requirements).
 
 Any edge-tts voice works: `edge-tts --list-voices` lists them, and
-`speak_voice` sets the one to use (the default is French).
+`speak_voice` sets the one to use. By default the voice is one of the language
+of the message (`--lang`, a code such as `de` or `pt-PT`), else of the system
+language, else en-US-AndrewNeural. `orch-speak --check` looks for edge-tts and
+prints the voice it would use, without a sound.
 
 Stopping and resuming. On an announced stop, each running `morty` commits its
 work as `wip:`, each `rick` writes its notes, and the state file lists per

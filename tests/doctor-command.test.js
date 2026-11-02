@@ -79,6 +79,14 @@ test("T8: the plugin options and data folder do not reach doctor", () => {
   assert.match(JSON.parse(r.stdout).reason, /^ok node /);
 });
 
+test("E36a2: quota_mode reaches doctor as --mode", () => {
+  const { dir } = makeRepo({});
+  const bad = JSON.parse(hook(payload(dir), { CLAUDE_PLUGIN_OPTION_QUOTA_MODE: "banana" }).stdout);
+  assert.match(bad.reason, /^fix counters /m);
+  const off = JSON.parse(hook(payload(dir), { CLAUDE_PLUGIN_OPTION_QUOTA_MODE: "off" }).stdout);
+  assert.match(off.reason, /^ok counters  quota off \(quota_mode is off\)/m);
+});
+
 test("T8: other commands, invalid JSON and empty input print nothing", () => {
   const { dir } = makeRepo({});
   for (const input of [payload(dir, { command_name: "microverse:status" }), payload(dir, { command_name: "doctor" }), "{not json", "", "[]", "null", {}]) {
@@ -94,7 +102,7 @@ test("the skill is hidden from the model and the hook is declared with its scrip
   assert.match(skill, /^name: doctor$/m);
   assert.match(skill, /^disable-model-invocation: true$/m);
   assert.match(skill, /^allowed-tools: Bash\(orch-doctor \*\)$/m);
-  assert.match(skill, /Run `orch-doctor` with the Bash tool/);
+  assert.ok(skill.includes("Run `orch-doctor --mode '${user_config.quota_mode}'` with the Bash tool"));
   assert.doesNotMatch(skill, /--from-hook/);
   const entries = JSON.parse(readFileSync(join(ROOT, "hooks", "hooks.json"), "utf8")).hooks.UserPromptExpansion.filter((e) => e.matcher === "^microverse:doctor$");
   assert.equal(entries.length, 1);
