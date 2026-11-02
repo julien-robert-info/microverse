@@ -291,12 +291,11 @@ function setQuotaSettings(file) {
 function checkSettings() {
   const seen = settingsFiles().map((f) => ({ f, set: setQuotaSettings(f) })).filter((x) => x.set);
   if (!seen.length) return;
-  if (seen.some((x) => QUOTA_SETTINGS.every((k) => x.set.has(k)))) return add("settings", "ok", "quota settings adjusted");
-  for (const { f, set } of seen) {
-    const absent = QUOTA_SETTINGS.filter((k) => !set.has(k));
-    if (!absent.length) continue;
-    add("settings", "warn", `${f}: ${absent.join(", ")} not set, defaults apply`, "Change them with /plugin -> microverse -> configure; setting the values, even identical ones, silences this warning");
-  }
+  // Claude Code merges the files: the settings count as adjusted across all of them.
+  const union = new Set(seen.flatMap((x) => [...x.set]));
+  const absent = QUOTA_SETTINGS.filter((k) => !union.has(k));
+  if (!absent.length) return add("settings", "ok", "quota settings adjusted");
+  add("settings", "warn", `${absent.join(", ")} not set in any settings file, defaults apply`, "Change them with /plugin -> microverse -> configure; setting the values, even identical ones, silences this warning");
 }
 
 const tested = testedWith();

@@ -367,20 +367,25 @@ test("E36f2 T3: audio on without an engine: warn that names pip", () => {
   assert.match(r.rec("audio").action, /pip/);
 });
 
-test("E36f2 T4: metered mode and no quota key: one warn per file, naming the three", () => {
+test("E36f2 T4: metered mode and no quota key: one warn naming the three", () => {
   const { dir, home } = meteredRepo();
   writeSettings(join(home, ".claude", "settings.json"), withOptions({ quota_mode: "auto" }));
   writeSettings(join(dir, ".claude", "settings.local.json"), {});
   const r = keep(doctor(dir, [], { home }));
   const warns = r.out.records.filter((x) => x.name === "settings");
-  assert.equal(warns.length, 2);
-  for (const w of warns) {
-    assert.equal(w.state, "warn");
-    for (const k of Object.keys(QUOTA_KEYS)) assert.ok(w.detail.includes(k), w.detail);
-    assert.match(w.action, /even identical/);
-  }
-  // A file that does not exist says nothing.
-  assert.ok(warns.every((w) => !w.detail.includes("settings.json") || w.detail.includes(".claude")));
+  assert.equal(warns.length, 1);
+  assert.equal(warns[0].state, "warn");
+  for (const k of Object.keys(QUOTA_KEYS)) assert.ok(warns[0].detail.includes(k), warns[0].detail);
+  assert.match(warns[0].action, /even identical/);
+});
+
+test("E36f2 T4c: the keys split across the home and the project file: ok, one record", () => {
+  const { dir, home } = meteredRepo();
+  writeSettings(join(home, ".claude", "settings.json"), withOptions({ week_target: 90 }));
+  writeSettings(join(dir, ".claude", "settings.json"), withOptions({ weekday_reserve: 20, five_hour_limit: 80 }));
+  const r = keep(doctor(dir, [], { home }));
+  assert.equal(r.out.records.filter((x) => x.name === "settings").length, 1);
+  assert.equal(r.rec("settings").state, "ok");
 });
 
 test("E36f2 T4b: a partial file names only the absent settings, whatever the plugin key suffix", () => {
@@ -413,7 +418,7 @@ test("E36f2 T7: an invalid settings.json gives no record; the valid one still do
   writeSettings(join(dir, ".claude", "settings.json"), {});
   const warns = keep(doctor(dir, [], { home })).out.records.filter((x) => x.name === "settings");
   assert.equal(warns.length, 1);
-  assert.ok(warns[0].detail.includes(join(dir, ".claude", "settings.json")));
+  assert.equal(warns[0].state, "warn");
 });
 
 test("E36f2 T8: the init skill names the three settings and the command that changes them", () => {
