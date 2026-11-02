@@ -49,7 +49,7 @@ const REPORT_SHOWN = 5
 // Pane width from which the six columns sit side by side: 6 x 14 cells and the
 // 5 gaps between them. Below it the columns fold.
 export const KANBAN_AT = 89
-const HUE_OF: Record<Column, string> = {
+export const HUE_OF: Record<Column, string> = {
   design: COLUMN_HUE.design,
   brief: COLUMN_HUE.brief,
   building: COLUMN_HUE.building,
@@ -74,7 +74,7 @@ export type MissionView = {
   hasBranch: boolean
 }
 
-const label = (name: Column) => COLUMNS.find(column => column.name === name)?.label ?? name
+export const label = (name: Column) => COLUMNS.find(column => column.name === name)?.label ?? name
 
 const stamp = (ms: number | null | undefined) =>
   ms === null || ms === undefined ? '—' : new Date(ms).toISOString().slice(0, 16).replace('T', ' ')
@@ -84,7 +84,7 @@ const minutes = (ms: number) => `${Math.max(0, Math.round(ms / 60_000))} min`
 const fileHref = (project: string, relative: string) =>
   `file:///${project.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '')}/${relative}`
 
-const kindOf = (type: string) =>
+export const kindOf = (type: string) =>
   /rick$/.test(type) ? 'rick' : /morty$/.test(type) ? 'morty' : /council$/.test(type) ? 'council' : null
 
 // Rule E-4, first rule that applies. `running` holds the live agents linked to

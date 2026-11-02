@@ -177,8 +177,10 @@ is 1 when a control is `fix`.
 `/board` opens the Board pane of Claude Desktop; on Desktop the pane also opens
 by itself at the start of a session, and on a terminal only `/board` opens it.
 The Cockpit tab shows the launch pace, the context, the series cost and the
-running agents of the project, read from `orch-status --json`; the Usage tab is
-not available yet. The top is drawn as cards: a header with status pills, a
+running agents of the project, read from `orch-status --json`. The Usage tab
+shows the week's quota curve against the expected pace, the cost per mission and
+model (unattributed runs last), cache share, finished missions and the last 90
+minutes of agent runs as lanes, from the same reading. The top is drawn as cards: a header with status pills, a
 segmented tab switch, then three bordered cards (launch pace with a bar per
 window and a marker at the limit or the expected pace, context with what is left
 before auto-compaction, series cost as a stacked bar by model family). Card
