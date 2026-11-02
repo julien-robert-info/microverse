@@ -2,7 +2,10 @@
 // Diagnoses what the plugin needs on this machine and says what to do about
 // it. Read-only: nothing is written, nothing under ~/.claude is touched.
 //
-// orch-doctor [--json] [--project <dir>] [--transcript <file>] [--from-hook]
+// orch-doctor [--json] [--project <dir>] [--transcript <file>] [--mode <quota_mode>] [--from-hook]
+//
+// --mode is the quota_mode setting (auto or off; unset or empty means auto),
+// which the `counters` control reads with the environment.
 //
 // The project is --project, else CLAUDE_PROJECT_DIR, else the current
 // directory. --transcript is the conversation transcript the Claude Code
@@ -21,14 +24,17 @@ const { spawnSync } = require("node:child_process");
 const { existsSync, readFileSync } = require("node:fs");
 const { homedir } = require("node:os");
 const { join, resolve } = require("node:path");
-const { fail, git, mainRoot, parseArgs, profileTrust, sanitize } = require("../scripts/orch-lib.js");
+const lib = require("../scripts/orch-lib.js");
+const statusline = require("../scripts/statusline.js");
+const { fail, git, mainRoot, parseArgs, profileTrust, sanitize } = lib;
 
-const USAGE = "usage: orch-doctor [--json] [--project <dir>] [--transcript <file>] [--from-hook]";
+const USAGE = "usage: orch-doctor [--json] [--project <dir>] [--transcript <file>] [--mode <quota_mode>] [--from-hook]";
 const GIT_MIN = [2, 38];
+const FRESH = 2 * 3600e3;
 
 const opts = parseArgs(process.argv.slice(2), { flags: ["json", "from-hook"] });
-const known = new Set(["_", "json", "from-hook", "project", "transcript"]);
-if (opts._.length || Object.keys(opts).some((k) => !known.has(k)) || opts.project === true || opts.transcript === true) fail(USAGE);
+const known = new Set(["_", "json", "from-hook", "project", "transcript", "mode"]);
+if (opts._.length || Object.keys(opts).some((k) => !known.has(k)) || opts.project === true || opts.transcript === true || opts.mode === true) fail(USAGE);
 const json = opts.json === true;
 const project = resolve(typeof opts.project === "string" ? opts.project : process.env.CLAUDE_PROJECT_DIR || process.cwd());
 
@@ -157,12 +163,88 @@ function checkHooks() {
   add("hooks", "warn", "no sign that the hooks ran", "The plugin's hooks did not run: run /reload-plugins, then /microverse:doctor again");
 }
 
+// What the environment says about the plan: { kind, label } with kind
+// provider | gateway | key | cli | claude-vscode | claude-desktop | other.
+// Desktop sets ANTHROPIC_BASE_URL to api.anthropic.com itself, so only another
+// host is a gateway.
+function environment() {
+  const env = process.env;
+  const filled = (k) => typeof env[k] === "string" && env[k].trim() !== "";
+  const provider = [["CLAUDE_CODE_USE_BEDROCK", "Bedrock"], ["CLAUDE_CODE_USE_VERTEX", "Vertex"], ["CLAUDE_CODE_USE_FOUNDRY", "Foundry"]].find(([k]) => filled(k));
+  if (provider) return { kind: "provider", label: provider[1] };
+  if (filled("ANTHROPIC_BASE_URL")) {
+    let host = null;
+    try {
+      host = new URL(env.ANTHROPIC_BASE_URL.trim()).hostname.toLowerCase();
+    } catch {}
+    if (host !== "api.anthropic.com") return { kind: "gateway", label: `a gateway (${host ?? "unreadable ANTHROPIC_BASE_URL"})` };
+  }
+  if (filled("ANTHROPIC_API_KEY")) return { kind: "key", label: "an API key" };
+  const entry = (env.CLAUDE_CODE_ENTRYPOINT ?? "").trim();
+  return { kind: ["cli", "claude-vscode", "claude-desktop"].includes(entry) ? entry : "other", label: entry || "unknown entrypoint" };
+}
+
+const ACTIONS = {
+  cli: "Set up the status line with /microverse:init",
+  "claude-vscode": 'Install the VS Code extension "Claude Code Usage" (growthjack), or set quota_mode to off',
+  "claude-desktop": "Open the Board (/board) or let the orchestrator read get_usage",
+};
+
+// What to install or do so that counters exist, for this environment.
+function countersAction(env) {
+  if (["provider", "gateway", "key"].includes(env.kind)) return `No quota windows with ${env.label}: run orch-reading --none or set quota_mode to off`;
+  return ACTIONS[env.kind] ?? Object.values(ACTIONS).join("; or ");
+}
+
+const OFF_REASON = {
+  option: "quota_mode is off",
+  get_usage: "no quota windows, from get_usage",
+  user: "no quota windows, said by the user",
+  "no-source": "no counter source",
+};
+
+// Where the quota counters come from and how old they are. Reads the three
+// sources without pruning and writes nothing.
+function checkCounters() {
+  const option = lib.setOption(opts.mode) ? opts.mode.trim().toLowerCase() : "auto";
+  if (option !== "auto" && option !== "off") return add("counters", "fix", `quota_mode ${JSON.stringify(opts.mode.trim())} unknown`, "quota_mode must be auto or off");
+  const env = environment();
+  const now = Date.now();
+
+  let extensionObs = [];
+  try {
+    extensionObs = JSON.parse(readFileSync(lib.defaultQuotaFile(), "utf8")).observations ?? [];
+  } catch {}
+  const readings = {
+    extensionObs: Array.isArray(extensionObs) ? extensionObs : [],
+    statuslineObs: lib.statuslineObservations(statusline.readReadings({ now })),
+    historyObs: lib.risingOnly(statusline.readHistory({ now, days: Infinity })),
+  };
+  const decided = lib.quotaMode({ option, marker: lib.readQuotaMarker(), readings, now });
+
+  if (decided.mode === "off") {
+    const detail = `quota off (${OFF_REASON[decided.reason]}): agents are not paced`;
+    const subscriber = decided.reason === "no-source" && ["cli", "claude-vscode", "claude-desktop"].includes(env.kind);
+    if (!subscriber) return add("counters", "ok", detail);
+    return add("counters", "warn", `${detail}; a subscription would have counters`, countersAction(env));
+  }
+
+  const merged = lib.mergeReadings({ ...readings, now });
+  if (!merged.w) return add("counters", "warn", "readings exist but none is current", countersAction(env));
+  const age = now - merged.w.observedAt;
+  const where = merged.w.source === "statusline" ? "status line" : merged.w.source === "extension" ? "extension" : String(merged.w.source);
+  const detail = `${where}, ${lib.fmtAge(age)} ago`;
+  if (age <= FRESH) return add("counters", "ok", detail);
+  add("counters", "warn", `${detail}, older than 2 h`, countersAction(env));
+}
+
 const tested = testedWith();
 checkNode(tested);
 checkClaudeCode(tested);
 checkGit();
 checkProfile();
 checkHooks();
+checkCounters();
 
 const summary = { ok: 0, warn: 0, fix: 0 };
 for (const r of records) summary[r.state]++;
