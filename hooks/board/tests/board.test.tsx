@@ -233,7 +233,9 @@ test('the cockpit draws pace, context, series cost and agents', async ($, on) =>
     expect(await ui.find({ type: 'Text', text: /57 %/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /85k of 150k tokens/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /\$4\.00 · 2 runs/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /Opus 75 % · Sonnet 25 %/ })).toBeDefined()
+    // The legend is one Text per family: a coloured dot cannot sit inside a Text.
+    expect(await ui.find({ type: 'Text', text: /^Opus 75 %$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Sonnet 25 %$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Agents \(1\)/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /78 % 5 h window/ })).toBeDefined()
     await ui.unmount()
