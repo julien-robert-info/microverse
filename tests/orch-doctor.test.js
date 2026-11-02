@@ -320,3 +320,108 @@ test("T9: an unknown option, a positional argument or a missing value is a usage
     assert.match(r.out, /^usage: orch-doctor/);
   }
 });
+
+// ---- audio and quota settings ----
+
+// A synthetic settings file with the given plugin options (or raw text).
+function writeSettings(file, content) {
+  mkdirSync(join(file, ".."), { recursive: true });
+  writeFileSync(file, typeof content === "string" ? content : JSON.stringify(content));
+}
+const withOptions = (options, key = "microverse@microverse") => ({ pluginConfigs: { [key]: { options } } });
+const QUOTA_KEYS = { week_target: 90, weekday_reserve: 20, five_hour_limit: 80 };
+
+// A project and a home with a status line reading, so the quota mode is metered.
+function meteredRepo() {
+  const { dir, home } = approvedRepo();
+  statuslineReading(home, 10 * 60e3);
+  return { dir, home };
+}
+const audioLine = (dir, line) => writeFileSync(join(dir, "CLAUDE.local.md"), `# State\n\n${line}\n`);
+const fakeEngine = () => {
+  const file = join(tmp("engine"), "fake-edge-tts.js");
+  writeFileSync(file, 'console.log("edge-tts 7.0.0");\n');
+  return file;
+};
+
+test("E36f2 T1: audio off or no line: no audio record", () => {
+  const { dir, home } = approvedRepo();
+  assert.equal(keep(doctor(dir, [], { home })).rec("audio"), undefined);
+  audioLine(dir, "Audio report: off");
+  assert.equal(keep(doctor(dir, [], { home, env: { MICROVERSE_EDGE_TTS: fakeEngine() } })).rec("audio"), undefined);
+});
+
+test("E36f2 T2: audio on with an engine: ok, names the voice", () => {
+  const { dir, home } = approvedRepo();
+  audioLine(dir, "Audio report: on, voice en-GB-SoniaNeural");
+  const r = keep(doctor(dir, [], { home, env: { MICROVERSE_EDGE_TTS: fakeEngine() } }));
+  assert.equal(r.rec("audio").state, "ok");
+  assert.match(r.rec("audio").detail, /voice \S+/);
+});
+
+test("E36f2 T3: audio on without an engine: warn that names pip", () => {
+  const { dir, home } = approvedRepo();
+  audioLine(dir, "Audio report: on");
+  const r = keep(doctor(dir, [], { home, env: { MICROVERSE_EDGE_TTS: join(tmp("noengine"), "missing.js") } }));
+  assert.equal(r.rec("audio").state, "warn");
+  assert.match(r.rec("audio").action, /pip/);
+});
+
+test("E36f2 T4: metered mode and no quota key: one warn naming the three", () => {
+  const { dir, home } = meteredRepo();
+  writeSettings(join(home, ".claude", "settings.json"), withOptions({ quota_mode: "auto" }));
+  writeSettings(join(dir, ".claude", "settings.local.json"), {});
+  const r = keep(doctor(dir, [], { home }));
+  const warns = r.out.records.filter((x) => x.name === "settings");
+  assert.equal(warns.length, 1);
+  assert.equal(warns[0].state, "warn");
+  for (const k of Object.keys(QUOTA_KEYS)) assert.ok(warns[0].detail.includes(k), warns[0].detail);
+  assert.match(warns[0].action, /even identical/);
+});
+
+test("E36f2 T4c: the keys split across the home and the project file: ok, one record", () => {
+  const { dir, home } = meteredRepo();
+  writeSettings(join(home, ".claude", "settings.json"), withOptions({ week_target: 90 }));
+  writeSettings(join(dir, ".claude", "settings.json"), withOptions({ weekday_reserve: 20, five_hour_limit: 80 }));
+  const r = keep(doctor(dir, [], { home }));
+  assert.equal(r.out.records.filter((x) => x.name === "settings").length, 1);
+  assert.equal(r.rec("settings").state, "ok");
+});
+
+test("E36f2 T4b: a partial file names only the absent settings, whatever the plugin key suffix", () => {
+  const { dir, home } = meteredRepo();
+  writeSettings(join(dir, ".claude", "settings.json"), withOptions({ week_target: 98 }, "microverse@somewhere"));
+  const w = keep(doctor(dir, [], { home })).rec("settings");
+  assert.equal(w.state, "warn");
+  assert.ok(!w.detail.includes("week_target") && w.detail.includes("weekday_reserve") && w.detail.includes("five_hour_limit"), w.detail);
+});
+
+test("E36f2 T5: the three keys set: ok", () => {
+  const { dir, home } = meteredRepo();
+  writeSettings(join(home, ".claude", "settings.json"), withOptions(QUOTA_KEYS));
+  const r = keep(doctor(dir, [], { home }));
+  assert.equal(r.rec("settings").state, "ok");
+  assert.equal(r.out.records.filter((x) => x.name === "settings").length, 1);
+});
+
+test("E36f2 T6: quota mode off: no settings record", () => {
+  const { dir, home } = approvedRepo();
+  writeSettings(join(home, ".claude", "settings.json"), {});
+  assert.equal(keep(doctor(dir, ["--mode", "off"], { home })).rec("settings"), undefined);
+  assert.equal(keep(doctor(dir, [], { home })).rec("settings"), undefined);
+});
+
+test("E36f2 T7: an invalid settings.json gives no record; the valid one still does", () => {
+  const { dir, home } = meteredRepo();
+  writeSettings(join(home, ".claude", "settings.json"), "{ not json");
+  assert.equal(keep(doctor(dir, [], { home })).rec("settings"), undefined);
+  writeSettings(join(dir, ".claude", "settings.json"), {});
+  const warns = keep(doctor(dir, [], { home })).out.records.filter((x) => x.name === "settings");
+  assert.equal(warns.length, 1);
+  assert.equal(warns[0].state, "warn");
+});
+
+test("E36f2 T8: the init skill names the three settings and the command that changes them", () => {
+  const text = readFileSync(join(ROOT, "skills", "init", "SKILL.md"), "utf8");
+  for (const k of ["week_target", "weekday_reserve", "five_hour_limit", "claude plugin configure microverse", "orch-quota --no-write"]) assert.ok(text.includes(k), k);
+});
