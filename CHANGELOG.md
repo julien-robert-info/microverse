@@ -9,6 +9,8 @@
 - `agent-check --json`: one JSON object with the verdict, the commits and each control (`commits`, `merge`, `behind`, `worktree`, `merged`, `profile:<name>`, `patterns`) as `ok`, `fail` or `skip` with its detail and lines (a profile check not run by `--no-checks` is `skip`). The verdict and exit code are those of the text, which is unchanged. A refusal (unapproved profile, unknown branch, usage, lock held) is `{ "v": 1, "branch", "error" }`.
 - `orch-report --json` and `orch-status --json`: one JSON object each (merges with their commits, agent runs and advisor calls, quota, context; for `orch-status` also the state file sections, the worktrees and the branches without one). A sibling that fails is `{ "error" }` under its key and the rest is still given. `orch-status` now reads its siblings as JSON in both modes instead of parsing their text, which is unchanged.
 
+- Board, look: the top of the Cockpit follows the mock-up (header pills, segmented tabs, three bordered cards with full-cell bars, a stacked cost bar and big figures) on a reusable style kit (`hooks/board/tokens.ts`, `kit.tsx`); backgrounds are painted only when the host theme is known.
+
 - Board, wide layout: the detail drawer is 40 % of the pane and stays inside it, the main column no longer overflows, sections are drawn at the width of their own zone, `WIDE_AT` is 130 and the footer shows `N cols` to calibrate it.
 
 - `orch-reading`: under Claude Desktop the model records the counters from `get_usage` as a `desktop` reading, so `orch-quota` and the quota guard see fresh 5h and week values where the extension and the status line do not run. The orchestration skill calls it before the budget check.
