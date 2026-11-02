@@ -228,10 +228,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await settle()
 
     expect((await ui.find({ key: 'drawer' }))?.props).toMatchObject({
-      width: '40%',
+      width: 56,
       flexShrink: 0,
-      minWidth: 0,
-      overflow: 'hidden',
     })
     expect((await ui.find({ key: 'main' }))?.props).toMatchObject({
       flexGrow: 1,

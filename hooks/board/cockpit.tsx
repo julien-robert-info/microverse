@@ -274,10 +274,8 @@ export const renderCockpit = (context: BoardContext) => {
             <Box
               key="drawer"
               flexDirection="column"
-              width="40%"
+              width={drawerColumns}
               flexShrink={0}
-              minWidth={0}
-              overflow="hidden"
             >
               <Button key="detail:close" label="Close" onPress={() => actions.closeDetail()} />
               {drawer}
