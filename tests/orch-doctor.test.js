@@ -36,6 +36,14 @@ function doctor(dir, args = [], { home = tmp("home"), env = {} } = {}) {
     CLAUDE_PROJECT_DIR: "",
     MICROVERSE_NODE_VERSION: `${tested.node[0]}.1.0`,
     MICROVERSE_CLAUDE_BIN: MISSING_BIN,
+    // Claude Code's own Bash carries these: none may leak into a test.
+    CLAUDE_CODE_USE_BEDROCK: "",
+    CLAUDE_CODE_USE_VERTEX: "",
+    CLAUDE_CODE_USE_FOUNDRY: "",
+    ANTHROPIC_BASE_URL: "",
+    ANTHROPIC_API_KEY: "",
+    CLAUDE_CODE_ENTRYPOINT: "",
+    CLAUDE_PLUGIN_OPTION_QUOTA_MODE: "",
     ...env,
   });
   let out = null;
@@ -63,9 +71,9 @@ test("T1: a tested environment, approved profile and a hook run: every control o
   const { dir, home } = approvedRepo({ servers: ["vite"] });
   const r = keep(doctor(dir, ["--from-hook", "--transcript", transcript(tested.claudeCode)], { home }));
   assert.equal(r.code, 0, r.raw);
-  assert.deepEqual(r.out.records.map((x) => x.name), ["node", "claude-code", "git", "profile", "servers", "hooks"]);
+  assert.deepEqual(r.out.records.map((x) => x.name), ["node", "claude-code", "git", "profile", "servers", "hooks", "counters"]);
   for (const x of r.out.records) assert.equal(x.state, "ok", `${x.name}: ${x.detail}`);
-  assert.deepEqual(r.out.summary, { ok: 6, warn: 0, fix: 0 });
+  assert.deepEqual(r.out.summary, { ok: 7, warn: 0, fix: 0 });
   assert.equal(r.out.v, 1);
   assert.match(r.rec("servers").detail, /vite/);
 });
@@ -202,6 +210,88 @@ test("the text form: one line per record and an arrow line for each action", () 
   assert.equal(r.code, 1);
 });
 
+// A status line reading of `home` taken `ageMs` ago, week counter at 40 %.
+function statuslineReading(home, ageMs) {
+  const dir = join(home, ".claude", "microverse", "statusline");
+  mkdirSync(dir, { recursive: true });
+  const now = Date.now();
+  writeFileSync(join(dir, "s1.json"), JSON.stringify({ v: 1, at: now - ageMs, week: { used: 40, resetsAt: now + 3 * 86400e3 } }));
+}
+
+const counters = (args, env, readingAge) => {
+  const { dir, home } = approvedRepo();
+  if (readingAge !== undefined) statuslineReading(home, readingAge);
+  return keep(doctor(dir, args, { home, env }));
+};
+
+test("E36a2 T1: quota_mode off is ok whatever the environment", () => {
+  const r = counters(["--mode", "off"], { CLAUDE_CODE_ENTRYPOINT: "cli" });
+  assert.equal(r.rec("counters").state, "ok");
+  assert.equal(r.rec("counters").detail, "quota off (quota_mode is off): agents are not paced");
+  assert.equal(r.code, 0);
+});
+
+test("E36a2 T2: no source in the terminal CLI is a warning that names /microverse:init", () => {
+  const r = counters([], { CLAUDE_CODE_ENTRYPOINT: "cli" });
+  assert.equal(r.rec("counters").state, "warn");
+  assert.equal(r.rec("counters").action, "Set up the status line with /microverse:init");
+  assert.equal(r.code, 0);
+  assert.equal(counters([], { CLAUDE_CODE_ENTRYPOINT: "claude-desktop" }).rec("counters").action, "Open the Board (/board) or let the orchestrator read get_usage");
+  const other = counters([], { CLAUDE_CODE_ENTRYPOINT: "sdk-ts" });
+  assert.equal(other.rec("counters").state, "ok");
+});
+
+test("E36a2 T3: no source with Bedrock is ok", () => {
+  const r = counters([], { CLAUDE_CODE_ENTRYPOINT: "cli", CLAUDE_CODE_USE_BEDROCK: "1" });
+  assert.equal(r.rec("counters").state, "ok");
+  assert.match(r.rec("counters").detail, /^quota off \(no counter source\)/);
+});
+
+test("E36a2 T4: a fresh reading is ok and says where it comes from and its age", () => {
+  const r = counters([], { CLAUDE_CODE_ENTRYPOINT: "cli" }, 10 * 60e3);
+  assert.equal(r.rec("counters").state, "ok");
+  assert.equal(r.rec("counters").detail, "status line, 10 min ago");
+});
+
+test("E36a2 T5: a reading 3 h old in VS Code is a warning that names the extension", () => {
+  const r = counters([], { CLAUDE_CODE_ENTRYPOINT: "claude-vscode" }, 3 * 3600e3);
+  assert.equal(r.rec("counters").state, "warn");
+  assert.match(r.rec("counters").detail, /^status line, 3 h ago/);
+  assert.match(r.rec("counters").action, /"Claude Code Usage" \(growthjack\)/);
+});
+
+test("E36a2 T6: a gateway with counted mode is a warning that names orch-reading --none", () => {
+  const r = counters([], { ANTHROPIC_BASE_URL: "https://llm.example.test/v1", CLAUDE_CODE_ENTRYPOINT: "cli" }, 3 * 3600e3);
+  assert.equal(r.rec("counters").state, "warn");
+  assert.match(r.rec("counters").action, /^No quota windows with a gateway \(llm\.example\.test\): run orch-reading --none or set quota_mode to off$/);
+  const key = counters([], { ANTHROPIC_API_KEY: "sk-test" }, 3 * 3600e3);
+  assert.match(key.rec("counters").action, /^No quota windows with an API key: run orch-reading --none/);
+});
+
+test("E36a2 T7: an unknown quota_mode is a fix, exit 1; unset, empty and the unexpanded setting are auto", () => {
+  const r = counters(["--mode", "banana"], {});
+  assert.equal(r.rec("counters").state, "fix");
+  assert.equal(r.rec("counters").action, "quota_mode must be auto or off");
+  assert.equal(r.code, 1);
+  for (const v of ["", "${user_config.quota_mode}", "AUTO"]) assert.notEqual(counters(["--mode", v], {}).rec("counters").state, "fix", v);
+});
+
+test("E36a2 T8: ANTHROPIC_BASE_URL on api.anthropic.com alone is no gateway", () => {
+  const r = counters([], { ANTHROPIC_BASE_URL: "https://api.anthropic.com", CLAUDE_CODE_ENTRYPOINT: "claude-desktop" }, 3 * 3600e3);
+  assert.equal(r.rec("counters").state, "warn");
+  assert.match(r.rec("counters").action, /^Open the Board/);
+});
+
+test("E36a2: the counters control reads without pruning or writing", () => {
+  const { dir, home } = approvedRepo();
+  statuslineReading(home, 20 * 86400e3);
+  const { readdirSync } = require("node:fs");
+  const list = () => readdirSync(home, { recursive: true }).sort().join("|");
+  const before = list();
+  keep(doctor(dir, [], { home }));
+  assert.equal(list(), before);
+});
+
 test("doctor writes nothing: the home and the project are unchanged", () => {
   const { dir, home } = approvedRepo({ servers: ["vite"] });
   const { readdirSync } = require("node:fs");
@@ -224,7 +314,7 @@ test("T7: every warn and fix record has an action, and ok has none", () => {
 
 test("T9: an unknown option, a positional argument or a missing value is a usage error", () => {
   const { dir } = makeRepo({});
-  for (const args of [["--bogus"], ["extra"], ["--project"], ["--transcript"]]) {
+  for (const args of [["--bogus"], ["extra"], ["--project"], ["--transcript"], ["--mode"]]) {
     const r = script("orch-doctor", args, dir);
     assert.equal(r.code, 2, args.join(" "));
     assert.match(r.out, /^usage: orch-doctor/);

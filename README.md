@@ -164,7 +164,10 @@ for the last two: `node` and `claude-code` (against the versions this release
 was tested with, `testedWith` in `package.json`: Claude Code 2.1.306,
 Node.js 22 and 24), `git` (2.38 or newer for `agent-check`'s merge check, and a repository),
 `profile` (present, valid, approved), `servers` (patterns long enough for the
-`SubagentStop` hook) and `hooks` (`disableAllHooks`). `fix` means the plugin will
+`SubagentStop` hook), `hooks` (`disableAllHooks`) and `counters` (where the
+quota counters come from and how old they are, or what to set up in your
+environment when there are none; reads `quota_mode` and the provider, gateway
+and API key variables). `fix` means the plugin will
 not work as intended until corrected, `warn` that it works degraded or untested.
 Nothing is written. `orch-doctor --json` prints the same records; its exit code
 is 1 when a control is `fix`.
