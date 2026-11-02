@@ -4,6 +4,7 @@
 
 ### Added
 
+- `init` explains the three quota settings and how to change them; `orch-doctor` reports the audio engine (when the audio report is on) and whether the quota settings were ever adjusted (`audio` and `settings` records).
 - `board` mod: questions section and detail in the style kit (a card per question with a Pending pill, the recommended option as the primary button, "Why it is asked" and option cards in the detail, folded Answered list).
 - `board` mod: mission detail in the style kit (Id, title, state pill, six steps, cost / agent time / runs tiles, Overview / Runs / Review tabs, notes as cards by type); every line wraps, nothing is cut at 40 columns.
 - `board` mod: agent cards and detail in the style kit (avatar, state pill, steps, Summary / Full text for the brief, tool call rows, usage split); briefs with numbered labels and no bold are read as templates.

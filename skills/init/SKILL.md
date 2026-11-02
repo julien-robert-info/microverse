@@ -111,6 +111,20 @@ Also check:
   - any other command: write nothing; show the printed setting and say that
     their own script can pass its stdin on to that command, or that they can
     replace it by hand;
+- explain the three quota settings, unless
+  `orch-quota --no-write --mode '${user_config.quota_mode}'`
+  says `Quota: off` (nothing is paced then). Say it in the user's language,
+  then ask whether they want to change the values; never change them yourself:
+  `week_target` (98): the share of the weekly limit the orchestrator aims to
+  have used when the week resets; past it no agent is resumed, and no new agent
+  starts within 3 points of it. `weekday_reserve` (30): the share kept for the
+  weekdays when the weekly window resets near the weekend; on the weekend
+  agents may use up to target minus reserve (68 % by default).
+  `five_hour_limit` (90): past it no new agent starts until the 5-hour window
+  resets; 5 points higher none is resumed. Lower the target to keep room for
+  your own use; set the reserve to 0 if you work as much on weekends. Change
+  them with /plugin → microverse → configure, or
+  `claude plugin configure microverse`. Never run that command yourself;
 - offer to append to the state file `CLAUDE.local.md` a `# Compact instructions`
   section of three or four lines, in the user's language: the summary keeps the
   missions in progress with their branches, the agents launched and not yet

@@ -146,14 +146,19 @@ function checkProfile() {
   add("servers", "ok", patterns.length ? patterns.join(", ") : "no pattern");
 }
 
-function checkHooks() {
-  if (opts["from-hook"] === true) return add("hooks", "ok", "the plugin's hooks run");
+// The three settings files Claude Code reads, without duplicates (the project
+// can be the home folder).
+function settingsFiles() {
   const seen = new Set();
-  const files = [join(homedir(), ".claude", "settings.json"), join(project, ".claude", "settings.json"), join(project, ".claude", "settings.local.json")].filter((f) => {
+  return [join(homedir(), ".claude", "settings.json"), join(project, ".claude", "settings.json"), join(project, ".claude", "settings.local.json")].filter((f) => {
     const k = process.platform === "win32" ? f.toLowerCase() : f;
     return !seen.has(k) && seen.add(k);
   });
-  for (const f of files) {
+}
+
+function checkHooks() {
+  if (opts["from-hook"] === true) return add("hooks", "ok", "the plugin's hooks run");
+  for (const f of settingsFiles()) {
     try {
       if (existsSync(f) && JSON.parse(readFileSync(f, "utf8"))?.disableAllHooks === true) {
         return add("hooks", "fix", `disableAllHooks is true in ${f}`, `Remove disableAllHooks from ${f}`);
@@ -203,6 +208,8 @@ const OFF_REASON = {
   "no-source": "no counter source",
 };
 
+let mode = null;
+
 // Where the quota counters come from and how old they are. Reads the three
 // sources without pruning and writes nothing.
 function checkCounters() {
@@ -222,6 +229,7 @@ function checkCounters() {
   };
   const decided = lib.quotaMode({ option, marker: lib.readQuotaMarker(), readings, now });
 
+  mode = decided.mode;
   if (decided.mode === "off") {
     const detail = `quota off (${OFF_REASON[decided.reason]}): agents are not paced`;
     const subscriber = decided.reason === "no-source" && ["cli", "claude-vscode", "claude-desktop"].includes(env.kind);
@@ -238,6 +246,59 @@ function checkCounters() {
   add("counters", "warn", `${detail}, older than 2 h`, countersAction(env));
 }
 
+// The audio report is on when the project's CLAUDE.local.md has a line
+// `Audio report: on…` (the test of scripts/audio-guard.js). Nothing is said
+// about voices while it is off. orch-speak --check plays nothing.
+function checkAudio() {
+  let text;
+  try {
+    text = readFileSync(join(project, "CLAUDE.local.md"), "utf8");
+  } catch {
+    return;
+  }
+  if (!text.split(/\r?\n/).some((line) => /^\s*(?:-\s+)?audio report: on/i.test(line) && !/edge-tts missing/i.test(line))) return;
+  const r = spawnSync(process.execPath, [join(__dirname, "orch-speak"), "--check"], { encoding: "utf8", timeout: 20000 });
+  if (!r.error && r.status === 0) {
+    const voice = /voice (\S+)/.exec(r.stdout)?.[1];
+    return add("audio", "ok", voice ? `audio engine found, voice ${voice}` : "audio engine found");
+  }
+  add("audio", "warn", "the audio report is on but no edge-tts engine was found", "Install edge-tts: pip install --user edge-tts (or pipx install edge-tts)");
+}
+
+const QUOTA_SETTINGS = ["week_target", "weekday_reserve", "five_hour_limit"];
+
+// The quota settings set in microverse's options of a settings file, or null
+// when the file is absent, unreadable or not JSON.
+function setQuotaSettings(file) {
+  let json;
+  try {
+    json = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+  const configs = json && typeof json === "object" ? json.pluginConfigs : null;
+  const set = new Set();
+  if (configs && typeof configs === "object") {
+    for (const [key, value] of Object.entries(configs)) {
+      const options = key.startsWith("microverse@") ? value?.options : null;
+      if (options && typeof options === "object") for (const k of QUOTA_SETTINGS) if (k in options) set.add(k);
+    }
+  }
+  return set;
+}
+
+// Only when agents are paced: a default left untouched is worth a word to a new user.
+function checkSettings() {
+  const seen = settingsFiles().map((f) => ({ f, set: setQuotaSettings(f) })).filter((x) => x.set);
+  if (!seen.length) return;
+  if (seen.some((x) => QUOTA_SETTINGS.every((k) => x.set.has(k)))) return add("settings", "ok", "quota settings adjusted");
+  for (const { f, set } of seen) {
+    const absent = QUOTA_SETTINGS.filter((k) => !set.has(k));
+    if (!absent.length) continue;
+    add("settings", "warn", `${f}: ${absent.join(", ")} not set, defaults apply`, "Change them with /plugin -> microverse -> configure; setting the values, even identical ones, silences this warning");
+  }
+}
+
 const tested = testedWith();
 checkNode(tested);
 checkClaudeCode(tested);
@@ -245,6 +306,8 @@ checkGit();
 checkProfile();
 checkHooks();
 checkCounters();
+checkAudio();
+if (mode !== "off" && mode !== null) checkSettings();
 
 const summary = { ok: 0, warn: 0, fix: 0 };
 for (const r of records) summary[r.state]++;
