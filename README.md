@@ -190,7 +190,11 @@ also marked `▸` and figures stay bold.
   Building, Review, To merge or Merged (Other, folded, for the rest) from the
   running agents, the worktrees and the commits cited; an agent is linked to its
   mission by its worktree branch or by an Id at the start of its `description`.
-  A mission's detail lists its notes by type and its runs. From 89 columns of
+  A mission's detail shows its Id, title, branch and state, six steps
+  (Design, Brief, Build, Review, Ready, Merged) with the time of the runs that
+  started them, tiles for the cost, the agent time and the number of runs, and
+  tabs: Overview (sources, Structured or Raw notes as cards by type), Runs and,
+  when `notes/<id>.review-*.md` exists, Review. From 89 columns of
   the main zone the six columns share the row; below, they fold. A card shows
   the Id, the title (the H1 of the mission's notes file, else the state cell)
   and pills for the running agent, the merge date and the check state. A

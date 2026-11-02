@@ -282,8 +282,10 @@ for (const surface of SURFACES) {
     expect(await heading(ui, 'To merge', 0)).toBe(true)
     await ui.press({ key: 'open:E7' })
     await settle()
-    expect(await shows(ui, /Runs \(1\)/)).toBe(true)
-    expect(await shows(ui, /sonnet-5 · 10 min · \$1\.50/)).toBe(true)
+    expect(await shows(ui, /^\$1\.50$/)).toBe(true)
+    await ui.press({ key: 'mission:tab:runs:E7' })
+    await settle()
+    expect(await shows(ui, /morty · claude-sonnet-5 · 10 min/)).toBe(true)
     await ui.unmount()
   })
 
@@ -419,8 +421,10 @@ for (const surface of SURFACES) {
     expect(await shows(ui, /1 run not attributed to a mission/)).toBe(true)
     await ui.press({ key: 'open:E7' })
     await settle()
-    expect(await shows(ui, /Runs \(1\)/)).toBe(true)
-    expect(await shows(ui, /opus-4 · 2 min · \$2\.00/)).toBe(true)
+    await ui.press({ key: 'mission:tab:runs:E7' })
+    await settle()
+    expect(await shows(ui, /rick · claude-opus-4 · 2 min/)).toBe(true)
+    expect(await shows(ui, /^\$2\.00$/)).toBe(true)
     await ui.unmount()
   })
 
@@ -461,12 +465,15 @@ for (const surface of SURFACES) {
     expect(await heading(ui, 'Design', 0)).toBe(true)
     await ui.press({ key: 'open:E33' })
     await settle()
-    expect(await shows(ui, /Runs \(1\)/)).toBe(true)
+    await ui.press({ key: 'mission:tab:runs:E33' })
+    await settle()
     // The drawer's line is the whole text; the cockpit's agent list appends a
     // duration to the same words.
     expect(await shows(ui, /^running · E33a board foundation$/)).toBe(true)
     expect(await shows(ui, /^running · quota work$/)).toBe(false)
     await ui.press({ key: 'open:E34' })
+    await settle()
+    await ui.press({ key: 'mission:tab:runs:E34' })
     await settle()
     expect(await shows(ui, /^running · quota work$/)).toBe(true)
     expect(await shows(ui, /^running · E33a board foundation$/)).toBe(false)
@@ -702,6 +709,199 @@ for (const surface of SURFACES) {
     await settle()
     expect(await shows(narrow, /E40 · § 2 Plan/)).toBe(true)
     await narrow.unmount()
+  })
+}
+
+// A mission with one run of each kind, a review file and a notes file.
+const DETAIL_SCENE: Scene = {
+  state: TABLE('| E50 | `feat/detail-style` | en cours |'),
+  notes: {
+    'E50.md':
+      '# E50 — Restyle the detail of a mission so that nothing is cut off\n\n## Mesures\n\nTwelve units measured on the sample.\n',
+    'E50.review-1.md': '# E50 review\n\n## Zones à risque\n\nThe parser is fragile.\n',
+  },
+  runs: [
+    {
+      agentId: 'r1',
+      type: 'microverse:rick',
+      model: 'claude-opus-4',
+      description: 'E50 design',
+      started: START - 3_600_000,
+      ended: START - 3_000_000,
+      cost: 1.25,
+    },
+    {
+      agentId: 'm1',
+      type: 'microverse:morty',
+      model: 'claude-sonnet-5',
+      description: 'E50 build',
+      started: START - 2_700_000,
+      ended: START - 1_800_000,
+      cost: 2.5,
+    },
+    {
+      agentId: 'c1',
+      type: 'microverse:council',
+      model: 'claude-opus-4',
+      description: 'E50 review',
+      started: START - 1_500_000,
+      ended: START - 900_000,
+      cost: 0.75,
+    },
+  ],
+}
+
+type Shown = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
+
+const rootOf = async (ui: Mounted) => (await ui.find({ type: 'Box' })) as Shown | undefined
+
+const walk = (node: unknown, visit: (one: Shown) => void) => {
+  if (typeof node !== 'object' || node === null) {
+    return
+  }
+  visit(node as Shown)
+  for (const child of (node as Shown).children ?? []) {
+    walk(child, visit)
+  }
+}
+
+const textOf = (node: Shown): string =>
+  (node.children ?? []).map(child => (typeof child === 'string' ? child : textOf(child as Shown))).join('')
+
+for (const surface of SURFACES) {
+  test(`D1 the six steps share one wrapping row (${surface})`, async ($, on) => {
+    await start($, on, DETAIL_SCENE)
+    const ui = await $.ui.mount(pane(surface, NARROW))
+    await ui.press({ key: 'open:E50' })
+    await settle()
+
+    const rows: Shown[] = []
+    walk(await rootOf(ui), one => {
+      if (one.type === 'Box' && one.props?.flexWrap === 'wrap' && (one.children ?? []).length === 6) {
+        rows.push(one)
+      }
+    })
+    expect(rows.length).toBe(1)
+    const labels = (rows[0].children ?? []).map(child => textOf(child as Shown))
+    expect(labels.map(one => one.replace(/^━/, '').trim().split(' ')[0])).toEqual([
+      'Design',
+      'Brief',
+      'Build',
+      'Review',
+      'Ready',
+      'Merged',
+    ])
+    // Brief and Ready have no time; Design, Build and Review have one.
+    expect(labels[1]).not.toMatch(/\d{4}-/)
+    expect(labels[4]).not.toMatch(/\d{4}-/)
+    expect(labels[0]).toMatch(/\d{4}-\d\d-\d\d/)
+    expect(labels[2]).toMatch(/\d{4}-\d\d-\d\d/)
+    expect(labels[3]).toMatch(/\d{4}-\d\d-\d\d/)
+    await ui.unmount()
+  })
+
+  test(`D2 the Cost tile is the sum of the runs, the other tiles follow (${surface})`, async ($, on) => {
+    await start($, on, DETAIL_SCENE)
+    const ui = await $.ui.mount(pane(surface, WIDE))
+    await ui.press({ key: 'open:E50' })
+    await settle()
+
+    // 1.25 + 2.5 + 0.75; 10 + 15 + 10 minutes; 3 runs.
+    expect(await shows(ui, /^\$4\.50$/)).toBe(true)
+    expect(await shows(ui, /^35 min$/)).toBe(true)
+    expect(await shows(ui, /^3$/)).toBe(true)
+    await ui.unmount()
+  })
+
+  test(`D3 going from Overview to Runs leaves a single active tab (${surface})`, async ($, on) => {
+    await start($, on, DETAIL_SCENE)
+    const ui = await $.ui.mount(pane(surface, WIDE))
+    await ui.press({ key: 'open:E50' })
+    await settle()
+    expect(await shows(ui, /^▸ Overview$/)).toBe(true)
+
+    await ui.press({ key: 'mission:tab:review:E50' })
+    await settle()
+    expect(await shows(ui, /^▸ Review$/)).toBe(true)
+    await ui.press({ key: 'mission:tab:runs:E50' })
+    await settle()
+    expect(await shows(ui, /^▸ Runs$/)).toBe(true)
+    expect(await shows(ui, /^▸ Review$/)).toBe(false)
+    expect(await shows(ui, /^▸ Overview$/)).toBe(false)
+    expect(await shows(ui, /rick · claude-opus-4 · 10 min/)).toBe(true)
+
+    await ui.press({ key: 'mission:tab:overview:E50' })
+    await settle()
+    expect(await shows(ui, /^▸ Overview$/)).toBe(true)
+    expect(await shows(ui, /^▸ Runs$/)).toBe(false)
+    await ui.unmount()
+  })
+
+  test(`D4 Structured and Raw are present by default, with the cards by type (${surface})`, async ($, on) => {
+    await start($, on, DETAIL_SCENE)
+    const ui = await $.ui.mount(pane(surface, WIDE))
+    await ui.press({ key: 'open:E50' })
+    await settle()
+
+    expect(await ui.find({ key: 'mission:structured' })).toBeDefined()
+    expect(await ui.find({ key: 'mission:raw' })).toBeDefined()
+    expect(await ui.find({ key: 'fold:mission:E50:measures' })).toBeDefined()
+    expect(await shows(ui, /Measures · 1/)).toBe(true)
+    // The review notes belong to the Review tab.
+    expect(await shows(ui, /Risks · 1/)).toBe(false)
+    await ui.unmount()
+  })
+
+  test(`D5 at 40 columns every Text longer than 40 characters wraps or truncates (${surface})`, async ($, on) => {
+    await start($, on, {
+      ...DETAIL_SCENE,
+      agents: [{ id: 'm9', type: 'microverse:morty', description: 'E50 a live agent with a long description' }],
+    })
+    const ui = await $.ui.mount(pane(surface, 40))
+    await ui.press({ key: 'open:E50' })
+    await settle()
+
+    for (const tab of ['runs', 'review', 'overview']) {
+      await ui.press({ key: `mission:tab:${tab}:E50` })
+      await settle()
+      if (tab === 'overview') {
+        await ui.press({ key: 'mission:raw' })
+        await settle()
+      }
+      const long: string[] = []
+      walk(await rootOf(ui), one => {
+        if (one.type === 'Text' && one.props?.wrap === undefined && textOf(one).length > 40) {
+          long.push(textOf(one))
+        }
+      })
+      expect(long).toEqual([])
+    }
+    await ui.unmount()
+  })
+
+  test(`D6 the Review tab exists only with a review file (${surface})`, async ($, on) => {
+    await start($, on, DETAIL_SCENE)
+    const ui = await $.ui.mount(pane(surface, WIDE))
+    await ui.press({ key: 'open:E50' })
+    await settle()
+    expect(await ui.find({ key: 'mission:tab:review:E50' })).toBeDefined()
+    await ui.press({ key: 'mission:tab:review:E50' })
+    await settle()
+    expect(await shows(ui, /Risks · 1/)).toBe(true)
+    await ui.unmount()
+  })
+
+  test(`D6b without a review file there is no Review tab (${surface})`, async ($, on) => {
+    await start($, on, {
+      ...DETAIL_SCENE,
+      notes: { 'E50.md': DETAIL_SCENE.notes?.['E50.md'] ?? '' },
+    })
+    const ui = await $.ui.mount(pane(surface, WIDE))
+    await ui.press({ key: 'open:E50' })
+    await settle()
+    expect(await ui.find({ key: 'mission:tab:runs:E50' })).toBeDefined()
+    expect(await ui.find({ key: 'mission:tab:review:E50' })).toBeUndefined()
+    await ui.unmount()
   })
 }
 

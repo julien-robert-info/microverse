@@ -6,7 +6,19 @@ import type {
   NoteType,
   NotesItem,
 } from '../../types/board'
-import { Card, FoldHeader, Legend, Pill, type Part } from './kit'
+import {
+  Action,
+  Avatar,
+  Card,
+  FoldHeader,
+  Legend,
+  Pill,
+  Segmented,
+  Steps,
+  Tile,
+  roleProps,
+  type Part,
+} from './kit'
 import { linkAgent } from './link'
 import { NOTE_TYPES, filesOf } from './notes'
 import { AGENT_HUE, COLUMN_HUE, PALETTE, TONE, textColor } from './tokens'
@@ -489,142 +501,340 @@ const firstParagraph = (raw: string) => {
   return text.length > 160 ? `${text.slice(0, 159)}…` : text
 }
 
-// The detail of one mission: where it stands, its sources, its notes by type,
-// the runs linked to it. No button here changes anything (rule E-5).
+// Hue of the left bar of each type of notes.
+const TYPE_HUE: Record<NoteType, string> = {
+  decided: PALETTE.blue,
+  open: PALETTE.yellow,
+  measures: PALETTE.teal,
+  risks: PALETTE.red,
+  verified: PALETTE.green,
+  brief: PALETTE.violet,
+  other: PALETTE.text2,
+}
+
+// Steps of a mission, as the columns they follow. The mission's column says
+// which one is in progress; `merge` is "Ready".
+const STEPS = ['Design', 'Brief', 'Build', 'Review', 'Ready', 'Merged']
+const STEP_AT: Record<Column, number> = {
+  design: 0,
+  brief: 1,
+  building: 2,
+  review: 3,
+  merge: 4,
+  merged: STEPS.length,
+  other: -1,
+}
+
+type Tab = 'overview' | 'runs' | 'review'
+const TABS: Tab[] = ['overview', 'runs', 'review']
+
+const tabKey = (tab: string, id: string) => `mission:tab:${tab}:${id}`
+
+// `microverse:rick` gives `rick`.
+const shortType = (type: string) => type.replace(/^.*:/, '')
+
+const avatarOf = (ui: BoardContext['ui'], type: string) => {
+  const kind = kindOf(type)
+
+  return Avatar(ui, {
+    letter: (kind?.[0] ?? '?').toUpperCase(),
+    hue: kind === null ? PALETTE.text2 : AGENT_HUE[kind],
+  })
+}
+
+// One card per type of notes: a coloured bar, a fold header with the count, the
+// items with their title and their text.
+const cardsOf = (
+  context: BoardContext,
+  entries: { type: NoteType; items: NotesItem[] }[],
+  scope: string,
+) => {
+  const { Box, Text } = context.ui
+  const { board, actions } = context
+
+  return entries.map(({ type, items: own }) => {
+    const key = `mission:${scope}:${type}`
+    const isOpen = !board.view.toggled.includes(key)
+
+    return (
+      <Box key={key}>
+        {Card(context.ui, {
+          hue: TYPE_HUE[type],
+          children: (
+            <Box flexDirection="column" minWidth={0}>
+              {FoldHeader(context.ui, {
+                keyName: `fold:${key}`,
+                open: isOpen,
+                label: TYPE_LABELS[type],
+                count: own.length,
+                onPress: () => actions.toggle(key),
+              })}
+              {isOpen &&
+                own.map((item, index) => (
+                  <Box key={`${key}:${index}`} flexDirection="column" minWidth={0}>
+                    <Text weight="semibold" wrap="wrap">
+                      {item.title}
+                    </Text>
+                    {item.text !== '' && (
+                      <Text dimColor wrap="wrap">
+                        {item.text}
+                      </Text>
+                    )}
+                  </Box>
+                ))}
+            </Box>
+          ),
+        })}
+      </Box>
+    )
+  })
+}
+
+const byType = (items: NotesItem[]) =>
+  NOTE_TYPES.map(type => ({ type, items: items.filter(item => item.type === type) })).filter(
+    one => one.items.length > 0,
+  )
+
+// The detail of one mission: where it stands, its totals, then a tab: the
+// overview (sources and notes by type), the runs linked to it, the review notes.
+// No button here changes anything (rule E-5).
 export const renderMissionDetail = (context: BoardContext) => {
-  const { Box, Button, Link, Text } = context.ui
+  const { Box, Link, Text } = context.ui
   const { board, actions } = context
   const id = board.view.detail?.id
   const missions = board.light?.missions
   const { views } = viewsOf(board)
   const view = views.find(one => one.row.id === id)
   if (id === undefined || missions === undefined || view === undefined) {
-    return <Text dimColor>{`Mission ${id ?? ''} is not in the state file.`}</Text>
+    return (
+      <Text dimColor wrap="wrap">
+        {`Mission ${id ?? ''} is not in the state file.`}
+      </Text>
+    )
   }
   const project = board.light?.project ?? ''
   const files = filesOf(missions, id)
+  const reviewFiles = files.filter(name => name !== `${id}.md`)
+  const mainFiles = files.filter(name => name === `${id}.md`)
   const isRaw = board.view.toggled.includes(`mission:raw:${id}`)
-  const items: NotesItem[] = [
-    ...files.flatMap(name => missions.notes[name].items),
-    ...view.row.sections.flatMap(number => missions.sections[number]?.items ?? []),
-  ]
-  const counts = NOTE_TYPES.map(type => ({
-    type,
-    items: items.filter(item => item.type === type),
-  })).filter(one => one.items.length > 0)
+  const sectionItems = view.row.sections.flatMap(number => missions.sections[number]?.items ?? [])
+  const counts = byType([...mainFiles.flatMap(name => missions.notes[name].items), ...sectionItems])
+  const reviewCounts = byType(reviewFiles.flatMap(name => missions.notes[name].items))
   const status = board.heavy?.status?.value
   const first = (kind: string) =>
     view.runs.filter(run => kindOf(run.type) === kind).sort((one, other) => one.started - other.started)[0]
-  const steps: [string, number | null | undefined][] = [
-    ['Design', first('rick')?.started],
-    ['Build', first('morty')?.started],
-    ['Review', first('council')?.started],
-    ['Merged', view.mergedAt],
+  const times = [
+    first('rick')?.started,
+    undefined,
+    first('morty')?.started,
+    first('council')?.started,
+    undefined,
+    view.mergedAt,
   ]
+  const current = STEP_AT[view.column]
+  const steps = STEPS.map((name, index) => ({
+    label: name,
+    state: index < current ? ('done' as const) : index === current ? ('doing' as const) : ('todo' as const),
+    ...(times[index] === null || times[index] === undefined ? {} : { when: stamp(times[index]) }),
+  }))
   // A running agent that already has a run record is listed once, by the record.
   const liveOnly = view.running.filter(agent => !view.runs.some(one => one.agentId === agent.id))
   const raw = [
-    ...files.map(name => ({ name, text: missions.notes[name].raw })),
+    ...mainFiles.map(name => ({ name, text: missions.notes[name].raw })),
     ...view.row.sections.map(number => ({
       name: `NOTES.local.md § ${number}`,
       text: missions.sections[number]?.raw ?? '',
     })),
   ]
+  const title = titleOf(view.row.id, missions.notes[`${view.row.id}.md`]?.raw) ?? view.row.title
+  // The tabs are exclusive; a stale key of a tab that is gone falls back to the
+  // overview.
+  const available = TABS.filter(tab => tab !== 'review' || reviewFiles.length > 0)
+  const active =
+    available.find(tab => tab !== 'overview' && board.view.toggled.includes(tabKey(tab, id))) ??
+    'overview'
+  const select = async (next: string) => {
+    for (const tab of TABS) {
+      if (tab !== 'overview' && tab !== next && board.view.toggled.includes(tabKey(tab, id))) {
+        await actions.toggle(tabKey(tab, id))
+      }
+    }
+    if (next !== 'overview' && !board.view.toggled.includes(tabKey(next, id))) {
+      await actions.toggle(tabKey(next, id))
+    }
+  }
+  const costs = view.runs.reduce((sum, run) => sum + run.cost, 0)
+  const spent = view.runs.reduce((sum, run) => sum + (run.ended - run.started), 0)
+  // Totals of runs not read yet are a gap, not zero.
+  const known = status !== undefined
 
   return (
-    <Box flexDirection="column" gap={1}>
-      <Box flexDirection="column">
-        <Text weight="semibold">{view.row.id}</Text>
-        {view.row.title !== '' && <Text wrap="wrap">{view.row.title}</Text>}
-        <Text dimColor>
-          {[label(view.column), view.row.branch].filter(Boolean).join(' · ')}
-        </Text>
-      </Box>
-      <Text dimColor>{steps.map(([name, at]) => `${name} ${stamp(at)}`).join(' · ')}</Text>
-
-      <Box flexDirection="column">
-        <Text weight="semibold">Sources</Text>
-        <Text dimColor>State line</Text>
-        {files.map(name => (
-          <Link key={`source:${name}`} href={fileHref(project, `notes/${name}`)}>{`notes/${name}`}</Link>
-        ))}
-        {view.row.sections.map(number => (
-          <Link key={`source:§${number}`} href={fileHref(project, 'NOTES.local.md')}>
-            {`NOTES.local.md § ${number}`}
-          </Link>
-        ))}
-      </Box>
-
-      <Box flexDirection="column">
-        <Box gap={1}>
-          <Text weight="semibold">Notes</Text>
-          <Button
-            key="mission:structured"
-            label="Structured"
-            onPress={() => isRaw && actions.toggle(`mission:raw:${id}`)}
-          />
-          <Button
-            key="mission:raw"
-            label="Raw"
-            onPress={() => !isRaw && actions.toggle(`mission:raw:${id}`)}
-          />
+    <Box flexDirection="column" gap={1} minWidth={0}>
+      <Box flexDirection="column" minWidth={0}>
+        <Box flexDirection="row" gap={1} minWidth={0}>
+          <Box flexShrink={0}>
+            <Text {...roleProps(context.ui, 'id')} weight="semibold">
+              {view.row.id}
+            </Text>
+          </Box>
+          {title !== '' && (
+            <Box flexGrow={1} flexShrink={1} minWidth={0}>
+              <Text {...roleProps(context.ui, 'title')} wrap="wrap">
+                {title}
+              </Text>
+            </Box>
+          )}
         </Box>
-        {!isRaw && counts.length === 0 && <Text dimColor>No notes for this mission.</Text>}
-        {!isRaw &&
-          counts.map(({ type, items: own }) => {
-            const key = `mission:${id}:${type}`
-            const isOpen = !board.view.toggled.includes(key)
+        <Box flexDirection="row" flexWrap="wrap" gap={1} minWidth={0}>
+          {Pill(context.ui, { label: label(view.column), hue: HUE_OF[view.column] })}
+          {view.row.branch !== null && (
+            <Box flexShrink={1} minWidth={0}>
+              <Text {...roleProps(context.ui, 'id')} dimColor wrap="wrap">
+                {view.row.branch}
+              </Text>
+            </Box>
+          )}
+        </Box>
+      </Box>
+      {Steps(context.ui, { steps })}
 
-            return (
-              <Box key={key} flexDirection="column">
-                <Button key={`fold:${key}`} plain onPress={() => actions.toggle(key)}>
-                  <Text weight="semibold">{`${isOpen ? '▾' : '▸'} ${TYPE_LABELS[type]} · ${own.length}`}</Text>
-                </Button>
-                {isOpen &&
-                  own.map((item, index) => (
-                    <Box key={`${key}:${index}`} flexDirection="column">
-                      <Text>{item.title}</Text>
-                      {item.text !== '' && <Text dimColor>{item.text}</Text>}
-                    </Box>
+      <Box flexDirection="row" flexWrap="wrap" gap={1} minWidth={0}>
+        {Tile(context.ui, { label: 'Cost', value: known ? `$${costs.toFixed(2)}` : '—' })}
+        {Tile(context.ui, { label: 'Agent time', value: known ? minutes(spent) : '—' })}
+        {Tile(context.ui, { label: 'Runs', value: known ? String(view.runs.length) : '—' })}
+      </Box>
+
+      {Segmented(context.ui, {
+        keyOf: tab => tabKey(tab, id),
+        items: available.map(tab => ({
+          id: tab,
+          label: tab === 'overview' ? 'Overview' : tab === 'runs' ? 'Runs' : 'Review',
+        })),
+        active,
+        onSelect: select,
+      })}
+
+      {active === 'overview' && (
+        <Box flexDirection="column" gap={1} minWidth={0}>
+          <Box flexDirection="row" flexWrap="wrap" gap={1} minWidth={0}>
+            <Text dimColor>Sources</Text>
+            <Text dimColor>State line</Text>
+            {files.map(name => (
+              <Link key={`source:${name}`} href={fileHref(project, `notes/${name}`)}>{`notes/${name}`}</Link>
+            ))}
+            {view.row.sections.map(number => (
+              <Link key={`source:§${number}`} href={fileHref(project, 'NOTES.local.md')}>
+                {`NOTES.local.md § ${number}`}
+              </Link>
+            ))}
+          </Box>
+          <Box flexDirection="row" gap={1}>
+            {Action(context.ui, {
+              keyName: 'mission:structured',
+              label: 'Structured',
+              primary: !isRaw,
+              onPress: () => isRaw && actions.toggle(`mission:raw:${id}`),
+            })}
+            {Action(context.ui, {
+              keyName: 'mission:raw',
+              label: 'Raw',
+              primary: isRaw,
+              onPress: () => !isRaw && actions.toggle(`mission:raw:${id}`),
+            })}
+          </Box>
+          {!isRaw && counts.length === 0 && (
+            <Text dimColor wrap="wrap">
+              No notes for this mission.
+            </Text>
+          )}
+          {!isRaw && cardsOf(context, counts, id)}
+          {isRaw &&
+            raw.map(file => (
+              <Box key={`raw:${file.name}`} flexDirection="column" minWidth={0}>
+                <Text dimColor wrap="wrap">
+                  {file.name}
+                </Text>
+                {file.text
+                  .split(/\r?\n/)
+                  .slice(0, RAW_LINES)
+                  .map((line, index) => (
+                    <Text key={`raw:${file.name}:${index}`} wrap="wrap">
+                      {line === '' ? ' ' : line}
+                    </Text>
                   ))}
               </Box>
-            )
-          })}
-        {isRaw &&
-          raw.map(file => (
-            <Box key={`raw:${file.name}`} flexDirection="column">
-              <Text dimColor>{file.name}</Text>
-              {file.text
-                .split(/\r?\n/)
-                .slice(0, RAW_LINES)
-                .map((line, index) => (
-                  <Text key={`raw:${file.name}:${index}`}>{line === '' ? ' ' : line}</Text>
-                ))}
+            ))}
+        </Box>
+      )}
+
+      {active === 'review' && (
+        <Box flexDirection="column" gap={1} minWidth={0}>
+          {reviewCounts.length === 0 && (
+            <Text dimColor wrap="wrap">
+              No structured notes in the review files.
+            </Text>
+          )}
+          {cardsOf(context, reviewCounts, `${id}:review`)}
+        </Box>
+      )}
+
+      {active === 'runs' && (
+        <Box flexDirection="column" gap={1} minWidth={0}>
+          {status === undefined && (
+            <Text dimColor wrap="wrap">
+              Loading…
+            </Text>
+          )}
+          {liveOnly.map(agent => (
+            <Box
+              key={`run:live:${agent.id}`}
+              flexDirection="row"
+              gap={1}
+              justifyContent="space-between"
+              minWidth={0}
+            >
+              <Box flexDirection="row" gap={1} flexShrink={1} minWidth={0}>
+                {avatarOf(context.ui, agent.type)}
+                <Box flexDirection="column" flexShrink={1} minWidth={0}>
+                  <Text weight="semibold" wrap="wrap">
+                    {shortType(agent.type)}
+                  </Text>
+                  <Text dimColor wrap="wrap">{`running · ${agent.description}`}</Text>
+                </Box>
+              </Box>
+              <Box flexShrink={0}>
+                <Text color="warning">●</Text>
+              </Box>
             </Box>
           ))}
-      </Box>
-
-      <Box flexDirection="column">
-        <Text weight="semibold">{`Runs (${view.runs.length + liveOnly.length})`}</Text>
-        {status === undefined && <Text dimColor>Loading…</Text>}
-        {liveOnly.map(agent => (
-          <Text key={`run:live:${agent.id}`} wrap="truncate">
-            <Text color="warning">●</Text> {agent.type}{' '}
-            <Text dimColor>{`running · ${agent.description}`}</Text>
-          </Text>
-        ))}
-        {view.runs.map(run => (
-          <Text key={`run:${run.agentId}`} wrap="truncate">
-            {run.type}{' '}
-            <Text dimColor>
-              {`${run.model} · ${minutes(run.ended - run.started)} · $${run.cost.toFixed(2)}`}
+          {view.runs.map(run => (
+            <Box
+              key={`run:${run.agentId}`}
+              flexDirection="row"
+              gap={1}
+              justifyContent="space-between"
+              minWidth={0}
+            >
+              <Box flexDirection="row" gap={1} flexShrink={1} minWidth={0}>
+                {avatarOf(context.ui, run.type)}
+                <Box flexShrink={1} minWidth={0}>
+                  <Text wrap="wrap">
+                    {`${shortType(run.type)} · ${run.model} · ${minutes(run.ended - run.started)}`}
+                  </Text>
+                </Box>
+              </Box>
+              <Box flexShrink={0}>
+                <Text>{`$${run.cost.toFixed(2)}`}</Text>
+              </Box>
+            </Box>
+          ))}
+          {status !== undefined && view.runs.length + liveOnly.length === 0 && (
+            <Text dimColor wrap="wrap">
+              No run linked.
             </Text>
-          </Text>
-        ))}
-        {status !== undefined && view.runs.length + liveOnly.length === 0 && (
-          <Text dimColor>No run linked.</Text>
-        )}
-      </Box>
+          )}
+        </Box>
+      )}
     </Box>
   )
 }
