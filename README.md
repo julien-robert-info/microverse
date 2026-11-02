@@ -190,7 +190,12 @@ also marked `▸` and figures stay bold.
   Building, Review, To merge or Merged (Other, folded, for the rest) from the
   running agents, the worktrees and the commits cited; an agent is linked to its
   mission by its worktree branch or by an Id at the start of its `description`.
-  A mission's detail lists its notes by type and its runs.
+  A mission's detail lists its notes by type and its runs. From 89 columns of
+  the main zone the six columns share the row; below, they fold. A card shows
+  the Id, the title (the H1 of the mission's notes file, else the state cell)
+  and pills for the running agent, the merge date and the check state. A
+  trailing letter and number on the Id of a description (`E33f2`, `E33j`) link
+  to mission `E33` when no row has that exact Id.
 - **Questions** are the bullets of the state file's Questions section that cite
   a `Q<n>` and are not an answer; "Needs your decision" lists them, and the
   detail shows the question's block of its notes file (context, options, the

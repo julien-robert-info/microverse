@@ -70,6 +70,8 @@ type Scene = {
   // Hashes that are ancestors of the base.
   ancestors?: string[]
   store?: Record<string, unknown>
+  // Commits merged since the last report, oldest first.
+  merged?: { sha: string; subject: string; at: number }[]
 }
 
 const porcelain = (trees: Tree[]) =>
@@ -97,7 +99,17 @@ const status = (scene: Scene) =>
       dirty: false,
     })),
     free: (scene.free ?? []).map(branch => ({ branch, sha: '3333333', subject: 'work' })),
-    report: null,
+    report:
+      scene.merged === undefined
+        ? null
+        : {
+            since: { sha: '0000000', at: START - 86_400_000 },
+            base: 'main',
+            merged: scene.merged,
+            agents: { error: 'none' },
+            quota: { error: 'none' },
+            context: { error: 'none' },
+          },
     agents: {
       since: START,
       runs: (scene.runs ?? []).map(one => ({
@@ -214,6 +226,11 @@ type Mounted = Awaited<ReturnType<Kit[0]['ui']['mount']>>
 const shows = async (ui: Mounted, text: RegExp) =>
   (await ui.find({ type: 'Text', text })) !== undefined
 
+// A column header is sibling `Text`s: the label, then its count in brackets.
+const heading = async (ui: Mounted, label: string, count: number) =>
+  (await ui.find({ type: 'Text', text: new RegExp(`^${label}$`) })) !== undefined &&
+  (await ui.find({ type: 'Text', text: new RegExp(`^\\(${count}\\)$`) })) !== undefined
+
 const TABLE = (...rows: string[]) => ['| Id | Branche | État |', '|---|---|---|', ...rows].join('\n')
 
 // The four lines of a state file: two ranges, a deleted branch with its hash,
@@ -234,8 +251,8 @@ for (const surface of SURFACES) {
     })
     const ui = await $.ui.mount(pane(surface, WIDE))
 
-    expect(await shows(ui, /^Merged \(3\)$/)).toBe(true)
-    expect(await shows(ui, /^Design \(1\)$/)).toBe(true)
+    expect(await heading(ui, 'Merged', 3)).toBe(true)
+    expect(await heading(ui, 'Design', 1)).toBe(true)
     expect(await shows(ui, /^Other/)).toBe(false)
     expect(await ui.find({ key: 'open:E13' })).toBeDefined()
     expect(await ui.find({ key: 'open:E12' })).toBeDefined()
@@ -261,8 +278,8 @@ for (const surface of SURFACES) {
     })
     const ui = await $.ui.mount(pane(surface, WIDE))
 
-    expect(await shows(ui, /^Building \(1\)$/)).toBe(true)
-    expect(await shows(ui, /^To merge \(0\)$/)).toBe(true)
+    expect(await heading(ui, 'Building', 1)).toBe(true)
+    expect(await heading(ui, 'To merge', 0)).toBe(true)
     await ui.press({ key: 'open:E7' })
     await settle()
     expect(await shows(ui, /Runs \(1\)/)).toBe(true)
@@ -278,8 +295,8 @@ for (const surface of SURFACES) {
     })
     const ui = await $.ui.mount(pane(surface, WIDE))
 
-    expect(await shows(ui, /^Review \(1\)$/)).toBe(true)
-    expect(await shows(ui, /^To merge \(0\)$/)).toBe(true)
+    expect(await heading(ui, 'Review', 1)).toBe(true)
+    expect(await heading(ui, 'To merge', 0)).toBe(true)
     await ui.unmount()
   })
 
@@ -290,8 +307,8 @@ for (const surface of SURFACES) {
     })
     const ui = await $.ui.mount(pane(surface, WIDE))
 
-    expect(await shows(ui, /^To merge \(1\)$/)).toBe(true)
-    expect(await shows(ui, /^Building \(0\)$/)).toBe(true)
+    expect(await heading(ui, 'To merge', 1)).toBe(true)
+    expect(await heading(ui, 'Building', 0)).toBe(true)
     expect(await ui.find({ type: 'Button', text: /Merge|Launch|diff/i })).toBeUndefined()
     await ui.unmount()
   })
@@ -306,8 +323,8 @@ for (const surface of SURFACES) {
     })
     const ui = await $.ui.mount(pane(surface, WIDE))
 
-    expect(await shows(ui, /^Brief \(1\)$/)).toBe(true)
-    expect(await shows(ui, /^Design \(1\)$/)).toBe(true)
+    expect(await heading(ui, 'Brief', 1)).toBe(true)
+    expect(await heading(ui, 'Design', 1)).toBe(true)
     await ui.unmount()
   })
 }
@@ -440,8 +457,8 @@ for (const surface of SURFACES) {
     })
     const ui = await $.ui.mount(pane(surface, WIDE))
 
-    expect(await shows(ui, /^Building \(2\)$/)).toBe(true)
-    expect(await shows(ui, /^Design \(0\)$/)).toBe(true)
+    expect(await heading(ui, 'Building', 2)).toBe(true)
+    expect(await heading(ui, 'Design', 0)).toBe(true)
     await ui.press({ key: 'open:E33' })
     await settle()
     expect(await shows(ui, /Runs \(1\)/)).toBe(true)
@@ -492,6 +509,9 @@ test('NOTES.local.md is read again only when its stamp changes, one merge-base p
     ancestors: [],
   })
   const ui = await $.ui.mount(pane('desktop', WIDE))
+  expect(await shows(ui, /E40 · § 2 Plan/)).toBe(false)
+  await ui.press({ key: 'fold:notes:E40' })
+  await settle()
   expect(await shows(ui, /E40 · § 2 Plan/)).toBe(true)
   expect(await shows(ui, /The plan reads like this\./)).toBe(true)
 
@@ -504,4 +524,184 @@ test('NOTES.local.md is read again only when its stamp changes, one merge-base p
   expect(seen.ancestorCalls.every(hash => hash === 'aaaaaaa')).toBe(true)
   await ui.unmount()
 })
+
+const SIX = ['design', 'brief', 'building', 'review', 'merge', 'merged']
+const MERGED_BAR = '#3f6350'
+
+type Node = { props?: Record<string, unknown>; children?: Node[] }
+
+// `find` does not filter on props: walk the first Box (the whole tree) for a fill.
+const hasFill = async (ui: Mounted, hex: string) => {
+  const walk = (node: Node | undefined): boolean =>
+    node !== undefined &&
+    (node.props?.backgroundColor === hex || (node.children ?? []).some(child => walk(child)))
+
+  return walk((await ui.find({ type: 'Box' })) as Node | undefined)
+}
+
+for (const surface of SURFACES) {
+  test(`J1 at 120 columns the six columns share the row with width 0 and grow 1 (${surface})`, async ($, on) => {
+    await start($, on, { state: TABLE('| E7 | `feat/seven` | rendu |') })
+    const ui = await $.ui.mount(pane(surface, 120))
+
+    for (const name of SIX) {
+      expect((await ui.find({ key: `column:${name}` }))?.props).toMatchObject({
+        width: 0,
+        flexGrow: 1,
+        flexShrink: 1,
+        minWidth: 0,
+      })
+      expect(await ui.find({ key: `fold:${name}` })).toBeUndefined()
+    }
+    await ui.unmount()
+  })
+
+  test(`J1b the table starts at 89 columns, one less folds (${surface})`, async ($, on) => {
+    await start($, on, { state: TABLE('| E7 | `feat/seven` | rendu |') })
+    const wide = await $.ui.mount(pane(surface, 89))
+    expect(await wide.find({ key: 'fold:merged' })).toBeUndefined()
+    expect((await wide.find({ key: 'column:merged' }))?.props).toMatchObject({ width: 0 })
+    await wide.unmount()
+
+    const folded = await $.ui.mount(pane(surface, 88))
+    expect(await folded.find({ key: 'fold:merged' })).toBeDefined()
+    await folded.unmount()
+  })
+
+  test(`J2 at 80 columns the columns fold and a list counts them (${surface})`, async ($, on) => {
+    await start($, on, {
+      state: TABLE('| E13 | `notes/E13.md` | conçue |'),
+      notes: { 'E13.md': '# E13\n\n## Mesures\n\nthree things.\n' },
+    })
+    const ui = await $.ui.mount(pane(surface, 80))
+
+    for (const name of SIX) {
+      expect(await ui.find({ key: `fold:${name}` })).toBeDefined()
+    }
+    expect(await shows(ui, /Design 1/)).toBe(true)
+    expect(await shows(ui, /^· 1$/)).toBe(true)
+    await ui.unmount()
+  })
+
+  test(`J3 the title is the H1 without its id; no file or no id keeps the state cell (${surface})`, async ($, on) => {
+    await start($, on, {
+      state: TABLE(
+        '| E33j | `notes/E33j.md` | conçue |',
+        '| E34 | `notes/E34.md` | état trente-quatre |',
+        '| E35 | `notes/E35.md` | état trente-cinq |',
+        '| E36 | `feat/36` | état trente-six |',
+      ),
+      notes: {
+        'E33j.md': '# E33j — passe de fidélité\n\n## Mesures\n\nunits.\n',
+        'E34.md': '# Autre titre sans identifiant\n\n## Mesures\n\nunits.\n',
+        'E35.md': '## Mesures\n\nno H1 at all.\n',
+      },
+      trees: [{ branch: 'feat/36', id: 'm36' }],
+    })
+    const ui = await $.ui.mount(pane(surface, 120))
+
+    const seen = {
+      title: await shows(ui, /^passe de fidélité$/),
+      lead: await shows(ui, /E33j —/),
+      noId: await shows(ui, /^état trente-quatre$/),
+      noH1: await shows(ui, /^état trente-cinq$/),
+      noFile: await shows(ui, /^état trente-six$/),
+    }
+    expect(seen).toEqual({ title: true, lead: false, noId: true, noH1: true, noFile: true })
+    await ui.unmount()
+  })
+
+  test(`J4 a column header is one level of truncated sibling Text (${surface})`, async ($, on) => {
+    await start($, on, { state: TABLE('| E7 | `feat/seven` | rendu |') })
+    const ui = await $.ui.mount(pane(surface, 120))
+
+    expect(await shows(ui, /^To merge \(0\)$/)).toBe(false)
+    expect((await ui.find({ type: 'Text', text: /^To merge$/ }))?.props).toMatchObject({ wrap: 'truncate' })
+    expect((await ui.find({ type: 'Text', text: /^\(0\)$/ }))?.props).toMatchObject({
+      wrap: 'truncate',
+      dimColor: true,
+    })
+    expect((await ui.find({ type: 'Text', text: /^●$/ }))?.props).toMatchObject({ wrap: 'truncate' })
+    await ui.unmount()
+  })
+
+  test(`J5 a Merged card has the merged bar for its edge, other cards do not (${surface})`, async ($, on) => {
+    await start($, on, {
+      state: TABLE('| E12 | `feat/gone-branch` | mergé (`ccccccc`) : première mission |'),
+      ancestors: ['ccccccc'],
+    })
+    const merged = await $.ui.mount(pane(surface, 120))
+    expect(await merged.find({ key: 'open:E12' })).toBeDefined()
+    expect(await hasFill(merged, MERGED_BAR)).toBe(true)
+    await merged.unmount()
+  })
+
+  test(`J5b a card in another column does not carry the merged bar (${surface})`, async ($, on) => {
+    await start($, on, {
+      state: TABLE('| E7 | `feat/seven` | rendu |'),
+      trees: [{ branch: 'feat/seven', id: 'm1' }],
+    })
+    const other = await $.ui.mount(pane(surface, 120))
+    expect(await other.find({ key: 'open:E7' })).toBeDefined()
+    expect(await hasFill(other, MERGED_BAR)).toBe(false)
+    await other.unmount()
+  })
+
+  test(`J7 Since the last report lists five merges, then the rest (${surface})`, async ($, on) => {
+    const merged = Array.from({ length: 7 }, (_, index) => ({
+      sha: `a00000${index + 1}`,
+      subject: `change number ${index + 1}`,
+      at: START - (7 - index) * 3_600_000,
+    }))
+    await start($, on, { state: TABLE('| E7 | `feat/seven` | rendu |'), merged })
+    const ui = await $.ui.mount(pane(surface, 120))
+
+    expect(await shows(ui, /Since the last report/)).toBe(true)
+    // The newest five; the two oldest fall into the count.
+    for (const index of [3, 4, 5, 6, 7]) {
+      expect(await shows(ui, new RegExp(`^a00000${index}$`))).toBe(true)
+    }
+    for (const index of [1, 2]) {
+      expect(await shows(ui, new RegExp(`^a00000${index}$`))).toBe(false)
+    }
+    expect(await shows(ui, /^\+2 more$/)).toBe(true)
+    await ui.unmount()
+  })
+
+  test(`J7b without a report nothing is listed (${surface})`, async ($, on) => {
+    await start($, on, { state: TABLE('| E7 | `feat/seven` | rendu |') })
+    const ui = await $.ui.mount(pane(surface, 120))
+
+    expect(await shows(ui, /Since the last report/)).toBe(false)
+    await ui.unmount()
+  })
+
+  test(`J8 the keys stay, a note fold opens its sections (${surface})`, async ($, on) => {
+    await start($, on, {
+      state: TABLE(
+        '| E40 | `notes/E40.md` | en cours (NOTES § 2) |',
+        '| E12 | `feat/gone` | mergé (`ccccccc`) |',
+        '| E30 | autre | rien |',
+      ),
+      notes: { 'E40.md': '# E40\n\n## Mesures\n\nunits.\n' },
+      journal: '## 1. Start\n\nfirst.\n\n## 2. Plan\n\nThe plan reads like this.\n',
+      ancestors: ['ccccccc'],
+    })
+    const wide = await $.ui.mount(pane(surface, 120))
+    expect(await wide.find({ key: 'open:E40' })).toBeDefined()
+    expect(await wide.find({ key: 'open:E12' })).toBeDefined()
+    expect(await wide.find({ key: 'fold:other' })).toBeDefined()
+    expect(await wide.find({ key: 'fold:notes:E40' })).toBeDefined()
+    expect(await shows(wide, /^The plan reads like this\.$/)).toBe(true)
+    await wide.unmount()
+
+    const narrow = await $.ui.mount(pane(surface, 60))
+    expect(await narrow.find({ key: 'fold:merged' })).toBeDefined()
+    expect(await narrow.find({ key: 'fold:other' })).toBeDefined()
+    await narrow.press({ key: 'fold:notes:E40' })
+    await settle()
+    expect(await shows(narrow, /E40 · § 2 Plan/)).toBe(true)
+    await narrow.unmount()
+  })
+}
 

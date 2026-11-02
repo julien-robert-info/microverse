@@ -12,6 +12,8 @@
 
 - Board, look: the top of the Cockpit follows the mock-up (header pills, segmented tabs, three bordered cards with full-cell bars, a stacked cost bar and big figures) on a reusable style kit (`hooks/board/tokens.ts`, `kit.tsx`); backgrounds are painted only when the host theme is known.
 
+- Board, missions: six equal columns from 89 columns (folds below), headers and cards on the style kit (title from the notes file's H1, running agent, merge date and check state as pills), the mission notes as one fold per mission, a "Since the last report" list of merges, and an agent description such as `E33f2 …` or `E33j …` now links to mission `E33`.
+
 - Board, wide layout: the detail drawer is 40 % of the pane and stays inside it, the main column no longer overflows, sections are drawn at the width of their own zone, `WIDE_AT` is 130 and the footer shows `N cols` to calibrate it.
 
 - `orch-reading`: under Claude Desktop the model records the counters from `get_usage` as a `desktop` reading, so `orch-quota` and the quota guard see fresh 5h and week values where the extension and the status line do not run. The orchestration skill calls it before the budget check.
