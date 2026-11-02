@@ -96,10 +96,83 @@ test("voice, rate, pitch and volume reach the engine in the = form, signs added"
 
 test("unset options (empty or literal) take the defaults", () => {
   const t = setup();
-  const r = t.speak(["--voice", "${user_config.speak_voice}", "--rate", "", "--pitch", "${user_config.speak_pitch}", "--volume", ""], { input: TEXT });
+  // The voice default depends on the language: fixed here by --lang.
+  const r = t.speak(["--voice", "${user_config.speak_voice}", "--lang", "fr", "--rate", "", "--pitch", "${user_config.speak_pitch}", "--volume", ""], { input: TEXT });
   assert.equal(r.code, 0, r.err);
   const a = t.called().argv;
   for (const x of ["--voice=fr-FR-HenriNeural", "--rate=+10%", "--pitch=+0Hz", "--volume=+0%"]) assert.ok(a.includes(x), x);
+});
+
+const voiceOf = (t, args, extra) => {
+  const r = t.speak(args, { input: TEXT, env: extra });
+  assert.equal(r.code, 0, r.err);
+  return t.called().argv.find((x) => x.startsWith("--voice=")).slice(8);
+};
+
+test("T1 --voice wins over --lang", () => {
+  assert.equal(voiceOf(setup(), ["--voice", "fr-FR-DeniseNeural", "--lang", "de"]), "fr-FR-DeniseNeural");
+});
+
+test("T2 --lang picks the voice of the language", () => {
+  assert.equal(voiceOf(setup(), ["--lang", "de"]), "de-DE-ConradNeural");
+});
+
+test("T3 the full code first, then the language alone", () => {
+  assert.equal(voiceOf(setup(), ["--lang", "pt-PT"]), "pt-PT-DuarteNeural");
+  assert.equal(voiceOf(setup(), ["--lang", "pt-AO"]), "pt-BR-AntonioNeural");
+  assert.equal(voiceOf(setup(), ["--lang", "en_gb"]), "en-GB-RyanNeural");
+});
+
+test("T4 an unknown --lang falls through to the system language", { skip: !POSIX }, () => {
+  assert.equal(voiceOf(setup(), ["--lang", "xx"], { LC_ALL: "es_MX.UTF-8" }), "es-MX-JorgeNeural");
+});
+
+test("T4 (any platform) unknown --lang, POSIX system language es_MX", () => {
+  const { systemLocale, chooseVoice } = require(bin("orch-speak"));
+  const loc = systemLocale({ env: { LC_ALL: "es_MX.UTF-8" }, platform: "linux", intl: "fr-FR" });
+  assert.equal(chooseVoice({ lang: "xx" }, loc), "es-MX-JorgeNeural");
+});
+
+test("systemLocale: POSIX variables in order, C and POSIX ignored, suffixes removed, then Intl", () => {
+  const { systemLocale } = require(bin("orch-speak"));
+  const p = (env, intl) => systemLocale({ env, platform: "linux", intl });
+  assert.equal(p({ LC_ALL: "es_MX.UTF-8", LANG: "de_DE" }), "es-MX");
+  assert.equal(p({ LC_ALL: "", LC_MESSAGES: "C", LANG: "sv_SE@euro" }), "sv-SE");
+  assert.equal(p({ LC_ALL: "C", LANG: "POSIX" }, "ja-JP"), "ja-JP");
+  assert.equal(p({ LC_MESSAGES: "it_IT.UTF-8", LANG: "de_DE" }), "it-IT");
+});
+
+test("T5 locale C everywhere: the Intl language", () => {
+  const { systemLocale, chooseVoice } = require(bin("orch-speak"));
+  const loc = systemLocale({ env: { LC_ALL: "C", LC_MESSAGES: "C", LANG: "C" }, platform: "linux", intl: "ja-JP" });
+  assert.equal(chooseVoice({}, loc), "ja-JP-KeitaNeural");
+});
+
+test("T6 nothing recognised: en-US-AndrewNeural", () => {
+  const { systemLocale, chooseVoice } = require(bin("orch-speak"));
+  const loc = systemLocale({ env: { LANG: "xx_XX" }, platform: "linux", intl: "yy-YY" });
+  assert.equal(chooseVoice({ lang: "zz" }, loc), "en-US-AndrewNeural");
+  assert.equal(chooseVoice({}, undefined), "en-US-AndrewNeural");
+});
+
+test("T7 Windows reads Intl alone, not LANG", () => {
+  const { systemLocale, chooseVoice } = require(bin("orch-speak"));
+  const loc = systemLocale({ env: { LANG: "de_DE", LC_ALL: "de_DE" }, platform: "win32", intl: "fr-FR" });
+  assert.equal(chooseVoice({}, loc), "fr-FR-HenriNeural");
+});
+
+test("T8 --check finds the engine and says nothing aloud, exit 3 without engine", () => {
+  const t = setup();
+  const r = t.speak(["--check", "--lang", "en"]);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /fake-edge-tts\.js/);
+  assert.match(r.out, /en-US-AndrewNeural/);
+  assert.equal(t.called(), null);
+  assert.deepEqual(leftovers(t.speakDir), []);
+  const none = t.speak(["--check"], { env: { MICROVERSE_EDGE_TTS: join(t.dir, "missing.js") } });
+  assert.equal(none.code, 3);
+  assert.equal(t.called(), null);
+  assert.deepEqual(leftovers(t.speakDir), []);
 });
 
 test("invalid values are refused before the engine runs", () => {

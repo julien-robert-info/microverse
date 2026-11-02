@@ -227,7 +227,7 @@ written, also goes as an mp3: a spoken text per
 `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/audio.md`, then
 
 ```
-orch-speak --voice '${user_config.speak_voice}' --rate '${user_config.speak_rate}' --pitch '${user_config.speak_pitch}' --volume '${user_config.speak_volume}' <<'EOF'
+orch-speak --voice '${user_config.speak_voice}' --lang <code of the language of the reply> --rate '${user_config.speak_rate}' --pitch '${user_config.speak_pitch}' --volume '${user_config.speak_volume}' <<'EOF'
 <spoken text>
 EOF
 ```
