@@ -1,7 +1,10 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
+import { renderAgentDetail, renderAgents } from '../agents'
 import { parseBrief, safeBranch } from '../brief'
+import { lookFor, withLook } from '../kit'
+import { PALETTE } from '../tokens'
 
 type Kit = Parameters<TestBody>
 
@@ -281,7 +284,7 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 
-  test(`T2 a brief without the template is shown as written, 40 lines (${surface})`, async ($, on) => {
+  test(`T2 a brief without the template is shown as written, 8 lines then the rest counted (${surface})`, async ($, on) => {
     const seen = await start($, on, {
       agents: [{ id: 'n1', type: 'microverse:rick', description: 'E7 design' }],
     })
@@ -294,8 +297,9 @@ for (const surface of SURFACES) {
     await ui.press({ key: 'agent:open:n1' })
     await settle()
 
-    expect(await shows(ui, /^line 40 of a free text$/)).toBe(true)
-    expect(await shows(ui, /^line 41 of a free text$/)).toBe(false)
+    expect(await shows(ui, /^line 8 of a free text$/)).toBe(true)
+    expect(await shows(ui, /^line 9 of a free text$/)).toBe(false)
+    expect(await shows(ui, /^32 more lines$/)).toBe(true)
     expect(await shows(ui, /Rules ·/)).toBe(false)
     await ui.unmount()
   })
@@ -320,7 +324,9 @@ for (const surface of SURFACES) {
     })
     const ui = await $.ui.mount(OPEN(surface))
 
-    expect(await shows(ui, /✓ Setup {2}✓ Implement {2}● Checks {2}○ Report/)).toBe(true)
+    for (const name of ['Setup', 'Implement', 'Checks', 'Report']) {
+      expect(await shows(ui, new RegExp(`^${name}$`))).toBe(true)
+    }
     expect(await shows(ui, /orch-trust --commands checks/)).toBe(true)
     expect(await shows(ui, /3 calls/)).toBe(true)
     await ui.unmount()
@@ -345,7 +351,7 @@ for (const surface of SURFACES) {
     })
     const ui = await $.ui.mount(OPEN(surface))
 
-    expect(await shows(ui, /✓ Setup {2}✓ Implement {2}● Checks {2}○ Report/)).toBe(true)
+    expect(await shows(ui, /^Checks$/)).toBe(true)
     await ui.unmount()
   })
 
@@ -365,7 +371,7 @@ for (const surface of SURFACES) {
     const ui = await $.ui.mount(OPEN(surface))
 
     expect(await shows(ui, /needle/)).toBe(true)
-    expect(await shows(ui, /Setup/)).toBe(false)
+    expect(await shows(ui, /^Setup$/)).toBe(false)
     await ui.unmount()
   })
 
@@ -607,3 +613,266 @@ test('safeBranch refuses "..", a leading dash and anything off the set', () => {
   expect(safeBranch('a b')).toBe(false)
   expect(safeBranch('a;rm')).toBe(false)
 })
+
+// The brief of E33f2: numbered labels, no bold.
+const NUMBERED = [
+  '1. Goal: build the agents section.',
+  '2. Zone: `hooks/board/` only.',
+  '3. Règles décidées',
+  'R1 one',
+  'R2 two',
+  '4. Traps',
+  '- first trap',
+  '5. Expected tests',
+  'T1 one',
+  '6. Verification: run the checks.',
+].join('\n')
+
+test('T3 a brief with numbered labels and no bold is a template, its goal is read', () => {
+  const parsed = parseBrief(NUMBERED)
+  expect(parsed.isTemplate).toBe(true)
+  expect(parsed.goal).toBe('build the agents section.')
+  expect(parsed.zone).toBe('`hooks/board/` only.'.replace(/`/g, ''))
+  expect(parsed.rules).toEqual(['R1 one', 'R2 two'])
+  expect(parsed.traps).toEqual(['first trap'])
+  expect(parsed.tests).toEqual(['T1 one'])
+  expect(parsed.verify).toBe('run the checks.')
+
+  // Only a whole word is a label.
+  expect(parseBrief('1. Branching out is fun\nsee `feat/x`').branch).toBeNull()
+  expect(parseBrief('1. Branch: `feat/x`').branch).toBe('feat/x')
+  expect(parseBrief('1. Goalie: x\n2. Zones: y\n3. Rulesx: z\n4. Testing: w').isTemplate).toBe(false)
+})
+
+type Node = { type?: unknown; props?: Record<string, unknown>; children?: unknown }
+
+const kids = (node: Node): Node[] =>
+  [node.children, node.props?.children]
+    .flat(Infinity)
+    .filter((one): one is Node => typeof one === 'object' && one !== null)
+
+const textOf = (node: Node) =>
+  [node.children, node.props?.children]
+    .flat(Infinity)
+    .filter((one): one is string => typeof one === 'string')
+    .join('')
+
+// A board with one running morty whose last call has a long summary, and every
+// section of its detail filled.
+const SUMMARY = 'x'.repeat(200)
+
+const sensed = <T,>(value: T) => ({ value, at: START })
+
+const direct = (surface: 'terminal' | 'desktop', render: typeof renderAgents, brief = TEMPLATE) => {
+  const ui = withLook(
+    { Box: 'Box', Text: 'Text', Button: 'Button' } as never,
+    lookFor(surface, surface === 'desktop' ? 'dark' : null),
+  )
+
+  return render({
+    ui,
+    columns: 60,
+    actions: { toggle: () => undefined, openAgent: () => undefined, runCheck: () => undefined } as never,
+    board: {
+      light: {
+        project: ROOT,
+        root: ROOT,
+        at: START,
+        worktrees: sensed([
+          { branch: 'feat/seven', path: `${ROOT}/.claude/worktrees/agent-a1`, head: 'x', isMain: false },
+        ]),
+        agents: sensed([{ ...MORTY, status: 'running', firstSeenAt: START - 600_000 }]),
+      },
+      heavy: {
+        project: ROOT,
+        status: sensed({
+          base: { name: 'main', tip: 'x' },
+          worktrees: [],
+          agents: {
+            since: START,
+            runs: [
+              {
+                agentId: 'a1',
+                type: MORTY.type,
+                model: 'claude-sonnet-5',
+                description: MORTY.description,
+                started: START,
+                ended: START,
+                requests: 1,
+                tokens: { input: 12_000, write5m: 0, write1h: 0, read: 34_000, output: 5_000 },
+                cost: 1.5,
+                advisor: { calls: 0, cost: 0 },
+                finished: false,
+              },
+            ],
+          },
+        }),
+        failure: null,
+      },
+      view: { tab: 'cockpit', detail: { kind: 'agent', id: 'a1' }, toggled: [] },
+      checks: {
+        'feat/seven': {
+          at: START,
+          state: 'done',
+          verdict: 'needs-fixes',
+          checks: [
+            { name: 'tests', state: 'ok', detail: '58 passed', lines: [] },
+            { name: 'lint', state: 'fail', detail: '2 errors', lines: [] },
+          ],
+        },
+      },
+      answer: { pending: null, sent: [] },
+      activity: {
+        a1: {
+          lastTool: 'Bash',
+          calls: 41,
+          step: 'checks',
+          startedAt: START,
+          updatedAt: START,
+          lastSummary: SUMMARY,
+          ahead: 3,
+          tools: [
+            { tool: 'Bash', summary: SUMMARY, state: 'running' },
+            { tool: 'Edit', summary: 'hooks/a.ts', state: 'error' },
+            { tool: 'Read', summary: 'hooks/b.ts', state: 'ok' },
+          ],
+          brief: { at: START, type: MORTY.type, model: 'm', description: 'd', branch: null, mission: null, text: brief },
+          branch: {
+            at: START,
+            total: 3,
+            dirty: 1,
+            files: [
+              { path: 'hooks/a.ts', added: 10, removed: 2 },
+              { path: 'assets/logo.png', added: null, removed: null },
+            ],
+          },
+        },
+      },
+    },
+  } as never) as Node
+}
+
+const walk = (node: Node, visit: (node: Node, parent: Node | null) => void, parent: Node | null = null) => {
+  visit(node, parent)
+  for (const child of kids(node)) {
+    walk(child, visit, node)
+  }
+}
+
+const collect = (tree: Node, test: (node: Node) => boolean) => {
+  const found: { node: Node; parent: Node | null }[] = []
+  walk(tree, (node, parent) => {
+    if (test(node)) {
+      found.push({ node, parent })
+    }
+  })
+
+  return found
+}
+
+for (const surface of SURFACES) {
+  test(`T1 the card of a morty has the M avatar in teal (${surface})`, async ($, on) => {
+    await start($, on, { agents: [MORTY] })
+    const ui = await $.ui.mount(OPEN(surface))
+
+    const avatar = await ui.find({ type: 'Text', text: /^M$/ })
+    expect(avatar?.props?.color).toBe(PALETTE.teal)
+    await ui.unmount()
+  })
+
+  test(`T2 the state of an agent is a "running" pill (${surface})`, async ($, on) => {
+    await start($, on, { agents: [MORTY] })
+    const ui = await $.ui.mount(OPEN(surface))
+
+    const pill = await ui.find({ type: 'Text', text: 'running' })
+    expect(pill?.props?.color).toBe('warning')
+    expect(pill?.props?.weight).toBe('semibold')
+    await ui.unmount()
+  })
+
+  test(`T4 a brief off the template shows 8 lines and "32 more lines" (${surface})`, async ($, on) => {
+    await start($, on, { agents: [MORTY], messages: { a1: [{ role: 'user', text: RAW, toolUses: [] }] } })
+    const ui = await $.ui.mount(OPEN(surface))
+    await ui.press({ key: 'agent:open:a1' })
+    await settle()
+
+    for (const at of [1, 8]) {
+      expect(await shows(ui, new RegExp(`^line ${at} of a free text$`))).toBe(true)
+    }
+    expect(await shows(ui, /^line 9 of a free text$/)).toBe(false)
+    expect(await shows(ui, /^32 more lines$/)).toBe(true)
+    await ui.unmount()
+  })
+
+  test(`T5 with a 200-character summary the state of a call is a Text in a box that does not shrink (${surface})`, () => {
+    const tree = direct(surface, renderAgentDetail)
+    const states = collect(tree, node => node.type === 'Text' && textOf(node) === 'running')
+    // The pill of the header, then the state of the call.
+    const state = states.find(one => one.node.props?.color === 'warning' && one.node.props?.weight === undefined)
+
+    expect(state).toBeDefined()
+    const row = collect(tree, node => kids(node).some(child => child === state?.parent))[0].node
+    const [tool, command, last] = kids(row)
+    expect(kids(row)).toHaveLength(3)
+    expect(last).toBe(state?.parent)
+    expect(last.props?.flexShrink).toBe(0)
+    expect(tool.props?.flexShrink).toBe(0)
+    expect(command.props?.flexGrow).toBe(1)
+    expect(command.props?.minWidth).toBe(0)
+    const text = kids(command)[0]
+    expect(textOf(text)).toBe(SUMMARY)
+    expect(text.props?.wrap).toBe('truncate')
+    expect(text.props?.mono).toBe(true)
+  })
+
+  test(`T6 no coloured Text sits inside a Text in the agents section nor its detail (${surface})`, () => {
+    const found: string[] = []
+    for (const render of [renderAgents, renderAgentDetail]) {
+      for (const brief of [TEMPLATE, RAW]) {
+        walk(direct(surface, render, brief), (node, parent) => {
+          let inText = false
+          for (let up = parent; up !== null; up = null) {
+            inText = up.type === 'Text'
+          }
+          if (node.type === 'Text' && inText && node.props?.color !== undefined) {
+            found.push(`${String(node.props.color)}:${textOf(node)}`)
+          }
+        })
+      }
+    }
+
+    expect(found).toEqual([])
+    // The walk reaches coloured Texts at all.
+    expect(
+      collect(direct(surface, renderAgentDetail), node => node.type === 'Text' && node.props?.color !== undefined).length,
+    ).toBeGreaterThan(5)
+  })
+
+  test(`T6s the steps of a morty are marked done, doing, to come (${surface})`, () => {
+    const marks = collect(direct(surface, renderAgents), node => node.type === 'Text' && textOf(node) === '━')
+
+    expect(marks.map(one => one.node.props?.color)).toEqual(['success', 'success', 'warning', undefined])
+  })
+
+  test(`T7 the keys of the agents section are unchanged (${surface})`, async ($, on) => {
+    await start($, on, {
+      agents: [MORTY],
+      trees: { a1: 'feat/seven' },
+      messages: { a1: [{ role: 'user', text: TEMPLATE, toolUses: [] }] },
+    })
+    const ui = await $.ui.mount(OPEN(surface))
+
+    expect(await ui.find({ key: 'agent:a1' })).toBeDefined()
+    expect(await ui.find({ key: 'agent:open:a1' })).toBeDefined()
+    await ui.press({ key: 'agent:open:a1' })
+    await settle()
+    expect(await ui.find({ key: 'agent:full:a1' })).toBeDefined()
+    expect(await ui.find({ key: 'check:run:feat/seven' })).toBeDefined()
+    expect(await shows(ui, /^- R1 capture without blocking$/)).toBe(false)
+
+    await ui.press({ key: 'agent:full:a1' })
+    await settle()
+    expect(await shows(ui, /^- R1 capture without blocking$/)).toBe(true)
+    await ui.unmount()
+  })
+}

@@ -65,6 +65,27 @@ const partOf = (label: string): Part | undefined => {
   return MATCHERS.find(({ pattern }) => pattern.test(name))?.part
 }
 
+// `3. Decided rules` with no bold: a numbered line that starts with a label as a
+// whole word. Folding keeps one character per accented letter, so the length
+// matched in the folded text is the length to skip in the original.
+const NUMBERED = /^\s{0,3}\d+[.)]\s+(.*)$/
+
+const plainLabel = (line: string): { part: Part; rest: string } | undefined => {
+  const numbered = NUMBERED.exec(line)
+  if (numbered === null) {
+    return undefined
+  }
+  const name = fold(numbered[1])
+  for (const { part, pattern } of MATCHERS) {
+    const found = pattern.exec(name)
+    if (found !== null) {
+      return { part, rest: numbered[1].slice(found[0].length) }
+    }
+  }
+
+  return undefined
+}
+
 // `R1`, `T3` at the start of a line or of a bullet; the first line of an id
 // gives its text, and a later mention of the id in a sentence is not an item.
 const itemsOf = (lines: string[], letter: 'R' | 'T'): string[] => {
@@ -120,11 +141,17 @@ export const parseBrief = (text: string): Brief => {
   let current: string[] | undefined
   for (const line of all) {
     const found = LABEL_LINE.exec(line)
-    const part = found === null ? undefined : partOf(found[1])
-    if (found !== null && part !== undefined && !sections.has(part)) {
+    const bold = found === null ? undefined : partOf(found[1])
+    const label =
+      found !== null && bold !== undefined
+        ? { part: bold, rest: found[2] }
+        : found === null
+          ? plainLabel(line)
+          : undefined
+    if (label !== undefined && !sections.has(label.part)) {
       // What follows the label on its own line is the first line of the section.
-      current = [found[2].replace(/^[\s:,.–—-]+/, '')]
-      sections.set(part, current)
+      current = [label.rest.replace(/^[\s:,.–—-]+/, '')]
+      sections.set(label.part, current)
     } else if (current !== undefined) {
       current.push(line)
     }
