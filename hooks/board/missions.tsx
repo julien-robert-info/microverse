@@ -6,9 +6,10 @@ import type {
   NoteType,
   NotesItem,
 } from '../../types/board'
-import { WIDE_AT } from './cockpit'
+import { Card, FoldHeader, Legend, Pill, type Part } from './kit'
 import { linkAgent } from './link'
 import { NOTE_TYPES, filesOf } from './notes'
+import { AGENT_HUE, COLUMN_HUE, PALETTE, TONE, textColor } from './tokens'
 
 export type Column = 'design' | 'brief' | 'building' | 'review' | 'merge' | 'merged' | 'other'
 
@@ -32,6 +33,19 @@ const TYPE_LABELS: Record<NoteType, string> = {
 }
 const MERGED_SHOWN = 3
 const RAW_LINES = 400
+const REPORT_SHOWN = 5
+// Pane width from which the six columns sit side by side: 6 x 14 cells and the
+// 5 gaps between them. Below it the columns fold.
+export const KANBAN_AT = 89
+const HUE_OF: Record<Column, string> = {
+  design: COLUMN_HUE.design,
+  brief: COLUMN_HUE.brief,
+  building: COLUMN_HUE.building,
+  review: COLUMN_HUE.review,
+  merge: COLUMN_HUE.ready,
+  merged: COLUMN_HUE.merged,
+  other: TONE.muted,
+}
 // A column of the narrow list starts unfolded when it holds live work.
 const OPEN_BY_DEFAULT: Column[] = ['design', 'brief', 'building', 'review', 'merge']
 
@@ -174,15 +188,34 @@ export const viewsOf = (board: BoardData): { views: MissionView[]; loose: AgentR
 
 const isSpoken = (view: MissionView) => view.column !== 'merged' && view.column !== 'other'
 
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// The H1 of `notes/<id>.md` without its `# <id> — ` lead, or null when the file
+// is absent, has no H1, or the H1 does not start with the id.
+export const titleOf = (id: string, raw: string | undefined): string | null => {
+  const heading = raw?.split(/\r?\n/).find(line => /^#\s/.test(line))
+  if (heading === undefined) {
+    return null
+  }
+  const lead = new RegExp(`^#\\s*${escaped(id)}\\s*[—–:-]\\s*`)
+  if (!lead.test(heading)) {
+    return null
+  }
+  const title = heading.replace(lead, '').trim()
+
+  return title === '' ? null : title
+}
+
 export const renderMissions = (context: BoardContext) => {
-  const { Box, Button, Text } = context.ui
+  const { ui } = context
+  const { Box, Button, Text } = ui
   const { board, columns, actions } = context
   const missions = board.light?.missions
   if (missions === undefined) {
     return null
   }
   const { views, loose } = viewsOf(board)
-  const isWide = columns >= WIDE_AT
+  const isKanban = columns >= KANBAN_AT
   const toggled = board.view.toggled
   const flipped = (key: string) => toggled.includes(key)
   const byColumn = (name: Column) => {
@@ -198,36 +231,59 @@ export const renderMissions = (context: BoardContext) => {
   const card = (view: MissionView, name: Column) => {
     const branch = view.row.branch
     const check = branch === null ? undefined : board.checks[branch]
-    const meta = [
-      view.running[0] === undefined
-        ? undefined
-        : `${view.running[0].type.split(':').pop()} ${minutes((board.light?.at ?? 0) - view.running[0].firstSeenAt)}`,
-      name === 'merged' && view.mergedAt !== null ? stamp(view.mergedAt).slice(0, 10) : undefined,
-      check === undefined
-        ? undefined
-        : check.state === 'running'
-          ? 'checking…'
+    const agent = view.running[0]
+    const kind = agent === undefined ? undefined : kindOf(agent.type)
+    const pills: { label: string; hue: string }[] = []
+    if (agent !== undefined) {
+      pills.push({
+        label: `${agent.type.split(':').pop()} ${minutes((board.light?.at ?? 0) - agent.firstSeenAt)}`,
+        hue: AGENT_HUE[kind ?? ''] ?? TONE.muted,
+      })
+    }
+    if (name === 'merged' && view.mergedAt !== null) {
+      pills.push({ label: stamp(view.mergedAt).slice(0, 10), hue: TONE.muted })
+    }
+    if (check !== undefined) {
+      pills.push(
+        check.state === 'running'
+          ? { label: 'checking…', hue: TONE.warning }
           : check.verdict === 'green'
-            ? 'checks green'
-            : 'checks need fixes',
-    ].filter(Boolean)
+            ? { label: 'checks green', hue: TONE.success }
+            : { label: 'checks need fixes', hue: TONE.error },
+      )
+    }
+    // The title is the notes file's H1; the state cell stands in when there is none.
+    const title = titleOf(view.row.id, missions.notes[`${view.row.id}.md`]?.raw) ?? view.row.title
 
     return (
-      <Box key={`mission:${view.row.id}`} flexDirection="column">
-        <Button key={`open:${view.row.id}`} plain onPress={() => actions.openDetail('mission', view.row.id)}>
-          <Text weight="semibold">{view.row.id}</Text>
-        </Button>
-        {view.row.title !== '' && (
-          <Text dimColor wrap="truncate">
-            {view.row.title}
-          </Text>
-        )}
-        {branch !== null && (
-          <Text dimColor wrap="truncate">
-            {branch}
-          </Text>
-        )}
-        {meta.length > 0 && <Text dimColor>{meta.join(' · ')}</Text>}
+      <Box key={`mission:${view.row.id}`} flexDirection="column" minWidth={0}>
+        {Card(ui, {
+          hue: name === 'merged' ? PALETTE.mergedBar : HUE_OF[name],
+          children: (
+            <Box flexDirection="column" minWidth={0}>
+              <Button key={`open:${view.row.id}`} plain onPress={() => actions.openDetail('mission', view.row.id)}>
+                <Text mono weight="semibold">
+                  {view.row.id}
+                </Text>
+              </Button>
+              {title !== '' && <Text wrap="truncate">{title}</Text>}
+              {branch !== null && (
+                <Text dimColor wrap="truncate">
+                  {branch}
+                </Text>
+              )}
+              {pills.length > 0 && (
+                <Box flexDirection="row" flexWrap="wrap" gap={1} minWidth={0}>
+                  {pills.map((pill, index) => (
+                    <Box key={`pill:${index}`} flexShrink={1} minWidth={0}>
+                      {Pill(ui, pill)}
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          ),
+        })}
       </Box>
     )
   }
@@ -252,66 +308,164 @@ export const renderMissions = (context: BoardContext) => {
     )
     .filter(one => one.section !== undefined)
     .slice(0, 3)
+  // One fold per mission, holding the sections picked above.
+  const notes = [...new Set(excerpts.map(one => one.view))].map(view => ({
+    view,
+    excerpts: excerpts.filter(one => one.view === view),
+  }))
 
-  const body = isWide ? (
-    <Box flexDirection="row" gap={2}>
-      {COLUMNS.filter(column => column.name !== 'other').map(column => (
-        <Box key={`column:${column.name}`} flexDirection="column" flexGrow={1} flexShrink={1}>
-          <Text weight="semibold">{`${column.label} (${byColumn(column.name).length})`}</Text>
+  const shownColumns = COLUMNS.filter(column => column.name !== 'other')
+  const parts: Part[] = shownColumns.map(column => ({
+    label: `${column.label} ${byColumn(column.name).length}`,
+    value: byColumn(column.name).length,
+    hue: HUE_OF[column.name],
+  }))
+
+  // Every column header is one level of sibling `Text`: dot, label, dimmed count.
+  const body = isKanban ? (
+    <Box flexDirection="row" gap={1} minWidth={0}>
+      {shownColumns.map(column => (
+        <Box
+          key={`column:${column.name}`}
+          flexDirection="column"
+          width={0}
+          flexGrow={1}
+          flexShrink={1}
+          minWidth={0}
+        >
+          <Box flexDirection="row" gap={1} minWidth={0}>
+            <Text color={textColor(HUE_OF[column.name])} wrap="truncate">
+              ●
+            </Text>
+            <Text weight="semibold" wrap="truncate">
+              {column.label}
+            </Text>
+            <Text dimColor wrap="truncate">{`(${byColumn(column.name).length})`}</Text>
+          </Box>
           {cardsOf(column.name)}
         </Box>
       ))}
     </Box>
   ) : (
-    <Box flexDirection="column">
-      {COLUMNS.filter(column => column.name !== 'other').map(column => {
-        const count = byColumn(column.name).length
-        const isOpen =
-          OPEN_BY_DEFAULT.includes(column.name) && count > 0
-            ? !flipped(`missions:${column.name}`)
-            : flipped(`missions:${column.name}`)
+    <Box flexDirection="column" gap={1} minWidth={0}>
+      {Legend(ui, { parts })}
+      <Box flexDirection="column" minWidth={0}>
+        {shownColumns.map(column => {
+          const count = byColumn(column.name).length
+          const isOpen =
+            OPEN_BY_DEFAULT.includes(column.name) && count > 0
+              ? !flipped(`missions:${column.name}`)
+              : flipped(`missions:${column.name}`)
 
-        return (
-          <Box key={`column:${column.name}`} flexDirection="column">
-            <Button key={`fold:${column.name}`} plain onPress={() => actions.toggle(`missions:${column.name}`)}>
-              <Text weight="semibold">{`${isOpen ? '▾' : '▸'} ${column.label} · ${count}`}</Text>
-            </Button>
-            {isOpen && cardsOf(column.name)}
-          </Box>
-        )
-      })}
+          return (
+            <Box key={`column:${column.name}`} flexDirection="column" minWidth={0}>
+              {FoldHeader(ui, {
+                keyName: `fold:${column.name}`,
+                open: isOpen,
+                label: column.label,
+                count,
+                hue: HUE_OF[column.name],
+                onPress: () => actions.toggle(`missions:${column.name}`),
+              })}
+              {isOpen && cardsOf(column.name)}
+            </Box>
+          )
+        })}
+      </Box>
     </Box>
   )
 
   const others = byColumn('other')
 
+  // The latest merges since the last report, newest first.
+  const report = board.heavy?.status?.value?.report
+  const merges = [...(report?.merged ?? [])].reverse()
+
   return (
-    <Box flexDirection="column" gap={1}>
-      <Text weight="semibold">Missions</Text>
+    <Box flexDirection="column" gap={1} minWidth={0}>
+      <Box flexDirection="row" gap={1} minWidth={0}>
+        <Text weight="semibold">Missions</Text>
+        <Text dimColor>{`· ${views.length}`}</Text>
+      </Box>
       {views.length === 0 && <Text dimColor>No mission table in the state file.</Text>}
       {views.length > 0 && body}
       {others.length > 0 && (
-        <Box flexDirection="column">
-          <Button key="fold:other" plain onPress={() => actions.toggle('missions:other')}>
-            <Text dimColor>{`${flipped('missions:other') ? '▾' : '▸'} Other · ${others.length}`}</Text>
-          </Button>
+        <Box flexDirection="column" minWidth={0}>
+          {FoldHeader(ui, {
+            keyName: 'fold:other',
+            open: flipped('missions:other'),
+            label: 'Other',
+            count: others.length,
+            hue: HUE_OF.other,
+            onPress: () => actions.toggle('missions:other'),
+          })}
           {flipped('missions:other') && cardsOf('other')}
         </Box>
       )}
       {loose.length > 0 && (
         <Text dimColor>{`${loose.length} ${loose.length === 1 ? 'run' : 'runs'} not attributed to a mission`}</Text>
       )}
-      {excerpts.length > 0 && (
-        <Box flexDirection="column">
-          <Text weight="semibold">Mission notes</Text>
-          {excerpts.map(({ view, number, section }) => (
-            <Box key={`excerpt:${view.row.id}:${number}`} flexDirection="column">
-              <Text wrap="truncate">{`${view.row.id} · § ${number} ${section?.title ?? ''}`}</Text>
+      {report !== undefined && report !== null && (
+        <Box flexDirection="column" minWidth={0}>
+          <Box flexDirection="row" gap={1} minWidth={0}>
+            <Text weight="semibold">Since the last report</Text>
+            <Text dimColor>{`· ${merges.length} ${merges.length === 1 ? 'merge' : 'merges'}`}</Text>
+          </Box>
+          {merges.length === 0 && <Text dimColor>Nothing merged yet.</Text>}
+          {merges.slice(0, REPORT_SHOWN).map(merge => (
+            <Box key={`merge:${merge.sha}`} flexDirection="row" gap={1} minWidth={0}>
+              <Text mono weight="semibold" wrap="truncate">
+                {merge.sha}
+              </Text>
+              <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                <Text wrap="truncate">{merge.subject}</Text>
+              </Box>
               <Text dimColor wrap="truncate">
-                {firstParagraph(section?.raw ?? '')}
+                {stamp(merge.at).slice(0, 10)}
               </Text>
             </Box>
           ))}
+          {merges.length > REPORT_SHOWN && <Text dimColor>{`+${merges.length - REPORT_SHOWN} more`}</Text>}
+        </Box>
+      )}
+      {notes.length > 0 && (
+        <Box flexDirection="column" minWidth={0}>
+          <Text weight="semibold">Mission notes</Text>
+          {notes.map(({ view, excerpts }) => {
+            const key = `notes:${view.row.id}`
+            const isOpen = flipped(key)
+
+            return (
+              <Box key={`notes:${view.row.id}`} flexDirection="column" minWidth={0}>
+                <Box flexDirection="row" gap={1} minWidth={0}>
+                  {FoldHeader(ui, {
+                    keyName: `fold:${key}`,
+                    open: isOpen,
+                    label: view.row.id,
+                    mono: true,
+                    onPress: () => actions.toggle(key),
+                  })}
+                  {Pill(ui, { label: label(view.column), hue: HUE_OF[view.column] })}
+                  {!isOpen && (
+                    <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                      <Text dimColor wrap="truncate">
+                        {firstParagraph(excerpts[0].section?.raw ?? '')}
+                      </Text>
+                    </Box>
+                  )}
+                </Box>
+                {isOpen &&
+                  excerpts.map(({ number, section }) => (
+                    <Box key={`excerpt:${view.row.id}:${number}`} flexDirection="column" minWidth={0}>
+                      <Text wrap="truncate">{`${view.row.id} · § ${number} ${section?.title ?? ''}`}</Text>
+                      <Text dimColor wrap="truncate">
+                        {firstParagraph(section?.raw ?? '')}
+                      </Text>
+                    </Box>
+                  ))}
+              </Box>
+            )
+          })}
         </Box>
       )}
     </Box>

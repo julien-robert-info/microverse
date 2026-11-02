@@ -383,6 +383,8 @@ export const FoldHeader = (
     label: string
     count?: number
     hue?: string
+    // The label is an identifier: set in the monospace face where there is one.
+    mono?: boolean
     onPress: () => unknown
   },
 ) => {
@@ -392,7 +394,7 @@ export const FoldHeader = (
     <Box flexDirection="row" gap={1} minWidth={0}>
       {props.hue !== undefined && <Text color={textColor(props.hue)}>●</Text>}
       <Button key={props.keyName} plain onPress={props.onPress}>
-        <Text weight="semibold">
+        <Text weight="semibold" {...(props.mono === true ? { mono: true } : {})}>
           {`${props.open ? '▾' : '▸'} ${props.label}${props.count === undefined ? '' : ` · ${props.count}`}`}
         </Text>
       </Button>

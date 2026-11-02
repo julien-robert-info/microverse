@@ -265,14 +265,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount(pane(surface, 140))
 
     for (const label of LABELS) {
-      expect(await shows(ui, new RegExp(`^${label} \\(\\d+\\)$`))).toBe(true)
+      expect(await shows(ui, new RegExp(`^${label}$`))).toBe(true)
     }
     expect(await ui.find({ key: 'fold:merged' })).toBeUndefined()
 
     await ui.press({ key: 'open:E7' })
     await settle()
     expect(await ui.find({ key: 'fold:merged' })).toBeDefined()
-    expect(await shows(ui, /^Building \(\d+\)$/)).toBe(false)
+    expect(await shows(ui, /^Building$/)).toBe(false)
     await ui.unmount()
   })
 
