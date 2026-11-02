@@ -10,7 +10,9 @@ import type {
   QuestionOption,
   QuestionsLight,
 } from '../../types/board'
+import { Action, Avatar, Card, FoldHeader, Pill, lookOf, roleProps } from './kit'
 import { at } from './sensors'
+import { SPACE, TONE } from './tokens'
 
 type Engine = EngineInterface
 
@@ -418,43 +420,48 @@ const printable = (text: string) => text.replace(/[^\P{Cc}\t\n]/gu, ' ')
 // press marks, "Fill Q37 a" appears, the second fills the box.
 const answerParts = (context: BoardContext, question: PendingQuestion, block: QuestionBlock | null) => {
   const { ui, board, actions } = context
-  const { Box, Text, Button } = ui
+  const { Box, Text } = ui
   const questions = board.light?.questions
   const marked = board.answer.pending?.question === question.id ? board.answer.pending.option : null
   const refusal = board.answer.refusal?.question === question.id ? board.answer.refusal.cause : null
   const isSent = board.answer.sent.includes(sentKey(question.id, questions?.stateStamp ?? null))
+  // Where the surface ignores `variant`, the label alone carries the advice.
+  const hasVariant = lookOf(ui).hasVariant
+
+  // The recommended option is the primary action, the others secondary.
+  const optionAction = (option: QuestionOption, title: string) => {
+    const isRecommended = block?.recommended === option.letter
+
+    return Action(ui, {
+      keyName: `answer:${question.id}:${option.letter}`,
+      label: `${marked === option.letter ? '● ' : ''}${title}${isRecommended && !hasVariant ? ' (recommended)' : ''}`,
+      primary: isRecommended,
+      onPress: () => actions.chooseAnswer(question.id, option.letter),
+    })
+  }
 
   return {
     isSent,
-    buttons: (
-      <Box flexDirection="column">
-        {isSent ? (
-          <Text color="success">
-            {`${question.id} was sent.`}
-          </Text>
-        ) : (
-          <Box flexDirection="column">
-            {block?.options.map(option => (
-              <Button
-                key={`answer:${question.id}:${option.letter}`}
-                label={`${marked === option.letter ? '● ' : ''}${option.letter}. ${option.title}${block.recommended === option.letter ? ' (recommended)' : ''}`}
-                onPress={() => actions.chooseAnswer(question.id, option.letter)}
-              />
-            ))}
-            {marked !== null && (
-              <Button
-                key={`fill:${question.id}`}
-                label={`Fill ${question.id} ${marked}`}
-                onPress={() => actions.sendAnswer()}
-              />
-            )}
-            {refusal !== null && <Text color="warning">{REFUSALS[refusal]}</Text>}
-          </Box>
-        )}
+    optionAction,
+    // What follows the options: the second press and a refusal.
+    tail: (
+      <Box flexDirection="column" minWidth={0}>
+        {isSent && <Text color="success">{`${question.id} was sent.`}</Text>}
+        {!isSent && marked !== null &&
+          Action(ui, {
+            keyName: `fill:${question.id}`,
+            label: `Fill ${question.id} ${marked}`,
+            primary: true,
+            onPress: () => actions.sendAnswer(),
+          })}
+        {!isSent && refusal !== null && <Text color="warning" wrap="wrap">{REFUSALS[refusal]}</Text>}
       </Box>
     ),
   }
 }
+
+const answeredLine = (one: AnsweredQuestion) =>
+  `${one.id} ${one.answer}${one.date === null ? '' : ` · ${one.date}`}`
 
 export const renderQuestions = (context: BoardContext) => {
   const { ui, board, actions } = context
@@ -470,41 +477,67 @@ export const renderQuestions = (context: BoardContext) => {
   ).length
 
   return (
-    <Box flexDirection="column">
-      <Text weight="semibold">{`Needs your decision (${questions.pending.length})`}</Text>
-      {questions.pending.length === 0 && <Text dimColor>Nothing waits on you.</Text>}
-      {waiting > 0 && <Text color="success">{counterText(waiting)}</Text>}
-      {recommended >= 2 && (
-        <Button
-          key="fill:recommended"
-          label="Fill all recommended"
-          onPress={() => actions.sendRecommended()}
-        />
-      )}
-      {questions.pending.map(question => (
-        <Box key={`question:${question.id}`} flexDirection="column">
-          <Box gap={1}>
-            <Button
-              key={`open:question:${question.id}`}
-              plain
-              onPress={() => actions.openQuestion(question.id)}
-            >
-              <Text color="warning" weight="semibold">{question.id}</Text>
-              <Text wrap="truncate">{` ${question.title}`}</Text>
-            </Button>
+    <Box flexDirection="column" gap={SPACE.section}>
+      <Box flexDirection="column" minWidth={0}>
+        <Text weight="semibold">{`Needs your decision (${questions.pending.length})`}</Text>
+        {questions.pending.length === 0 && <Text dimColor>Nothing waits on you.</Text>}
+        {waiting > 0 && <Text color="success" wrap="wrap">{counterText(waiting)}</Text>}
+      </Box>
+      {recommended >= 2 &&
+        Action(ui, {
+          keyName: 'fill:recommended',
+          label: 'Fill all recommended',
+          primary: true,
+          onPress: () => actions.sendRecommended(),
+        })}
+      {questions.pending.map(question => {
+        const block = blockOf(questions, question)
+        const { isSent, optionAction, tail } = answerParts(context, question, block)
+
+        return (
+          <Box key={`question:${question.id}`} flexDirection="column" minWidth={0}>
+            {Card(ui, {
+              children: (
+                <Box flexDirection="column" minWidth={0}>
+                  <Box flexDirection="row" gap={1} minWidth={0}>
+                    <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                      <Button
+                        key={`open:question:${question.id}`}
+                        plain
+                        onPress={() => actions.openQuestion(question.id)}
+                      >
+                        <Text {...roleProps(ui, 'id')} color="warning" weight="semibold">{question.id}</Text>
+                        <Text weight="semibold" wrap="wrap">{` ${question.title}`}</Text>
+                      </Button>
+                    </Box>
+                    <Box flexShrink={0}>
+                      {Pill(ui, { label: isSent ? 'Sent' : 'Pending', hue: isSent ? TONE.success : TONE.warning })}
+                    </Box>
+                  </Box>
+                  {!isSent && block?.options.map(option => (
+                    <Box key={`option:${option.letter}`} minWidth={0}>
+                      {optionAction(option, `${option.letter}. ${option.title}`)}
+                    </Box>
+                  ))}
+                  {tail}
+                </Box>
+              ),
+            })}
           </Box>
-          {answerParts(context, question, blockOf(questions, question)).buttons}
-        </Box>
-      ))}
+        )
+      })}
       {questions.answered.length > 0 && (
-        <Box flexDirection="column">
-          <Button key="fold:answered" plain onPress={() => actions.toggle('answered')}>
-            <Text dimColor>{`${isOpen ? '▾' : '▸'} Answered (${questions.answered.length})`}</Text>
-          </Button>
+        <Box flexDirection="column" minWidth={0}>
+          {FoldHeader(ui, {
+            keyName: 'fold:answered',
+            open: isOpen,
+            label: `Answered (${questions.answered.length})`,
+            onPress: () => actions.toggle('answered'),
+          })}
           {isOpen &&
             questions.answered.slice(-SHOWN_ANSWERED).reverse().map(one => (
               <Text key={`answered:${one.id}`} dimColor wrap="truncate">
-                {`${one.id} ${one.answer}${one.date === null ? '' : ` · ${one.date}`}`}
+                {answeredLine(one)}
               </Text>
             ))}
         </Box>
@@ -516,7 +549,7 @@ export const renderQuestions = (context: BoardContext) => {
 export const renderQuestionDetail = (context: BoardContext) => {
   const { ui, board, actions } = context
   // The mobile surface has no `Input`: no free answer there.
-  const { Box, Text, Markdown, Input } = ui
+  const { Box, Text, Input } = ui
   const questions = board.light?.questions
   const id = board.view.detail?.id ?? ''
   const question = questions?.pending.find(one => one.id === id)
@@ -533,50 +566,99 @@ export const renderQuestionDetail = (context: BoardContext) => {
     )
   }
   const block = blockOf(questions, question)
-  const { isSent, buttons } = answerParts(context, question, block)
+  const { isSent, optionAction, tail } = answerParts(context, question, block)
   const mission = missionOf(question.file)
 
   return (
-    <Box flexDirection="column" gap={1}>
-      <Box flexDirection="column">
-        <Text weight="semibold">{`${question.id} ${block?.title ?? question.title}`}</Text>
-        {mission !== null && <Text dimColor>{`Mission ${mission}`}</Text>}
+    <Box flexDirection="column" gap={SPACE.section}>
+      <Box flexDirection="column" minWidth={0}>
+        <Box flexDirection="row" gap={1} minWidth={0}>
+          <Box flexGrow={1} flexShrink={1} minWidth={0}>
+            <Text {...roleProps(ui, 'title')} wrap="wrap">{`${question.id} ${block?.title ?? question.title}`}</Text>
+          </Box>
+          <Box flexShrink={0}>
+            {Pill(ui, { label: isSent ? 'Sent' : 'Pending', hue: isSent ? TONE.success : TONE.warning })}
+          </Box>
+        </Box>
+        {mission !== null && <Text {...roleProps(ui, 'caption')}>{`Mission ${mission}`}</Text>}
+        {block !== null && block.waits !== null && (
+          <Text {...roleProps(ui, 'caption')} wrap="wrap">{`Waits on: ${block.waits}`}</Text>
+        )}
       </Box>
       {block === null ? (
-        <Box flexDirection="column">
-          <Text>{question.title}</Text>
-          <Text dimColor>No block found for this question: answer in your own words.</Text>
+        <Box flexDirection="column" minWidth={0}>
+          <Text wrap="wrap">{question.title}</Text>
+          <Text dimColor wrap="wrap">No block found for this question: answer in your own words.</Text>
         </Box>
       ) : (
-        <Box flexDirection="column" gap={1}>
-          {block.context !== '' && <Markdown key="question:context" text={printable(block.context)} />}
-          {block.options.map(option => (
-            <Box key={`option:${option.letter}`} flexDirection="column">
-              <Text weight="semibold" color={block.recommended === option.letter ? 'success' : undefined}>
-                {`${option.letter}. ${option.title}${block.recommended === option.letter ? ' · recommended' : ''}`}
-              </Text>
-              {option.effect !== '' && <Text dimColor>{option.effect}</Text>}
-            </Box>
-          ))}
-          {block.waits !== null && <Text>{`Waits on: ${block.waits}`}</Text>}
+        <Box flexDirection="column" gap={SPACE.section} minWidth={0}>
+          {(block.context !== '' || question.file !== null) &&
+            Card(ui, {
+              children: (
+                <Box flexDirection="column" minWidth={0}>
+                  <Text weight="semibold">Why it is asked</Text>
+                  {block.context.split('\n\n').filter(one => one !== '').map((paragraph, index) => (
+                    <Text key={`context:${index}`} wrap="wrap">{printable(paragraph)}</Text>
+                  ))}
+                  {question.file !== null && (
+                    <Text {...roleProps(ui, 'id')} dimColor wrap="wrap">{`• ${question.file}`}</Text>
+                  )}
+                </Box>
+              ),
+            })}
+          {block.options.map(option => {
+            const isRecommended = block.recommended === option.letter
+
+            return (
+              <Box key={`option:${option.letter}`} flexDirection="column" minWidth={0}>
+                {Card(ui, {
+                  inner: true,
+                  children: (
+                    <Box flexDirection="column" minWidth={0}>
+                      <Box flexDirection="row" gap={1} minWidth={0}>
+                        {Avatar(ui, { letter: option.letter, hue: isRecommended ? TONE.success : TONE.muted })}
+                        <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+                          <Box flexDirection="row" gap={1} minWidth={0}>
+                            <Box flexShrink={1} minWidth={0}>
+                              <Text weight="semibold" wrap="wrap">{option.title}</Text>
+                            </Box>
+                            {isRecommended && (
+                              <Box flexShrink={0}>{Pill(ui, { label: 'recommended', hue: TONE.success })}</Box>
+                            )}
+                          </Box>
+                          {option.effect !== '' && <Text dimColor wrap="wrap">{option.effect}</Text>}
+                        </Box>
+                      </Box>
+                      {!isSent && (
+                        <Box minWidth={0}>{optionAction(option, `Answer ${option.letter}`)}</Box>
+                      )}
+                    </Box>
+                  ),
+                })}
+              </Box>
+            )
+          })}
         </Box>
       )}
-      {buttons}
-      {Input !== undefined && !isSent && (
-        <Input
-          key={`free:${question.id}`}
-          label="Your answer"
-          placeholder="in your own words"
-          submitLabel="fill"
-          onSubmit={(text: string) => actions.sendFreeAnswer(question.id, text)}
-        />
-      )}
+      {tail}
+      {Input !== undefined && !isSent &&
+        Card(ui, {
+          children: (
+            <Input
+              key={`free:${question.id}`}
+              label="Your answer"
+              placeholder="in your own words"
+              submitLabel="fill"
+              onSubmit={(text: string) => actions.sendFreeAnswer(question.id, text)}
+            />
+          ),
+        })}
       {questions.answered.length > 0 && (
-        <Box flexDirection="column">
+        <Box flexDirection="column" minWidth={0}>
           <Text weight="semibold">Answered before</Text>
           {questions.answered.slice(-SHOWN_ANSWERED).reverse().map(one => (
             <Text key={`before:${one.id}`} dimColor wrap="truncate">
-              {`${one.id} ${one.answer}${one.date === null ? '' : ` · ${one.date}`}`}
+              {answeredLine(one)}
             </Text>
           ))}
         </Box>

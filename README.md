@@ -207,7 +207,11 @@ also marked `▸` and figures stay bold.
   question counts as answered once a message containing its answer is sent. The
   board never sends it, never overwrites a draft, and says when the box
   refused the text. Without a block, a free answer is offered on terminal and
-  Desktop.
+  Desktop. Each pending question is a card with its Id, its title (wrapped), a
+  "Pending" pill and its options, the recommended one as the primary button. The
+  detail adds a "Why it is asked" card (context and source file), one card per
+  option (letter avatar, a green "recommended" pill, the effect wrapped) and
+  the free answer in a card; answered questions fold under "Answered".
 - **Agents** are cards with an avatar (R, M or C), a state pill, the mission,
   the last tool call as a pill and, for a morty, its steps. The detail has the
   brief as a Summary (Goal, Rules, Tests, Zone) or the Full text; a brief with no
