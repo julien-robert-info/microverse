@@ -1,5 +1,5 @@
 // Helpers shared by the bin/ scripts. CommonJS without dependencies, so the
-// scripts run on any Node >= 20 without an install step.
+// scripts run on any Node >= 22 without an install step.
 "use strict";
 
 const { spawnSync } = require("node:child_process");
