@@ -42,7 +42,7 @@ cleans up; the launch pace follows the usage quota.
 
 - Claude Code 2.1.306 or newer (`haiku` model alias for Claude Haiku 5.5; the
   `board` mod's hooks module and `plugin test`).
-- Node.js 20 or newer, for the scripts in `bin/`.
+- Node.js 22 or newer, for the scripts in `bin/`.
 - Git.
 - Optional, for the quota counters: the VS Code extension "Claude Code Usage"
   (growthjack), or the microverse status line in a terminal session (set up by
