@@ -149,8 +149,8 @@ function grade(suite, taskId) {
   const base = marker.base;
   const descends = gitIn(slot, ["merge-base", "--is-ancestor", base, "main"], suite.cmdEnv);
   if (descends.code !== 0) throw new Error(`the copy's main does not descend from its base commit ${base.slice(0, 10)} (history rewritten?)`);
-  const mine = numstat(git(["diff", "--numstat", "-z", "--no-renames", base, "main"]));
-  const ref = gitIn(suite.source, ["diff", "--numstat", "-z", "--no-renames", task.fork, task.tip], suite.cmdEnv);
+  const mine = numstat(git(["diff", "--numstat", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", base, "main"]));
+  const ref = gitIn(suite.source, ["diff", "--numstat", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", task.fork, task.tip], suite.cmdEnv);
   if (ref.code !== 0) throw new Error(`reference diff failed: ${ref.err.trim()}`);
   const refDiff = numstat(ref.out);
   const uncommitted = git(["status", "--porcelain", "-z", "--no-renames", "--untracked-files=all"])
@@ -184,4 +184,4 @@ function grade(suite, taskId) {
   });
 }
 
-module.exports = { validate, grade, parseTap };
+module.exports = { validate, grade, parseTap, readMarker };

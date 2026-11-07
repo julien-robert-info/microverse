@@ -302,4 +302,4 @@ function passActivity({ projects, slot, session, stream = null }) {
   return { agents: types, sendMessages: sent.size, permissionDenials: Array.isArray(denials) ? denials.length : null };
 }
 
-module.exports = { passCost, scanLeaks, passOutcome, passActivity };
+module.exports = { passCost, scanLeaks, passOutcome, passActivity, pathPatterns };
