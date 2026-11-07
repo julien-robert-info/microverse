@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `orch-bench judge`: blind Opus judgment of a campaign's delivered diffs (anonymised, rubric r1, output validated by the bench, spend guard, one judgment per distinct diff), and the diff kept per pass.
+
 ## [0.6.0] - 2026-11-07
 
 ### Fixed
