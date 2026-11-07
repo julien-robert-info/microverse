@@ -112,6 +112,21 @@ function checkSlot(slot, source, env) {
   if (within(real, src)) throw bad("slot", "must not contain the source");
 }
 
+// The optional `judge` field. The model and effort become command-line values:
+// a name that could pass for an option is refused. Whether the folder `cwd` is
+// fit is checked by the judge itself, since it may not exist yet.
+const JUDGE_WORD = /^[A-Za-z0-9][A-Za-z0-9._[\]-]*$/;
+
+function parseJudge(j, at) {
+  if (!isObject(j)) throw bad("judge", "must be an object");
+  const p = "judge.";
+  for (const k of ["model", "effort"]) if (!JUDGE_WORD.test(str(j, k, p))) throw bad(p + k, "may only hold letters, digits, dot, dash and underscore");
+  if (!/^r[1-9][0-9]*$/.test(str(j, "rubric", p))) throw bad(p + "rubric", "must name a rubric such as r1");
+  for (const k of ["estimateUsd", "p90Usd", "maxBudgetUsd"]) positive(j, k, p);
+  if (j.timeoutMinutes !== undefined) positive(j, "timeoutMinutes", p);
+  return { model: j.model, effort: j.effort, cwd: at(str(j, "cwd", p)), rubric: j.rubric, estimateUsd: j.estimateUsd, p90Usd: j.p90Usd, maxBudgetUsd: j.maxBudgetUsd, timeoutMinutes: j.timeoutMinutes ?? 10 };
+}
+
 // Reads, validates and resolves the suite: relative paths are taken from the
 // suite's folder. Throws an Error naming the faulty field.
 function loadSuite(file) {
@@ -171,6 +186,8 @@ function loadSuite(file) {
     const zone = strings(t, "zone", p, { min: 1 });
     return { id, fork: t.fork, tip: t.tip, merge: t.merge, brief: at(str(t, "brief", p)), oracle, zone };
   });
+
+  suite.judge = raw.judge === undefined ? null : parseJudge(raw.judge, at);
 
   const env = benchEnv(suite.env);
   suite.cmdEnv = env;
@@ -250,4 +267,4 @@ function validatedRecord(suite, task) {
   return rec;
 }
 
-module.exports = { INHERITED, benchEnv, gitIn, loadSuite, taskOf, briefFindings, safeRelative, recordFile, readRecord, validatedRecord };
+module.exports = { INHERITED, benchEnv, gitIn, inGitRepo, loadSuite, taskOf, briefFindings, safeRelative, recordFile, readRecord, validatedRecord };
