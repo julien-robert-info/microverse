@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { lookFor, withLook } from '../kit'
+import { lookFor, lookOf, withLook } from '../kit'
 import {
   counterText,
   fillAnswer,
@@ -207,8 +207,10 @@ for (const surface of SURFACES) {
     await start($, on, { 'CLAUDE.local.md': M10, 'notes/E9.md': BLOCK('Q37', RECOMMENDED) })
     const ui = await $.ui.mount(pane(surface, WIDE))
 
-    expect((await ui.find({ key: 'answer:Q37:a' }))?.text).toMatch(/^a\. Fixed$/)
-    expect((await ui.find({ key: 'answer:Q37:b' }))?.text).toMatch(/^b\. Free$/)
+    expect((await ui.find({ key: 'answer:Q37:a' }))?.text).toBe('a')
+    expect((await ui.find({ key: 'answer:Q37:b' }))?.text).toBe('b')
+    // The option title is a Text beside the button, never in its label.
+    expect(await shows(ui, /^Fixed$/)).toBe(true)
     expect(await has(ui, 'answer:Q37:c')).toBe(true)
     await press(ui, 'open:question:Q37')
     expect(await shows(ui, /^recommended$/)).toBe(true)
@@ -228,7 +230,7 @@ for (const surface of SURFACES) {
     await start($, on, { 'CLAUDE.local.md': M10, 'notes/E9.md': BLOCK('Q37') })
     const ui = await $.ui.mount(pane(surface, WIDE))
 
-    expect((await ui.find({ key: 'answer:Q37:a' }))?.text).toBe('a. Fixed')
+    expect((await ui.find({ key: 'answer:Q37:a' }))?.text).toBe('a')
     await press(ui, 'open:question:Q37')
     expect(await shows(ui, /recommended/)).toBe(false)
     expect(await shows(ui, /^Waits on/)).toBe(false)
@@ -307,8 +309,8 @@ for (const surface of SURFACES) {
     const ui = await $.ui.mount(pane(surface, WIDE))
 
     expect(await shows(ui, /^Needs your decision \(2\)$/)).toBe(true)
-    expect((await ui.find({ key: 'answer:Q37:a' }))?.text).toBe('a. Fixed')
-    expect((await ui.find({ key: 'answer:Q38:b' }))?.text).toBe('b. No')
+    expect((await ui.find({ key: 'answer:Q37:a' }))?.text).toBe('a')
+    expect((await ui.find({ key: 'answer:Q38:b' }))?.text).toBe('b')
     expect(await has(ui, 'answer:Q38:c')).toBe(false)
     expect(await has(ui, 'answer:Q37:c')).toBe(true)
     await ui.unmount()
@@ -664,7 +666,12 @@ const collect = (tree: Node, test: (node: Node) => boolean) => {
 
 const EFFECT = 'e'.repeat(200)
 
-const direct = (surface: 'terminal' | 'desktop', render: typeof renderQuestions, columns = 40) => {
+const direct = (
+  surface: 'terminal' | 'desktop',
+  render: typeof renderQuestions,
+  columns = 40,
+  pending: { question: string; option: string } | null = null,
+) => {
   const ui = withLook(
     { Box: 'Box', Text: 'Text', Button: 'Button', Input: 'Input' } as never,
     lookFor(surface, surface === 'desktop' ? 'dark' : null),
@@ -699,7 +706,7 @@ const direct = (surface: 'terminal' | 'desktop', render: typeof renderQuestions,
         },
       },
       view: { tab: 'cockpit', detail: { kind: 'question', id: 'Q37' }, toggled: [] },
-      answer: { pending: null, sent: [] },
+      answer: { pending, sent: [] },
     },
   } as never) as Node
 }
@@ -744,10 +751,59 @@ for (const surface of SURFACES) {
     // The title of a question in the section wraps too.
     const title = collect(
       direct(surface, renderQuestions, 40),
-      node => node.type === 'Text' && textOf(node) === ' Which format?',
+      node => node.type === 'Text' && textOf(node) === 'Which format?',
     )
 
     expect(title[0].node.props?.wrap).toBe('wrap')
+  })
+
+  test(`E33k-T1 an option row is a letter-only action beside a wrapping title (${surface})`, () => {
+    const tree = direct(surface, renderQuestions, 40, { question: 'Q37', option: 'a' })
+    const buttons = collect(tree, node => node.type === 'Button' && String(node.props?.key).startsWith('answer:'))
+    const label = (key: string) => buttons.find(one => one.node.props?.key === key)?.node.props?.label
+    const suffix = lookOf(withLook({ Box: 'Box', Text: 'Text', Button: 'Button' } as never, lookFor(surface, surface === 'desktop' ? 'dark' : null))).hasVariant
+      ? ''
+      : ' (recommended)'
+
+    // Marked and recommended: both decorate the short label only.
+    expect(label('answer:Q37:a')).toBe(`● a${suffix}`)
+    expect(label('answer:Q37:b')).toBe('b')
+    expect(buttons.map(one => String(one.node.props?.label)).join('|')).not.toMatch(/Fixed|Free/)
+    for (const [letter, title] of [['a', 'Fixed'], ['b', 'Free']]) {
+      const button = buttons.find(one => one.node.props?.key === `answer:Q37:${letter}`)!
+      const row = collect(tree, node => node.props?.key === `option:${letter}`)[0].node
+      const text = kids(row)[1]
+
+      expect(row.props?.flexDirection).toBe('row')
+      expect(button.parent?.props?.flexShrink).toBe(0)
+      expect(kids(text)[0].props?.wrap).toBe('wrap')
+      expect(textOf(kids(text)[0])).toBe(title)
+      expect(text.props).toMatchObject({ flexGrow: 1, flexShrink: 1, minWidth: 0 })
+    }
+  })
+
+  test(`E33k-T2 the question button holds only the id, the title wraps beside it (${surface})`, () => {
+    const tree = direct(surface, renderQuestions, 40)
+    const open = collect(tree, node => node.type === 'Button' && node.props?.key === 'open:question:Q37')[0].node
+    const title = collect(tree, node => node.type === 'Text' && textOf(node) === 'Which format?')[0]
+
+    expect(collect(open, node => node.type === 'Text').map(one => textOf(one.node))).toEqual(['Q37'])
+    expect(title.node.props?.wrap).toBe('wrap')
+    expect(title.parent?.props).toMatchObject({ flexGrow: 1, flexShrink: 1, minWidth: 0 })
+  })
+
+  test(`E33k-T3 the detail pill does not stretch and the Answer button has a blank row above (${surface})`, () => {
+    const tree = direct(surface, renderQuestionDetail, 40)
+    const answer = collect(tree, node => node.type === 'Button' && node.props?.key === 'answer:Q37:b')[0]
+    const pillBox = (root: Node) =>
+      collect(
+        root,
+        node => node.props?.alignSelf === 'flex-start' && collect(node, one => one.type === 'Text' && textOf(one) === 'Pending').length > 0,
+      )
+
+    expect(pillBox(tree)).not.toHaveLength(0)
+    expect(pillBox(direct(surface, renderQuestions, 40))).not.toHaveLength(0)
+    expect(answer.parent?.props?.paddingTop).toBe(1)
   })
 
   test(`S4 the keys of the section and of the detail are unchanged (${surface})`, async ($, on) => {

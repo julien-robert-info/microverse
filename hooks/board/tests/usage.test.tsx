@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import type { BoardData } from '../../../types/board'
 import { renderCockpit } from '../cockpit'
 import { lookFor, withLook } from '../kit'
-import { CURVE_POINTS, decimate, laneOf, paceOf, renderUsage, spendRows } from '../usage'
+import { CURVE_POINTS, decimate, laneOf, paceOf, productivityOf, renderUsage, spendRows } from '../usage'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ROOT = '/work/demo'
@@ -238,6 +238,37 @@ for (const surface of SURFACES) {
     // No cache token at all.
     expect(texts(byKey(tree, 'tile:cache')!)).toContain('–')
     expect(texts(tree).join(' ')).not.toMatch(/NaN|Infinity/)
+  })
+
+  test(`E33k-T5 a merged mission whose runs all lie outside the period gives a dash (${surface})`, async () => {
+    const old = { started: NOW - 20 * DAY, ended: NOW - 19 * DAY }
+    const scene = {
+      runs: [{ id: 'a1', model: 'claude-opus-4', description: 'E1 task', cost: 4, ...old }],
+    }
+
+    // E1 (merged) and E2 (to merge) are finished; the only run is 19 days old.
+    expect(productivityOf(boardOf(scene), scene.runs.map(runOf), NOW - 7 * DAY)).toMatchObject({
+      finished: 2,
+      perMission: null,
+    })
+    const tree = draw(surface, scene)
+    expect(texts(byKey(tree, 'tile:per-mission')!)).toContain('–')
+    expect(texts(byKey(tree, 'tile:per-mission')!).join(' ')).not.toContain('$')
+  })
+
+  test(`E33k-T6 only finished missions with a costed run in the period make the average (${surface})`, async () => {
+    const scene = {
+      runs: [
+        { id: 'b1', model: 'claude-sonnet-4', description: 'E2 task', cost: 6 },
+        { id: 'a1', model: 'claude-opus-4', description: 'E1 task', cost: 4, started: NOW - 20 * DAY, ended: NOW - 19 * DAY },
+        { id: 'a2', model: 'claude-opus-4', description: 'E1 review', cost: 0 },
+      ],
+    }
+    const prod = productivityOf(boardOf(scene), (scene.runs ?? []).map(runOf), NOW - 7 * DAY)
+
+    // E1 and E2 are finished; E1 has no costed run inside the period.
+    expect(prod).toMatchObject({ finished: 2, perMission: 6 })
+    expect(texts(byKey(draw(surface, scene), 'tile:per-mission')!)).toContain('$6.00')
   })
 
   test(`T3 an empty history says there is no reading yet (${surface})`, async () => {

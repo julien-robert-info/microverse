@@ -499,24 +499,31 @@ export const renderQuestions = (context: BoardContext) => {
             {Card(ui, {
               children: (
                 <Box flexDirection="column" minWidth={0}>
+                  {/* The host's Button does not wrap its content: only the id is
+                      clickable, the title wraps beside it. */}
                   <Box flexDirection="row" gap={1} minWidth={0}>
-                    <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                    <Box flexShrink={0}>
                       <Button
                         key={`open:question:${question.id}`}
                         plain
                         onPress={() => actions.openQuestion(question.id)}
                       >
                         <Text {...roleProps(ui, 'id')} color="warning" weight="semibold">{question.id}</Text>
-                        <Text weight="semibold" wrap="wrap">{` ${question.title}`}</Text>
                       </Button>
                     </Box>
-                    <Box flexShrink={0}>
+                    <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                      <Text weight="semibold" wrap="wrap">{question.title}</Text>
+                    </Box>
+                    <Box flexShrink={0} alignSelf="flex-start">
                       {Pill(ui, { label: isSent ? 'Sent' : 'Pending', hue: isSent ? TONE.success : TONE.warning })}
                     </Box>
                   </Box>
                   {!isSent && block?.options.map(option => (
-                    <Box key={`option:${option.letter}`} minWidth={0}>
-                      {optionAction(option, `${option.letter}. ${option.title}`)}
+                    <Box key={`option:${option.letter}`} flexDirection="row" gap={1} minWidth={0}>
+                      <Box flexShrink={0}>{optionAction(option, option.letter)}</Box>
+                      <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                        <Text wrap="wrap">{option.title}</Text>
+                      </Box>
                     </Box>
                   ))}
                   {tail}
@@ -576,7 +583,7 @@ export const renderQuestionDetail = (context: BoardContext) => {
           <Box flexGrow={1} flexShrink={1} minWidth={0}>
             <Text {...roleProps(ui, 'title')} wrap="wrap">{`${question.id} ${block?.title ?? question.title}`}</Text>
           </Box>
-          <Box flexShrink={0}>
+          <Box flexShrink={0} alignSelf="flex-start">
             {Pill(ui, { label: isSent ? 'Sent' : 'Pending', hue: isSent ? TONE.success : TONE.warning })}
           </Box>
         </Box>
@@ -630,7 +637,9 @@ export const renderQuestionDetail = (context: BoardContext) => {
                         </Box>
                       </Box>
                       {!isSent && (
-                        <Box minWidth={0}>{optionAction(option, `Answer ${option.letter}`)}</Box>
+                        <Box minWidth={0} paddingTop={SPACE.section}>
+                          {optionAction(option, `Answer ${option.letter}`)}
+                        </Box>
                       )}
                     </Box>
                   ),

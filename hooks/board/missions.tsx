@@ -21,7 +21,7 @@ import {
 } from './kit'
 import { linkAgent } from './link'
 import { NOTE_TYPES, filesOf } from './notes'
-import { AGENT_HUE, COLUMN_HUE, PALETTE, TONE, textColor } from './tokens'
+import { AGENT_HUE, COLUMN_HUE, PALETTE, SPACE, TONE, textColor } from './tokens'
 
 export type Column = 'design' | 'brief' | 'building' | 'review' | 'merge' | 'merged' | 'other'
 
@@ -264,8 +264,10 @@ export const renderMissions = (context: BoardContext) => {
             : { label: 'checks need fixes', hue: TONE.error },
       )
     }
-    // The title is the notes file's H1; the state cell stands in when there is none.
-    const title = titleOf(view.row.id, missions.notes[`${view.row.id}.md`]?.raw) ?? view.row.title
+    // The title is the notes file's H1; the state cell stands in when there is
+    // none, except in Merged where it is a long "merged and pushed on…" sentence.
+    const title =
+      titleOf(view.row.id, missions.notes[`${view.row.id}.md`]?.raw) ?? (name === 'merged' ? '' : view.row.title)
 
     return (
       <Box key={`mission:${view.row.id}`} flexDirection="column" minWidth={0}>
@@ -362,15 +364,22 @@ export const renderMissions = (context: BoardContext) => {
     <Box flexDirection="column" gap={1} minWidth={0}>
       {Legend(ui, { parts })}
       <Box flexDirection="column" minWidth={0}>
-        {shownColumns.map(column => {
+        {shownColumns.map((column, index) => {
           const count = byColumn(column.name).length
-          const isOpen =
-            OPEN_BY_DEFAULT.includes(column.name) && count > 0
-              ? !flipped(`missions:${column.name}`)
-              : flipped(`missions:${column.name}`)
+          const isOpenAt = (name: Column, size: number) =>
+            OPEN_BY_DEFAULT.includes(name) && size > 0 ? !flipped(`missions:${name}`) : flipped(`missions:${name}`)
+          const isOpen = isOpenAt(column.name, count)
+          const before = shownColumns[index - 1]
+          // A blank row keeps an open group's last card off the next header.
+          const follows = before !== undefined && isOpenAt(before.name, byColumn(before.name).length)
 
           return (
-            <Box key={`column:${column.name}`} flexDirection="column" minWidth={0}>
+            <Box
+              key={`column:${column.name}`}
+              flexDirection="column"
+              minWidth={0}
+              paddingTop={follows ? SPACE.section : 0}
+            >
               {FoldHeader(ui, {
                 keyName: `fold:${column.name}`,
                 open: isOpen,

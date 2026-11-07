@@ -618,6 +618,64 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 
+  test(`E33k-T4 in list mode a blank row separates an open group from the next header (${surface})`, async ($, on) => {
+    await start($, on, {
+      state: TABLE('| E9 | `notes/E9.md` | conçue |', '| E13 | `notes/E13.md` | conçue |'),
+      notes: {
+        'E9.md': '# E9\n\n## Brouillon de brief\n\n1. Branche.\n',
+        'E13.md': '# E13\n\n## Mesures\n\nthree things.\n',
+      },
+    })
+    const ui = await $.ui.mount(pane(surface, 80))
+    const top = async (name: string) => (await ui.find({ key: `column:${name}` }))?.props?.paddingTop
+
+    // Design and Brief are open with a card each; Building follows Brief.
+    expect(await top('design')).toBe(0)
+    expect(await top('brief')).toBe(1)
+    expect(await top('building')).toBe(1)
+    // Nothing is open before Review: no gap above a header that follows a folded one.
+    expect(await top('review')).toBe(0)
+    await ui.unmount()
+  })
+
+  test(`E33k-T7 a Merged card without a notes H1 shows no state sentence, other columns keep it (${surface})`, async ($, on) => {
+    const scene = {
+      state: TABLE(
+        '| E12 | `feat/gone-branch` | mergé (`ccccccc`) et poussé le jour J |',
+        '| E7 | `feat/seven` | en cours de route |',
+      ),
+      ancestors: ['ccccccc'],
+      trees: [{ branch: 'feat/seven', id: 'm1' }],
+      agents: [{ id: 'm1', type: 'microverse:morty', description: 'implement the thing' }],
+    }
+    const bare = await start($, on, { ...scene, notes: {} })
+    const ui = await $.ui.mount(pane(surface, 120))
+
+    expect(await heading(ui, 'Merged', 1)).toBe(true)
+    expect(await shows(ui, /et poussé/)).toBe(false)
+    expect(await shows(ui, /^en cours de route$/)).toBe(true)
+    expect(await shows(ui, /^E12$/)).toBe(true)
+    expect(await shows(ui, /^feat\/gone-branch$/)).toBe(true)
+    expect(bare.reads.state).toBeGreaterThan(0)
+    await ui.unmount()
+  })
+
+  test(`E33k-T7b with a notes H1 the Merged card and the Building card both show it (${surface})`, async ($, on) => {
+    await start($, on, {
+      state: TABLE('| E12 | `feat/gone-branch` | mergé (`ccccccc`) et poussé le jour J |', '| E7 | `feat/seven` | en cours de route |'),
+      ancestors: ['ccccccc'],
+      notes: { 'E12.md': '# E12 — titre fusionné\n', 'E7.md': '# E7 — titre en cours\n' },
+      trees: [{ branch: 'feat/seven', id: 'm1' }],
+      agents: [{ id: 'm1', type: 'microverse:morty', description: 'implement the thing' }],
+    })
+    const ui = await $.ui.mount(pane(surface, 120))
+
+    expect(await shows(ui, /^titre fusionné$/)).toBe(true)
+    expect(await shows(ui, /^titre en cours$/)).toBe(true)
+    expect(await shows(ui, /et poussé|en cours de route/)).toBe(false)
+    await ui.unmount()
+  })
+
   test(`J4 a column header is one level of truncated sibling Text (${surface})`, async ($, on) => {
     await start($, on, { state: TABLE('| E7 | `feat/seven` | rendu |') })
     const ui = await $.ui.mount(pane(surface, 120))

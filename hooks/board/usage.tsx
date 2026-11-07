@@ -178,11 +178,18 @@ export const productivityOf = (
       view.column === 'merge' ||
       (view.column === 'merged' && view.mergedAt !== null && view.mergedAt >= since),
   )
-  const cost = done.flatMap(view => view.runs).reduce((sum, run) => sum + safe(run.cost), 0)
+  // Only the runs inside the period count, and only the missions that have
+  // one with a cost: a mission whose runs all lie outside it would dilute the
+  // average with a zero.
+  const inPeriod = new Set(runs.map(run => run.agentId))
+  const costed = done
+    .map(view => view.runs.filter(run => inPeriod.has(run.agentId) && safe(run.ended) >= since && safe(run.cost) > 0))
+    .filter(own => own.length > 0)
+  const cost = costed.flat().reduce((sum, run) => sum + safe(run.cost), 0)
 
   return {
     finished: done.length,
-    perMission: done.length > 0 ? cost / done.length : null,
+    perMission: costed.length > 0 ? cost / costed.length : null,
     ...tallyOf(runs),
     time: runs.reduce((sum, run) => sum + Math.max(0, safe(run.ended) - safe(run.started)), 0),
     runs: runs.length,
