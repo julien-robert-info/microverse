@@ -198,9 +198,10 @@ test("T5b a forbidden folder and a subagent transcript are scanned", () => {
 
 test("T5c the slot's own project folder is allowed, another project's is flagged", () => {
   const { projects, dir } = makeProjects();
-  const own = `C:/Users/someone/.claude/projects/${projectSlug(SLOT)}/${SESSION}.jsonl`;
-  const other = `C:/Users/someone/.claude/projects/${projectSlug(SOURCE)}/zzz.jsonl`;
-  writeMain(dir, [call({ command: `node orch-usage ${own}` }), result(`ls ${other}`), call({ command: "ls C:/Users/someone/.claude/projects/" })]);
+  const root = "Z:/fakehome/.claude/projects";
+  const own = `${root}/${projectSlug(SLOT)}/${SESSION}.jsonl`;
+  const other = `${root}/${projectSlug(SOURCE)}/zzz.jsonl`;
+  writeMain(dir, [call({ command: `node orch-usage ${own}` }), result(`ls ${other}`), call({ command: `ls ${root}/` })]);
   assert.deepEqual(scan(projects), [{ needle: "project", file: `${SESSION}.jsonl`, line: 2 }]);
 });
 
@@ -235,7 +236,7 @@ test("T5f text outside tool calls and results is not scanned", () => {
 
 test("T5g findings never carry the text found", () => {
   const { projects, dir } = makeProjects();
-  writeMain(dir, [call({ command: `cat ${SOURCE}/secret.ts ${TIP}` }), result(`C:/Users/u/.claude/projects/${projectSlug(SOURCE)}/a.jsonl`)]);
+  writeMain(dir, [call({ command: `cat ${SOURCE}/secret.ts ${TIP}` }), result(`Z:/fakehome/.claude/projects/${projectSlug(SOURCE)}/a.jsonl`)]);
   const f = scan(projects);
   assert.ok(f.length >= 3);
   const text = JSON.stringify(f).toLowerCase();
