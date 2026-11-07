@@ -151,6 +151,31 @@ test("the quota file option reaches orch-quota", () => {
   assert.match(r.out.split("## Quota")[1].split("## Context")[0], /Advice: stop/);
 });
 
+test("T5 quota off: the text and --json say so without counters; the metered output is unchanged", () => {
+  const { dir, since } = series();
+  const file = quotaFile(0.99, 0.1);
+  const text = script("orch-report", ["--since", since, "--mode", "off", "--file", file], dir, emptyHome());
+  assert.equal(text.code, 0, text.out);
+  const quota = text.out.split("## Quota")[1].split("## Context")[0];
+  assert.match(quota, /Quota: off \(quota_mode=off\)/);
+  assert.doesNotMatch(quota, /Counters|Pace|Advice: stop/);
+  const json = script("orch-report", ["--json", "--since", since, "--mode", "off", "--file", file], dir, emptyHome());
+  assert.equal(json.code, 0, json.out);
+  const j = JSON.parse(json.out);
+  assert.equal(j.quota.mode, "off");
+  assert.equal(j.quota.reason, "quota_mode=off");
+  assert.equal("error" in j.quota, false);
+  assert.equal(j.merged.length, 3);
+  // Metered, with or without --mode auto: the counters and the advice of before.
+  for (const args of [[], ["--mode", "auto"]]) {
+    const r = script("orch-report", ["--since", since, ...args, "--file", file], dir, emptyHome());
+    assert.match(r.out.split("## Quota")[1].split("## Context")[0], /Counters: .*week 99 %[\s\S]*Advice: stop/);
+    const m = JSON.parse(script("orch-report", ["--json", "--since", since, ...args, "--file", file], dir, emptyHome()).out);
+    assert.equal(m.quota.mode, "metered");
+    assert.equal(m.quota.counters.week.used, 99);
+  }
+});
+
 test("--no-write reaches orch-quota and does not swallow the next option", () => {
   const { dir, since } = series();
   const home = emptyHome();

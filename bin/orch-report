@@ -2,7 +2,7 @@
 // Mechanical parts of the series report, in Markdown: what was merged, the
 // agent runs and their cost, the quota, the context size.
 //
-// orch-report --since <commit> [--base main] [--target N] [--reserve N] [--five-hour N] [--file <quota file>]
+// orch-report --since <commit> [--base main] [--target N] [--reserve N] [--five-hour N] [--file <quota file>] [--mode auto|off]
 //             [--no-write] [--session <id>] [--json]
 //
 // Run from the repository root. --since is the commit of the previous report;
@@ -26,7 +26,7 @@ const { siblingJson } = require("../scripts/sibling-json.js");
 const opts = parseArgs(process.argv.slice(2), { flags: ["no-write", "json"] });
 if (opts.json) failAsJson();
 const root = repoRoot();
-if (typeof opts.since !== "string") fail("usage: orch-report --since <commit> [--base main] [--target N] [--reserve N] [--five-hour N] [--file <quota file>]");
+if (typeof opts.since !== "string") fail("usage: orch-report --since <commit> [--base main] [--target N] [--reserve N] [--five-hour N] [--file <quota file>] [--mode auto|off]");
 const verify = git(["rev-parse", "--verify", "--quiet", `${opts.since}^{commit}`], root);
 if (verify.code !== 0) fail(`not a commit: ${opts.since}`);
 const since = verify.out.trim();
@@ -41,7 +41,7 @@ function sibling(name, args) {
 }
 
 const quotaArgs = [];
-for (const o of ["target", "reserve", "five-hour", "file"]) if (typeof opts[o] === "string") quotaArgs.push(`--${o}`, opts[o]);
+for (const o of ["target", "reserve", "five-hour", "file", "mode"]) if (typeof opts[o] === "string") quotaArgs.push(`--${o}`, opts[o]);
 if (opts["no-write"]) quotaArgs.push("--no-write");
 const contextArgs = ["--context"];
 if (typeof opts.session === "string") contextArgs.push("--session", opts.session);

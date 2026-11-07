@@ -201,11 +201,11 @@ test("T9: no state file", () => {
   assert.match(r.out, /^Quota$/m);
 });
 
-test("T10: quota options reach orch-quota; without any source, its two off lines", () => {
+test("T10: quota options reach orch-quota; without any source, its off line", () => {
   const { dir } = makeRepo(PROFILE);
   const none = script("orch-status", [], dir);
   assert.equal(none.code, 0, none.out);
-  assert.equal(sectionOf(none.out, "Quota").split("\n").filter(Boolean).length, 2, none.out);
+  assert.equal(sectionOf(none.out, "Quota").split("\n").filter(Boolean).length, 1, none.out);
   assert.match(none.out, /Quota: off \(no counter source\)/);
   const stop = script("orch-status", ["--file", quotaFile(0.99, 0.1)], dir);
   assert.match(stop.out, /^advice {3}stop/m);
@@ -343,7 +343,10 @@ test("T1 gauge: ten cells for 0, 50 and 100 percent, no data without a reading",
     const r = script("orch-status", ["--file", quotaFile(0.2, five)], dir);
     assert.match(r.out, new RegExp(`^quota {4}5h ${text}   week [█░|]{10,11} 20 % \\(pace \\d+ %\\)$`, "m"), r.out);
   }
-  const none = script("orch-status", [], dir);
+  // A counter file that cannot be read is an error, not quota off.
+  const bad = join(mkdtempSync(join(tmpdir(), "microverse-quota-")), "bad.json");
+  writeFileSync(bad, "{not json");
+  const none = script("orch-status", ["--file", bad], dir);
   assert.match(none.out, /^quota {4}5h no data {3}week no data$/m, none.out);
   assert.match(none.out, /^context {2}no data$/m);
   assert.doesNotMatch(none.out, /░|█/);
@@ -535,6 +538,39 @@ test("E33c T6 --json: bidi and control characters are stripped, long lines are n
   const j = JSON.parse(r.out);
   assert.equal(j.state.sections[0].lines[0], `fdp.txt zero[31mx ${long}`);
   assert.equal(j.free[0].subject, "feat: subject[0m");
+});
+
+test("T1 quota off: the summary says so with the reason, no advice line; --json carries mode off", () => {
+  const { dir } = makeRepo(PROFILE);
+  const file = quotaFile(0.2, 0.1);
+  for (const [args, env] of [[["--mode", "off", "--file", file], {}], [["--file", file], { CLAUDE_PLUGIN_OPTION_QUOTA_MODE: "off" }]]) {
+    const r = script("orch-status", args, dir, env);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /^quota {4}off \(quota_mode=off\)$/m);
+    assert.doesNotMatch(r.out, /^advice /m);
+    assert.doesNotMatch(r.out, /5h|Counters:|Pace|Advice|░|█/);
+    assert.equal(sectionOf(r.out, "Quota").trim(), "Quota: off (quota_mode=off)");
+    const j = jsonOf(script("orch-status", [...args, "--json"], dir, env));
+    assert.equal(j.quota.mode, "off");
+    assert.equal(j.quota.reason, "quota_mode=off");
+    assert.equal("error" in j.quota, false);
+  }
+  // Without a source at all, the reason is the source one.
+  const none = script("orch-status", [], dir);
+  assert.match(none.out, /^quota {4}off \(no counter source\)$/m);
+});
+
+test("T3 metered: --mode auto changes nothing, the gauges and the advice stay", () => {
+  const { dir } = makeRepo(PROFILE);
+  const file = quotaFile(0.2, 0.1);
+  const plain = script("orch-status", ["--file", file], dir);
+  const auto = script("orch-status", ["--mode", "auto", "--file", file], dir);
+  assert.match(plain.out, /^quota {4}5h .* 10 % {3}week .* 20 %/m);
+  assert.match(plain.out, /^advice /m);
+  assert.match(plain.out, /^Quota$/m);
+  const quiet = (s) => s.replace(/\d+ (min|h|s) ago|just now/g, "");
+  assert.equal(quiet(auto.out), quiet(plain.out));
+  assert.equal(jsonOf(script("orch-status", ["--json", "--mode", "auto", "--file", file], dir)).quota.mode, "metered");
 });
 
 test("the scripts are executable in git",{ skip: !existsSync(join(ROOT, ".git")) }, () => {

@@ -468,6 +468,7 @@ for (const surface of SURFACES) {
         weekday_reserve: '',
         five_hour_limit: 85,
         quota_file: '',
+        quota_mode: 'off',
       },
     },
     async ($, on) => {
@@ -477,7 +478,7 @@ for (const surface of SURFACES) {
       await $.turn.complete(done())
       await clock?.settle()
 
-      expect(seen.heavy[0]?.slice(2)).toEqual(['--json', '--target', '95', '--five-hour', '85'])
+      expect(seen.heavy[0]?.slice(2)).toEqual(['--json', '--target', '95', '--five-hour', '85', '--mode', 'off'])
     },
   )
 
@@ -489,6 +490,7 @@ for (const surface of SURFACES) {
         weekday_reserve: '',
         five_hour_limit: '',
         quota_file: '',
+        quota_mode: '',
       },
     },
     async ($, on) => {

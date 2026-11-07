@@ -27,6 +27,7 @@ const FLAGS: [string, string][] = [
   ['weekday_reserve', '--reserve'],
   ['five_hour_limit', '--five-hour'],
   ['quota_file', '--file'],
+  ['quota_mode', '--mode'],
 ]
 
 const reasonOf = (error: unknown) =>

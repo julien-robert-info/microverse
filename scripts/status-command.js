@@ -26,6 +26,7 @@ const OPTIONS = [
   ["--reserve", "CLAUDE_PLUGIN_OPTION_WEEKDAY_RESERVE"],
   ["--five-hour", "CLAUDE_PLUGIN_OPTION_FIVE_HOUR_LIMIT"],
   ["--file", "CLAUDE_PLUGIN_OPTION_QUOTA_FILE"],
+  ["--mode", "CLAUDE_PLUGIN_OPTION_QUOTA_MODE"],
 ];
 
 function clean(text) {
