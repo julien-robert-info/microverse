@@ -31,7 +31,7 @@ function assertIntact(dir, wt, branch) {
 
 test("agent-cleanup refuses a locked user worktree outside .claude/worktrees (merged branch)", () => {
   const { dir } = makeRepo({});
-  const wt = userWorktree(dir, `../user-copy-${process.pid}-a`, "mine");
+  const wt = userWorktree(dir, `../user-copy-${process.pid}-${Date.now()}-a`, "mine");
   const r = script("agent-cleanup", ["mine"], dir);
   assert.notEqual(r.code, 0, r.out + git(dir, "worktree", "list", "--porcelain").out);
   assert.match(r.out, /outside/);
@@ -40,7 +40,7 @@ test("agent-cleanup refuses a locked user worktree outside .claude/worktrees (me
 
 test("agent-cleanup --keep-branch refuses a user worktree outside .claude/worktrees (unmerged branch)", () => {
   const { dir } = makeRepo({});
-  const wt = userWorktree(dir, `../user-copy-${process.pid}-b`, "mine");
+  const wt = userWorktree(dir, `../user-copy-${process.pid}-${Date.now()}-b`, "mine");
   commitFile(wt, "b.txt", "b\n");
   const r = script("agent-cleanup", ["--keep-branch", "mine"], dir);
   assert.notEqual(r.code, 0);
