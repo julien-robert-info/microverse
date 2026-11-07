@@ -16,8 +16,8 @@
 // setting. off, a `orch-reading --none` marker newer than every reading, or no
 // source at all (no extension file at the default location, no status line
 // reading, no history), print "Quota: off (<reason>)" and exit 0: no counters, no pacing.
-// JSON then carries mode "off", reason, advice and an `error` key (older readers
-// of this output take it as "no counters"); otherwise it carries mode "metered".
+// JSON then carries mode "off", reason and advice, with no counters and no
+// `error` key; otherwise it carries mode "metered".
 //
 // --json prints one JSON object on one line instead of the text, with the same
 // figures (dates in milliseconds, percentages as integers): counters, limits,
@@ -139,8 +139,6 @@ if (decided.mode === "off" && !(decided.reason === "no-source" && unreadable)) {
     emit({
       mode: "off",
       reason: text,
-      // Kept for consumers that read counters unless this key is set.
-      error: `Quota off (${text}): no pacing.`,
       advice: { level: "off", text: "no quota: no pacing", more: 0 },
       ...(startNotes.length && { warnings: startNotes.map((t) => lib.sanitize(t)) }),
     });

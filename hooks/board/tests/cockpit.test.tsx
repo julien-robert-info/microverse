@@ -36,6 +36,7 @@ type Shape = {
   tokens?: number
   counters?: boolean
   report?: boolean
+  off?: string
 }
 
 // An `orch-status --json` answer with the parts the tests vary.
@@ -47,6 +48,7 @@ const status = (shape: Shape = {}) => {
     tokens = 85_000,
     counters = false,
     report = false,
+    off,
   } = shape
   const agents = {
     since: START,
@@ -67,7 +69,8 @@ const status = (shape: Shape = {}) => {
     ],
     total: { cost: 3, advisor: { calls: 0, cost: 0 } },
   }
-  const quota = {
+  const metered = {
+    mode: 'metered',
     counters: counters
       ? {
           five: { used: 61, resetsAt: START + 2 * HOUR, observedAt: START, source: 'statusline' },
@@ -83,6 +86,10 @@ const status = (shape: Shape = {}) => {
     warnings: [],
     history: [],
   }
+  const quota =
+    off === undefined
+      ? metered
+      : { v: 1, mode: 'off', reason: off, advice: { level: 'off', text: 'no quota: no pacing', more: 0 } }
   const context = {
     session: 's1',
     model: 'm',
@@ -276,6 +283,22 @@ for (const surface of SURFACES) {
     expect(await ui.find({ type: 'Text', text: /61 % 5 h window/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /33 % week/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /No rate-limit reading/ })).toBeUndefined()
+    await ui.unmount()
+  })
+}
+
+for (const surface of SURFACES) {
+  test(`T4 quota off: a grey line replaces the pace, no bars and no failure text (${surface})`, async ($, on) => {
+    const ui = await mounted($, on, surface, { off: 'quota_mode=off', counters: true })
+    const line = await ui.find({ type: 'Text', text: 'Quota off: quota_mode=off' })
+
+    expect(line).toBeDefined()
+    expect(line?.props?.dimColor).toBe(true)
+    expect(await ui.find({ type: 'Text', text: 'Launch pace' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Pace unavailable/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /No rate-limit reading/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /5 h window|% week/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /running on the account/ })).toBeUndefined()
     await ui.unmount()
   })
 }

@@ -4,7 +4,7 @@ import type {
   BoardContext,
   ErrorJson,
   OrchStatus,
-  QuotaJson,
+  QuotaMetered,
   TokenCounts,
 } from '../../types/board'
 import { FAMILY_HUE, family } from './cockpit'
@@ -380,8 +380,11 @@ const seriesOf = (status: OrchStatus | undefined): AgentsJson | undefined => {
   return series === undefined || series === null || isFailed(series) ? undefined : series
 }
 
-const quotaOf = (status: OrchStatus | undefined): QuotaJson | undefined =>
-  status === undefined || isFailed(status.quota) ? undefined : status.quota
+// Without quota windows there are no counters: the tiles show a dash.
+const quotaOf = (status: OrchStatus | undefined): QuotaMetered | undefined =>
+  status === undefined || isFailed(status.quota) || status.quota.mode === 'off'
+    ? undefined
+    : status.quota
 
 export const renderUsage = (context: BoardContext) => {
   const { ui, board, columns, actions } = context

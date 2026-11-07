@@ -40,6 +40,7 @@ const baseEnv = (extra = {}) => ({
   CLAUDE_PLUGIN_OPTION_WEEKDAY_RESERVE: "",
   CLAUDE_PLUGIN_OPTION_FIVE_HOUR_LIMIT: "",
   CLAUDE_PLUGIN_OPTION_QUOTA_FILE: "",
+  CLAUDE_PLUGIN_OPTION_QUOTA_MODE: "",
   ...extra,
 });
 
@@ -87,6 +88,21 @@ test("T17: CLAUDE_PLUGIN_DATA does not reach orch-status", () => {
   const r = JSON.parse(hook(payload(dir, { command_args: "--verbose" }), { CLAUDE_PLUGIN_DATA: data, CLAUDE_PLUGIN_OPTION_QUOTA_FILE: file }).stdout);
   assert.match(r.reason, /Agent cost: 15 points of 5h \(default\)/);
   assert.equal(readFileSync(join(data, "calibration.json"), "utf8").includes('"ratio5":10'), true, "calibration untouched");
+});
+
+test("T2 quota_mode=off reaches orch-status: the summary says quota off; metered output is unchanged", () => {
+  const { dir } = makeRepo({});
+  const file = quotaFile(0.4, 0.1);
+  const reason = (env) => JSON.parse(hook(payload(dir), { CLAUDE_PLUGIN_OPTION_QUOTA_FILE: file, ...env }).stdout).reason;
+  const off = reason({ CLAUDE_PLUGIN_OPTION_QUOTA_MODE: "off" });
+  assert.match(off, /^quota {4}off \(quota_mode=off\)$/m);
+  assert.doesNotMatch(off, /^advice /m);
+  // auto, an empty value and an unexpanded placeholder leave the counters.
+  for (const mode of ["auto", "", "${user_config.quota_mode}"]) {
+    const r = reason({ CLAUDE_PLUGIN_OPTION_QUOTA_MODE: mode });
+    assert.match(r, /^quota {4}5h .* 10 % {3}week .* 40 %/m, mode);
+    assert.match(r, /^advice /m, mode);
+  }
 });
 
 test("--verbose and --agents reach orch-status, alone or with a commit; other options are refused", () => {
