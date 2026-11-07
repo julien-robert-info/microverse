@@ -194,6 +194,23 @@ test("T2 a hostile git config of the copy runs nothing, in keepDiff or in grade"
   assert.ok(!existsSync(witness), "grade ran the witness");
 });
 
+test("T2 a tag named main in the copy changes neither the kept diff nor the graded tree", () => {
+  const w = world();
+  const { suite } = w;
+  prepare(suite, "t1");
+  writeFileSync(join(suite.slot, "src.js"), "module.exports = () => 2;\n");
+  git(suite.slot, "add", "-A");
+  commit(suite.slot, "fix: answer");
+  const first = keepDiff({ suite, campaignDir: w.camp, session: "s-1" });
+  const marker = JSON.parse(readFileSync(join(suite.slot, ".bench-slot"), "utf8"));
+  // A tag wins over a branch of the same name in a bare `main`.
+  git(suite.slot, "tag", "main", marker.base);
+  const again = keepDiff({ suite, campaignDir: w.camp, session: "s-2" });
+  assert.equal(again.diffError, null);
+  assert.equal(again.diff.sha256, first.diff.sha256);
+  assert.equal(grade(suite, "t1").filesChanged, 1);
+});
+
 // Trigger text for each pattern id, as a line of a diff and as a word of a brief.
 const TRIGGERS = {
   morty: "the morty agent",
@@ -226,7 +243,9 @@ test("T3 anonymise: one case per pattern, sections and lockfiles dropped, O0 to 
     assert.equal(r.status, "ok", id);
     assert.ok(r.input.includes("keep line") && r.input.includes("+O2 stays"), id);
     assert.ok(!r.input.includes(trigger), `${id}: the trigger is gone`);
-    assert.ok(r.input.includes("[redacted]"), `${id}: the brief is redacted`);
+    const [briefPart, diffPart] = r.input.split("## Submission\n");
+    assert.ok(briefPart.includes("[redacted]"), `${id}: the brief is redacted`);
+    assert.ok(!diffPart.includes("[redacted]"), `${id}: the diff drops the line, it does not mask it`);
     assert.ok(r.redactions.words[id] >= 1, `${id}: counted as a dropped line`);
     assert.ok(r.redactions.brief[id] >= 1, `${id}: counted in the brief`);
   }
@@ -262,6 +281,67 @@ test("T3 anonymise: one case per pattern, sections and lockfiles dropped, O0 to 
   );
   // Only counters, never the matched text.
   assert.doesNotMatch(JSON.stringify(r.redactions), /bob|morty\.js/);
+});
+
+// Every hunk header of a diff agrees with its body: the counts, and the new
+// start following the old one plus what the earlier hunks of the section added.
+function assertHunksConsistent(text, label = "") {
+  for (const section of text.split(/^(?=diff --git )/m)) {
+    const lines = section.split("\n");
+    let shift = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(lines[i]);
+      if (!m) continue;
+      let end = i + 1;
+      while (end < lines.length && !lines[end].startsWith("@@") && !lines[end].startsWith("diff --git ")) end++;
+      const body = lines.slice(i + 1, end).filter((l) => l !== "" && l[0] !== "\\");
+      const [a, b, c, d] = [Number(m[1]), m[2] === undefined ? 1 : Number(m[2]), Number(m[3]), m[4] === undefined ? 1 : Number(m[4])];
+      const where = `${label} ${lines[i]}`;
+      assert.equal(b, body.filter((l) => l[0] === " " || l[0] === "-").length, `${where}: old count`);
+      assert.equal(d, body.filter((l) => l[0] === " " || l[0] === "+").length, `${where}: new count`);
+      assert.ok(body.some((l) => l[0] === "+" || l[0] === "-"), `${where}: a hunk with no change`);
+      assert.equal(d === 0 ? c + 1 : c, (b === 0 ? a + 1 : a) + shift, `${where}: new start`);
+      shift += d - b;
+    }
+  }
+}
+
+test("T3 anonymise rewrites the hunk headers as if the dropped lines had never existed", () => {
+  const slot = "D:\\bench\\work\\slot";
+  const section = (path, hunks) => `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\n--- a/${path}\n+++ b/${path}\n${hunks}`;
+  const clean = (diff) => {
+    const r = anonymise({ diff, brief: "b", slot });
+    assert.equal(r.status, "ok");
+    assertHunksConsistent(r.input.split("## Submission\n")[1]);
+    return r.input.split("## Submission\n")[1];
+  };
+
+  // .gitignore: the working-folder line goes, the other addition stays with exact counts.
+  const gitignore = section(".gitignore", "@@ -1,2 +1,4 @@\n node_modules\n coverage\n+.claude/worktrees/\n+dist/\n");
+  const kept = clean(gitignore);
+  assert.ok(kept.includes("@@ -1,2 +1,3 @@\n node_modules\n coverage\n+dist/\n"), kept);
+  assert.ok(!kept.includes("worktrees"));
+  // Alone, the hunk has no change left: the hunk and its section go.
+  const alone = clean(section(".gitignore", "@@ -1,2 +1,3 @@\n node_modules\n coverage\n+.claude/worktrees/\n") + sectionOf("ok.js", ["kept"]));
+  assert.ok(!alone.includes(".gitignore") && !alone.includes("@@ -1,2 +1,2 @@") && alone.includes("+kept"), alone);
+
+  // A function context holding a pattern loses its text and keeps its ranges.
+  const ctx = clean(section("a.js", "@@ -5,3 +5,4 @@ function mortyHelper() {\n a\n+b\n c\n d\n"));
+  assert.ok(/^@@ -5,3 \+5,4 @@$/m.test(ctx) && !ctx.includes("morty"), ctx);
+
+  // A line dropped in the first hunk moves the start of the next ones.
+  const multi = clean(section("m.js", "@@ -1,3 +1,3 @@\n l1\n-morty old\n+new2\n l3\n@@ -10,2 +10,3 @@\n x\n+y\n z\n@@ -20,3 +21,2 @@\n p\n-q\n r\n"));
+  assert.ok(multi.includes("@@ -1,2 +1,3 @@\n l1\n+new2\n l3\n"), multi);
+  assert.ok(multi.includes("@@ -9,2 +10,3 @@\n x\n+y\n z\n"), multi);
+  assert.ok(multi.includes("@@ -19,3 +21,2 @@\n p\n-q\n r\n"), multi);
+
+  // A no-newline marker follows the line before it.
+  const nonl = clean(section("n.js", "@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+morty\n\\ No newline at end of file\n"));
+  assert.ok(nonl.includes("@@ -1,2 +1 @@\n a\n-b\n\\ No newline at end of file\n"), nonl);
+  assert.ok(!nonl.includes("morty"), nonl);
+
+  // A section without hunk (mode change) stays.
+  assert.ok(clean("diff --git a/x.sh b/x.sh\nold mode 100644\nnew mode 100755\n").includes("new mode 100755"));
 });
 
 test("T4 anonymise fails closed and refuses an input over 150000 characters; the judge is not called", () => {

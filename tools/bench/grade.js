@@ -147,9 +147,9 @@ function grade(suite, taskId) {
   const marker = readMarker(slot);
   if (marker.task !== task.id) throw new Error(`the slot was prepared for ${marker.task}, not ${task.id}`);
   const base = marker.base;
-  const descends = gitIn(slot, ["merge-base", "--is-ancestor", base, "main"], suite.cmdEnv);
+  const descends = gitIn(slot, ["merge-base", "--is-ancestor", base, "refs/heads/main"], suite.cmdEnv);
   if (descends.code !== 0) throw new Error(`the copy's main does not descend from its base commit ${base.slice(0, 10)} (history rewritten?)`);
-  const mine = numstat(git(["diff", "--numstat", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", base, "main"]));
+  const mine = numstat(git(["diff", "--numstat", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", base, "refs/heads/main"]));
   const ref = gitIn(suite.source, ["diff", "--numstat", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", task.fork, task.tip], suite.cmdEnv);
   if (ref.code !== 0) throw new Error(`reference diff failed: ${ref.err.trim()}`);
   const refDiff = numstat(ref.out);
@@ -158,7 +158,7 @@ function grade(suite, taskId) {
     .filter((l) => l && !NOT_WORK.test(l.slice(3))).length;
 
   return withTempDir("bench-grade-", (dir) => {
-    extractArchive(suite, "main", dir, slot);
+    extractArchive(suite, "refs/heads/main", dir, slot);
     install(suite, dir);
     overlayOracle(suite, task, dir);
     const oracle = runOracle(suite, task, dir);

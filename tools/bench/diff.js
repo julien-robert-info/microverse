@@ -31,7 +31,7 @@ function keepDiff({ suite, campaignDir, session }) {
   }
   const args = [
     "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--no-relative",
-    "--src-prefix=a/", "--dst-prefix=b/", marker.base, "main", "--",
+    "--src-prefix=a/", "--dst-prefix=b/", marker.base, "refs/heads/main", "--",
   ];
   const r = gitIn(suite.slot, args, suite.cmdEnv, { encoding: "buffer", maxBuffer: MAX_DIFF_BYTES + 64 * 1024 * 1024 });
   if (r.code !== 0) return { diff: null, diffError: "git-error" };
@@ -148,20 +148,98 @@ function cleanDiff(diff, patterns, dropped, words) {
       count(dropped, "headerPattern");
       continue;
     }
-    section = lines
-      .filter((l) => {
-        if (INDEX_LINE.test(l)) {
-          count(dropped, "indexLine");
-          return false;
-        }
-        const ids = Object.entries(patterns).filter(([, re]) => re.test(l)).map(([id]) => id);
-        for (const id of ids) count(words, id);
-        return ids.length === 0;
-      })
-      .join("\n");
-    kept.push(section);
+    const out = cleanSection(lines, patterns, dropped, words);
+    if (out !== null) kept.push(out);
   }
   return kept.join("");
+}
+
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
+const rangeText = (start, n) => (n === 1 ? `${start}` : `${start},${n}`);
+
+// Counts the patterns a line holds; the line goes when it holds one.
+function holdsPattern(line, patterns, words) {
+  const ids = Object.entries(patterns).filter(([, re]) => re.test(line)).map(([id]) => id);
+  for (const id of ids) count(words, id);
+  return ids.length > 0;
+}
+
+// Lines of one section without the ones that hold a pattern, and with the
+// hunk headers written again as if those lines had never existed: a trace of
+// what was removed (a count that does not match the body, a hunk with no
+// change, a start shifted) would be seen by the judge for one organisation
+// only. Returns null when every hunk of the section disappears.
+function cleanSection(allLines, patterns, dropped, words) {
+  const trailing = allLines.at(-1) === "" ? [""] : [];
+  const lines = trailing.length ? allLines.slice(0, -1) : allLines;
+  const firstHunk = lines.findIndex((l) => l.startsWith("@@"));
+  const plain = (l) => {
+    if (INDEX_LINE.test(l)) {
+      count(dropped, "indexLine");
+      return false;
+    }
+    return !holdsPattern(l, patterns, words);
+  };
+  if (firstHunk < 0) return [...lines.filter(plain), ...trailing].join("\n");
+
+  const out = lines.slice(0, firstHunk).filter((l) => {
+    if (!INDEX_LINE.test(l)) return true;
+    count(dropped, "indexLine");
+    return false;
+  });
+  let removedOld = 0; // old-side lines removed from earlier hunks
+  let shift = 0; // sum of (new count - old count) over the hunks kept so far
+  let hunks = 0;
+  let kept = 0;
+  for (let i = firstHunk; i < lines.length; ) {
+    let end = i + 1;
+    while (end < lines.length && !lines[end].startsWith("@@")) end++;
+    const head = lines[i];
+    const body = lines.slice(i + 1, end);
+    i = end;
+    hunks++;
+    const m = HUNK_HEADER.exec(head);
+    if (!m) {
+      // Not a plain unified hunk: keep what holds no pattern.
+      kept++;
+      out.push(...[head, ...body].filter(plain));
+      continue;
+    }
+    const oldStart = Number(m[1]);
+    const oldCount = m[2] === undefined ? 1 : Number(m[2]);
+    // Header context text that holds a pattern: the ranges stay, the text goes.
+    const context = holdsPattern(m[5], patterns, words) ? "" : m[5];
+    const keep = [];
+    let removedHere = 0;
+    let prevKept = true;
+    for (const l of body) {
+      if (l.startsWith("\\")) {
+        if (prevKept) keep.push(l);
+        continue;
+      }
+      prevKept = !holdsPattern(l, patterns, words);
+      if (prevKept) keep.push(l);
+      else if (l[0] !== "+") removedHere++;
+    }
+    const changed = keep.some((l) => l[0] === "+" || l[0] === "-");
+    if (changed) {
+      const b = keep.filter((l) => l[0] === " " || l[0] === "-").length;
+      const d = keep.filter((l) => l[0] === " " || l[0] === "+").length;
+      // The first old line of the hunk, where git counts an empty range from the line before.
+      const first = (oldCount === 0 ? oldStart + 1 : oldStart) - removedOld;
+      const a = b === 0 ? first - 1 : first;
+      const c = d === 0 ? first + shift - 1 : first + shift;
+      out.push(`@@ -${rangeText(a, b)} +${rangeText(c, d)} @@${context}`, ...keep);
+      shift += d - b;
+      kept++;
+    }
+    removedOld += removedHere;
+  }
+  if (kept === 0 && hunks > 0) {
+    count(dropped, "emptyHunks");
+    return null;
+  }
+  return [...out, ...trailing].join("\n");
 }
 
 function cleanBrief(brief, patterns, replaced) {
