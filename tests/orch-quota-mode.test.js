@@ -52,7 +52,6 @@ test("T1: quota_mode=off is off whatever the readings, in text and JSON", () => 
     v: 1,
     mode: "off",
     reason: "quota_mode=off",
-    error: "Quota off (quota_mode=off): no pacing.",
     advice: { level: "off", text: "no quota: no pacing", more: 0 },
   });
   // The option also arrives through the environment when --mode is empty or unexpanded.
@@ -68,7 +67,7 @@ test("T2: a marker newer than every reading is off, with the source it names", (
     const { out } = asJson(fx);
     assert.equal(out.mode, "off");
     assert.equal(out.reason, `no quota windows, ${text}`);
-    assert.ok("error" in out);
+    assert.ok(!("error" in out) && !("counters" in out));
   }
 });
 

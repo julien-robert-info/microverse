@@ -146,7 +146,8 @@ of `CLAUDE.local.md`, or the commit given as argument
 (`/microverse:status a0f5690`). Nothing is written. The output is plain
 Unicode for a code block: a header, a summary of three lines (the 5h and week
 counters as ten-cell gauges, the week with a `|` at the expected pace, then the
-advice and the context size), then the state file lines cut at 100 characters
+advice and the context size; with `quota_mode` off the quota line reads `off (<reason>)` and
+there is no advice line), then the state file lines cut at 100 characters
 (`?` marks a question), the worktrees (`●` to merge, `✔` merged, `!` merged but
 with uncommitted changes), the merges of the first-parent line only, the agents
 total and the quota and context detail. `--agents` lists each agent run and
@@ -183,7 +184,9 @@ model (unattributed runs last), cache share, finished missions and the last 90
 minutes of agent runs as lanes, from the same reading. The top is drawn as cards: a header with status pills, a
 segmented tab switch, then three bordered cards (launch pace with a bar per
 window and a marker at the limit or the expected pace, context with what is left
-before auto-compaction, series cost as a stacked bar by model family). Card
+before auto-compaction, series cost as a stacked bar by model family; with
+`quota_mode` off the pace card shows a grey `Quota off: <reason>` line instead of
+the bars). Card
 backgrounds follow the host theme and are left out when it is `auto`; on the
 VS Code extension, which ignores some text and button props, the active tab is
 also marked `▸` and figures stay bold.

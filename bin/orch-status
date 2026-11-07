@@ -6,7 +6,7 @@
 // and the context size. Reads only; it is the command behind /microverse:status.
 //
 // orch-status [<commit>] [--agents] [--verbose] [--base B] [--session id]
-//             [--target N] [--reserve N] [--five-hour N] [--file F]
+//             [--target N] [--reserve N] [--five-hour N] [--file F] [--mode auto|off]
 //
 // --agents lists each agent run (by default only their count and cost);
 // --verbose adds the Pace, Running, Agent cost and Advice lines of orch-quota
@@ -55,7 +55,7 @@ const cwd = process.cwd();
 
 // Options shared by orch-report and orch-quota, when set to a real value.
 const common = [];
-for (const o of ["target", "reserve", "five-hour", "file"]) {
+for (const o of ["target", "reserve", "five-hour", "file", "mode"]) {
   if (typeof opts[o] === "string" && opts[o] !== "" && !opts[o].includes("${")) common.push(`--${o}`, opts[o]);
 }
 const session = typeof opts.session === "string" && opts.session ? ["--session", opts.session] : [];
@@ -109,6 +109,7 @@ const K = (n) => `${Math.round(n / 1e3)}K`;
 // What the summary block takes from the object of orch-quota; without counters
 // (an error) there are no figures.
 function quotaView(q) {
+  if (q.mode === "off") return { ok: true, off: q.reason, five: null, week: null, pace: null, advice: undefined };
   if (q.error !== undefined) return { ok: false, five: null, week: null, pace: null, advice: undefined };
   return {
     ok: true,
@@ -124,6 +125,9 @@ function quotaView(q) {
 // the "Warning:" ones (stale readings) come after the counters, the others
 // (calibration, refresh) before them. The age of a reading is counted from now.
 function quotaLines(q, dir) {
+  // The warnings of orch-quota (stale readings, a refresh) still apply; its
+  // advice line is not repeated, the plan has no pace to advise on.
+  if (q.mode === "off") return [...(q.warnings ?? []), `Quota: off (${q.reason})`];
   if (q.error !== undefined) return lines(siblingText("orch-quota", ["--no-write", ...common], dir) || q.error);
   const now = Date.now();
   const hours = (ms) => `${Math.max(0, ms / HOUR).toFixed(ms < 10 * HOUR ? 1 : 0)} h`;
@@ -156,10 +160,13 @@ function contextLines(c) {
 // expected pace), the advice, the context size.
 function summary(q, ctx) {
   const res = [];
-  const w = q.week === null ? "week no data" : `week ${gauge(q.week, q.pace)} ${q.week} %${q.pace === null ? "" : ` (pace ${q.pace} %)`}`;
-  const f = q.five === null ? "5h no data" : `5h ${gauge(q.five)} ${q.five} %`;
-  res.push(`quota    ${f}   ${w}`);
-  if (q.advice) res.push(`advice   ${cut(q.advice, 90)}`);
+  if (q.off !== undefined) res.push(`quota    off (${q.off})`);
+  else {
+    const w = q.week === null ? "week no data" : `week ${gauge(q.week, q.pace)} ${q.week} %${q.pace === null ? "" : ` (pace ${q.pace} %)`}`;
+    const f = q.five === null ? "5h no data" : `5h ${gauge(q.five)} ${q.five} %`;
+    res.push(`quota    ${f}   ${w}`);
+    if (q.advice) res.push(`advice   ${cut(q.advice, 90)}`);
+  }
   if (ctx != null) {
     const c = contextView(ctx);
     res.push(`context  ${c ? `${gauge((c.used / c.limit) * 100)} ${c.used}K of ${c.limit}K` : "no data"}`);

@@ -83,13 +83,13 @@ test("a counter read from the status line says so", () => {
   assert.equal(out.counters.five.source, "statusline");
 });
 
-test("without any source: off on one line, exit code 0, with the error key kept", () => {
+test("without any source: off on one line, exit code 0, with no error key", () => {
   const { code, out, raw } = json([], process.cwd(), { APPDATA: mkdtempSync(join(tmpdir(), "microverse-appdata-")) });
   assert.equal(code, 0);
-  assert.deepEqual(Object.keys(out), ["v", "mode", "reason", "error", "advice"]);
+  assert.deepEqual(Object.keys(out), ["v", "mode", "reason", "advice"]);
   assert.equal(out.v, 1);
   assert.equal(out.mode, "off");
-  assert.match(out.error, /^Quota off \(no counter source\)/);
+  assert.equal(out.reason, "no counter source");
   assert.equal(raw.trim().split("\n").length, 1);
 });
 

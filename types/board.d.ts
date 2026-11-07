@@ -119,7 +119,9 @@ export type QuotaCounter = {
   source: string
 } | null
 
-export type QuotaJson = {
+// `orch-quota --json` with counters.
+export type QuotaMetered = {
+  mode: 'metered'
   counters: { five: QuotaCounter; week: QuotaCounter }
   limits: { target: number; reserve: number; fiveHour: number }
   period: { name: string; start: number; end: number; target: number } | null
@@ -130,6 +132,17 @@ export type QuotaJson = {
   warnings: string[]
   history: { at: number; used: number }[]
 }
+
+// `orch-quota --json` when the plan has no quota windows: no counters, no pace.
+export type QuotaOff = {
+  v?: 1
+  mode: 'off'
+  reason: string
+  advice: { level: string; text: string; more: number }
+  warnings?: string[]
+}
+
+export type QuotaJson = QuotaMetered | QuotaOff
 
 export type ContextJson = {
   session: string

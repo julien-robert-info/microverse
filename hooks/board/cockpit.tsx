@@ -4,7 +4,7 @@ import type {
   ErrorJson,
   LightRateLimit,
   QuotaCounter,
-  QuotaJson,
+  QuotaMetered,
 } from '../../types/board'
 import { renderAgentDetail, renderAgents } from './agents'
 import {
@@ -85,7 +85,7 @@ export const costShares = (agents: AgentsJson) => {
     : []
 }
 
-const adviceOf = (quota: QuotaJson) =>
+const adviceOf = (quota: QuotaMetered) =>
   quota.advice.level === 'launch' && quota.advice.more > 0
     ? `Room for ${quota.advice.more} more ${quota.advice.more === 1 ? 'agent' : 'agents'}`
     : quota.advice.text
@@ -227,7 +227,8 @@ export const renderCockpit = (context: CockpitContext) => {
     </Box>
   )
 
-  const hasQuota = quota !== undefined && !isFailed(quota)
+  const isOff = quota !== undefined && !isFailed(quota) && quota.mode === 'off'
+  const hasQuota = quota !== undefined && !isFailed(quota) && quota.mode !== 'off'
   const five = readingOf(live, 'five_hour', hasQuota ? quota.counters.five : undefined)
   const week = readingOf(live, 'seven_day', hasQuota ? quota.counters.week : undefined)
 
@@ -240,17 +241,18 @@ export const renderCockpit = (context: CockpitContext) => {
           {hasQuota &&
             Pill(ui, { label: adviceOf(quota), hue: adviceHue(quota.advice.level) })}
         </Box>
-        {five === undefined && week === undefined && (
+        {isOff && <Text dimColor>{`Quota off: ${quota.reason}`}</Text>}
+        {!isOff && five === undefined && week === undefined && (
           <Text dimColor>No rate-limit reading yet.</Text>
         )}
-        {five !== undefined &&
+        {!isOff && five !== undefined &&
           windowRow(
             'five',
             five,
             hasQuota ? { at: quota.limits.fiveHour, hue: TONE.error } : undefined,
             hasQuota ? ` · limit ${quota.limits.fiveHour} %` : '',
           )}
-        {week !== undefined &&
+        {!isOff && week !== undefined &&
           windowRow(
             'week',
             week,
