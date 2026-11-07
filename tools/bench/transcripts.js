@@ -14,7 +14,15 @@ const ADVISOR_ROLE = "advisor";
 
 // The transcripts of one session: main file plus the subagents' files, sorted.
 function sessionFiles(projects, slot, session) {
-  const dir = join(projects, lib.projectSlug(slot));
+  // Claude Code keeps the path's case in the folder name; the slug is lowercase.
+  const slug = lib.projectSlug(slot);
+  let folder;
+  try {
+    folder = readdirSync(projects).find((n) => n.toLowerCase() === slug);
+  } catch {
+    // no projects folder
+  }
+  const dir = join(projects, folder ?? slug);
   const main = join(dir, `${session}.jsonl`);
   if (!existsSync(main)) throw new Error(`transcript of session ${session} not found in the slot's project folder`);
   const subDir = join(dir, session, "subagents");
@@ -56,11 +64,15 @@ const sum = (v) => v.reduce((a, x) => a + x, 0);
 // are usd x ratio, with the ratios passed in and copied to the output: without
 // them there are no points.
 function passCost({ projects, slot, session, ratios = null, stream = null }) {
-  if (ratios != null) {
-    for (const k of ["ratio7", "ratio5"]) {
-      if (!Number.isFinite(ratios[k]) || ratios[k] <= 0) throw new Error(`ratios.${k} must be a positive number`);
-    }
-  }
+  // A ratio may be null (calibration without enough data): its points are null.
+  // One that is present must be a positive number.
+  const ratio = (k) => {
+    const r = ratios?.[k] ?? null;
+    if (r !== null && (!Number.isFinite(r) || r <= 0)) throw new Error(`ratios.${k} must be a positive number or null`);
+    return r;
+  };
+  const ratio7 = ratio("ratio7");
+  const ratio5 = ratio("ratio5");
   const { main, agents } = sessionFiles(projects, slot, session);
   const requests = new Map();
   lib.readRequests(main, "conversation", null, requests);
@@ -105,9 +117,9 @@ function passCost({ projects, slot, session, ratios = null, stream = null }) {
     usd,
     usdReported: Number.isFinite(reported) ? reported : null,
     unpriced: [...unpriced].sort(),
-    weekPts: ratios ? usd * ratios.ratio7 : null,
-    fiveHourPts: ratios ? usd * ratios.ratio5 : null,
-    ratios: ratios ? { ratio7: ratios.ratio7, ratio5: ratios.ratio5 } : null,
+    weekPts: ratio7 === null ? null : usd * ratio7,
+    fiveHourPts: ratio5 === null ? null : usd * ratio5,
+    ratios: ratios ? { ratio7, ratio5 } : null,
   };
 }
 
@@ -186,13 +198,19 @@ function scanLeaks({ projects, slot, session, source, forbiddenPaths = [], hashe
         if (!strings.length) return;
         const hit = new Set();
         for (const s of strings) {
-          const u = unify(s);
-          const raw = s.toLowerCase();
-          for (const p of patterns) {
-            // Hashes are matched on the raw text, paths on the unified one.
-            if (p.re.some((re) => re.test(p.needle.startsWith("tip") || p.needle.startsWith("merge") ? raw : u))) hit.add(p.needle);
+          // A result can itself be JSON text: a path after "\n" would read
+          // "/n<path>". The text is also scanned with those escapes as spaces.
+          for (const variant of [s, s.replace(/\\(?:[nrtbf]|u[0-9a-fA-F]{4})/g, " ")]) {
+            const u = unify(variant);
+            const raw = variant.toLowerCase();
+            for (const p of patterns) {
+              // Hashes are matched on the raw text, paths on the unified one.
+              if (p.re.some((re) => re.test(p.needle.startsWith("tip") || p.needle.startsWith("merge") ? raw : u))) hit.add(p.needle);
+            }
+            for (const m of u.matchAll(/\.claude\/projects\/([a-z0-9-]+)/g)) if (m[1] !== ownSlug) hit.add("project");
+            // A wildcard reads the transcripts of every project; a bare listing does not.
+            if (/\.claude\/projects\/[*?[{]/.test(u)) hit.add("project");
           }
-          for (const m of u.matchAll(/\.claude\/projects\/([a-z0-9-]+)/g)) if (m[1] !== ownSlug) hit.add("project");
         }
         for (const needle of hit) findings.push({ needle, file: rel, line: i + 1 });
       });
@@ -206,14 +224,29 @@ function scanLeaks({ projects, slot, session, source, forbiddenPaths = [], hashe
 // can answer: it starts with "Quota:" and ends with its confirmation line.
 const QUOTA_REFUSAL = /Quota: [^]*?Confirm to launch anyway/;
 
+const LAUNCH_TOOLS = new Set(["Agent", "Task"]);
+
+// The guard only refuses an agent launch. A result that merely quotes its text
+// (a Read or grep of the guard's source) is not a refusal: it must answer an
+// Agent/Task call with is_error, or the last result must list a denied
+// Agent/Task call.
 function quotaRefused(events) {
+  const launches = new Set();
+  for (const e of events) {
+    const content = e?.message?.content;
+    if (e?.type === "assistant" && Array.isArray(content)) {
+      for (const b of content) if (b?.type === "tool_use" && LAUNCH_TOOLS.has(b.name)) launches.add(b.id);
+    }
+  }
+  const denied = (lastResult(events)?.permission_denials ?? []).some((d) => LAUNCH_TOOLS.has(d?.tool_name));
   for (const e of events) {
     const content = e?.message?.content;
     if (e?.type !== "user" || !Array.isArray(content)) continue;
     for (const b of content) {
       if (b?.type !== "tool_result") continue;
       const text = typeof b.content === "string" ? b.content : JSON.stringify(b.content ?? "");
-      if (QUOTA_REFUSAL.test(text)) return true;
+      if (!QUOTA_REFUSAL.test(text)) continue;
+      if ((b.is_error === true && launches.has(b.tool_use_id)) || denied) return true;
     }
   }
   return false;
