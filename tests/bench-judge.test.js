@@ -591,7 +591,13 @@ test("T10 spend sums passes and judgments, unknown is not zero, and the guard ch
   appendFileSync(join(w.camp, "judge.jsonl"), `${JSON.stringify({ kind: "judgment", startedAt: iso(120000), seconds: 60, cost: { weekPts: 0.5, fiveHourPts: 5 } })}\n`);
   appendFileSync(join(w.camp, "judge.jsonl"), `${JSON.stringify({ kind: "judgment", startedAt: iso(0), seconds: 0, cost: null })}\n`);
   appendFileSync(join(w.camp, "judge.jsonl"), `${JSON.stringify({ kind: "link", pass: "ffffffff-6666-4666-8666-000000000001", key: "k" })}\n`);
-  assert.deepEqual(spent({ campaignDir: w.camp, now }), { weekPts: 17.5, fiveHourPts: 105, unjudged: 1 });
+  // The window is judged on the end of a call: a pass of 60 minutes begun 5 h 30 ago ended 4 h 30 ago (in);
+  // a judgment of 60 seconds begun 5 h + 30 s ago ended just inside, one begun 5 h 2 min ago ended outside.
+  w.addPass({ session: "ffffffff-6666-4666-8666-000000000004", startedAt: iso(5.5 * 3600000), minutes: 60, cost: { weekPts: 3, fiveHourPts: 30 } });
+  appendFileSync(join(w.camp, "judge.jsonl"), `${JSON.stringify({ kind: "judgment", startedAt: iso(5 * 3600000 + 30000), seconds: 60, cost: { weekPts: 0.2, fiveHourPts: 2 } })}\n`);
+  appendFileSync(join(w.camp, "judge.jsonl"), `${JSON.stringify({ kind: "judgment", startedAt: iso(5 * 3600000 + 120000), seconds: 60, cost: { weekPts: 100, fiveHourPts: 1000 } })}\n`);
+  const sum = spent({ campaignDir: w.camp, now });
+  assert.ok(Math.abs(sum.weekPts - 120.7) < 1e-9 && Math.abs(sum.fiveHourPts - 137) < 1e-9 && sum.unjudged === 2, JSON.stringify(sum));
   // A pass without a figure makes the spend unknown, not smaller.
   w.addPass({ session: "ffffffff-6666-4666-8666-000000000003", cost: null });
   const unknown = spent({ campaignDir: w.camp, now });
