@@ -238,12 +238,12 @@ test("T7 a variable of the parent process is not seen by an install command", ()
   const witness = node(
     "require('fs').writeFileSync('seen.json', JSON.stringify({ secret: process.env.SECRET_X ?? null, fake: process.env.BENCH_FAKE ?? null, quota: process.env.CLAUDE_PLUGIN_OPTION_QUOTA_MODE ?? null }))",
   );
-  const suite = loadSuite(makeSuite(src, { patch: (r) => (r.install = [witness]) }).file);
+  const { file } = makeSuite(src, { patch: (r) => (r.install = [witness]) });
   process.env.SECRET_X = "leak";
   try {
-    prepare(suite, "t1");
+    prepare(loadSuite(file), "t1");
   } finally {
     delete process.env.SECRET_X;
   }
-  assert.deepEqual(JSON.parse(readFileSync(join(suite.slot, "seen.json"), "utf8")), { secret: null, fake: "yes", quota: "off" });
+  assert.deepEqual(JSON.parse(readFileSync(join(loadSuite(file).slot, "seen.json"), "utf8")), { secret: null, fake: "yes", quota: "off" });
 });
