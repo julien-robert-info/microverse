@@ -48,6 +48,7 @@ async function judgeCommand(opts) {
       seed: typeof opts.seed === "string" ? opts.seed : undefined,
       claude: typeof opts.claude === "string" ? opts.claude : undefined,
       projects: typeof opts.projects === "string" ? opts.projects : undefined,
+      // Test hook, not in the usage: it moves the home folder the judge folder is checked against.
       home: typeof opts.home === "string" ? opts.home : undefined,
     });
   } catch (e) {
