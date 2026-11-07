@@ -8,6 +8,7 @@
 
 ### Added
 
+- bench: reading of pass transcripts (cost, leak, outcome)
 - Quota off on the follow-up screens: `/microverse:status` and `orch-status` show `quota    off (<reason>)` with no advice line, `orch-report` prints and returns the same off answer, and the Board Cockpit shows a grey `Quota off: <reason>` line instead of the pace bars. `orch-status` and `orch-report` take `--mode auto|off`, passed from the `quota_mode` setting by the status hook, the skill's fallback and the Board.
 - Portability CI: the tests run on Linux, macOS and Windows with Node.js 22 and 24 (`testedWith.node`), and a `clean-install` job runs `orch-doctor` and `plugin validate` on Linux and Windows with an empty home and the real Claude Code. The Claude Code version is written once, in `package.json` (`testedWith.claudeCode`); `engines.node` is now `>=22`.
 - `board` mod: Usage tab (week quota curve with the expected pace, cost per mission and model with cache share, productivity tiles, agent lanes of the last 90 minutes, merges since the last report).
