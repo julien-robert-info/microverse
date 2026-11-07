@@ -5,7 +5,7 @@
 
 const { createHash } = require("node:crypto");
 const { existsSync, readFileSync, realpathSync } = require("node:fs");
-const { dirname, isAbsolute, resolve } = require("node:path");
+const { dirname, isAbsolute, join, resolve } = require("node:path");
 const { normPath, run } = require("../../scripts/orch-lib.js");
 
 // R-env: nothing else is inherited from the parent process.
@@ -68,7 +68,15 @@ function nearestExisting(p) {
   return d;
 }
 
-const inGitRepo = (dir, env) => gitIn(dir, ["rev-parse", "--show-toplevel"], env).code === 0;
+// Whether `dir` is inside a work tree or a `.git` folder. Only git's "not a git
+// repository" answer means no: any other failure (dubious ownership, a broken
+// repository) must not read as "free to use". LC_ALL=C pins that message.
+function inGitRepo(dir, env) {
+  const r = gitIn(dir, ["rev-parse", "--is-inside-work-tree", "--is-inside-git-dir"], { ...env, LC_ALL: "C" });
+  if (r.code === 0) return r.out.split(/\r?\n/).some((l) => l.trim() === "true");
+  if (/not a git repository/i.test(r.err)) return false;
+  throw new Error(`cannot tell whether ${dir} is inside a git repository: ${r.err.trim()}`);
+}
 
 // Path of `p` with its existing part resolved by the file system, so that the
 // comparisons of R1 see the real casing and no junction.
@@ -86,11 +94,22 @@ function checkSlot(slot, source, env) {
   // Only the existing part is compared: the rest of the path does not exist yet, so it has no casing to differ from.
   if (!sameText(realpathSync.native(anc), anc)) throw bad("slot", `differs from its real path ${realpathSync.native(anc)} (casing, short name or link)`);
   // The parent, not the slot: a slot prepared earlier is itself a repository.
-  if (inGitRepo(nearestExisting(dirname(slot)), env)) throw bad("slot", "must not be inside a git repository");
-  const real = normPath(realPath(slot));
+  let inside;
+  try {
+    inside = inGitRepo(nearestExisting(dirname(slot)), env);
+  } catch (e) {
+    throw bad("slot", e.message);
+  }
+  if (inside) throw bad("slot", "must not be inside a git repository");
+  const resolved = realPath(slot);
+  // A root has no parent: it contains everything, and "root + separator" would
+  // carry two separators and match nothing.
+  if (dirname(resolved) === resolved) throw bad("slot", "must not be a drive or file system root");
+  const real = normPath(resolved);
   const src = normPath(realpathSync.native(source));
-  if (real === src || real.startsWith(src + "\\")) throw bad("slot", "must not be the source or inside it");
-  if (src.startsWith(real + "\\")) throw bad("slot", "must not contain the source");
+  const within = (outer, inner) => inner === outer || inner.startsWith(trimSep(outer) + "\\");
+  if (within(src, real)) throw bad("slot", "must not be the source or inside it");
+  if (within(real, src)) throw bad("slot", "must not contain the source");
 }
 
 // Reads, validates and resolves the suite: relative paths are taken from the
@@ -155,9 +174,16 @@ function loadSuite(file) {
 
   const env = benchEnv(suite.env);
   suite.cmdEnv = env;
-  if (!existsSync(suite.source) || !inGitRepo(suite.source, env)) throw bad("source", "must be an existing git repository");
+  const repo = (field, dir) => {
+    try {
+      return inGitRepo(dir, env);
+    } catch (e) {
+      throw bad(field, e.message);
+    }
+  };
+  if (!existsSync(suite.source) || !repo("source", suite.source)) throw bad("source", "must be an existing git repository");
   checkSlot(suite.slot, suite.source, env);
-  if (inGitRepo(nearestExisting(suite.results), env)) throw bad("results", "must not be inside a git repository");
+  if (repo("results", nearestExisting(suite.results))) throw bad("results", "must not be inside a git repository");
   return suite;
 }
 
@@ -171,21 +197,57 @@ const taskOf = (suite, id) => {
 // only, never the matched text. A hash is matched in full and, for the first
 // ten characters, only when it holds a letter a-f (a run of digits is a number).
 function briefFindings(text, task) {
+  // `\b` is no use around hex: the `x` of `0x` is a word character, so no
+  // boundary stands before the first digit. Lookarounds on hex digits instead.
+  const NOT_HEX_BEFORE = "(?<![0-9a-fA-F])";
+  const NOT_HEX_AFTER = "(?![0-9a-fA-F])";
+  const NUMBER = "(?<![\\w.,])\\d+(?:[.,]\\d+)*";
   const rules = [
-    ["address", /\b0x[0-9a-fA-F]{40}\b/],
-    ["hash64", /\b[0-9a-fA-F]{64}\b/],
-    ["amount", /(?:[$€£]\s?\d|\d[\d.,]*\s?(?:[$€£]|EUR|USD|USDC|USDT|DAI|ETH|WETH|BTC|GBP)(?![A-Za-z]))/],
-    ["real-data-title", /v[ée]rification sur donn[ée]es r[ée]elles|verification on real data/i],
+    ["address", [new RegExp(`${NOT_HEX_BEFORE}0[xX][0-9a-fA-F]{40}${NOT_HEX_AFTER}`)]],
+    ["hash64", [new RegExp(`${NOT_HEX_BEFORE}(?:0[xX])?[0-9a-fA-F]{64}${NOT_HEX_AFTER}`)]],
+    [
+      "amount",
+      [
+        // A currency sign before a number.
+        /[$€£]\s?\d/,
+        // A number then a currency or token, in any case for the usual ones...
+        new RegExp(`${NUMBER}\\s?(?:eur|usd|usdc|usdt|dai|eth|weth|btc|gbp|[$€£])(?![A-Za-z])`, "i"),
+        // ...and for any other token written the way tickers are (GHST, EURe): two capitals or more, at most six letters.
+        new RegExp(`${NUMBER}\\s?[A-Z]{2}[A-Za-z]{0,4}(?![A-Za-z])`),
+      ],
+    ],
+    ["real-data-title", [/v[ée]rification sur donn[ée]es r[ée]elles|verification on real data/i]],
   ];
   for (const k of ["tip", "merge"]) {
     const h = task[k];
-    rules.push([`${k}-hash`, new RegExp(`${h}${/[a-f]/.test(h.slice(0, 10)) ? "|" + h.slice(0, 10) : ""}`, "i")]);
+    rules.push([`${k}-hash`, [new RegExp(`${h}${/[a-f]/.test(h.slice(0, 10)) ? "|" + h.slice(0, 10) : ""}`, "i")]]);
   }
   const findings = [];
   text.split(/\r?\n/).forEach((l, i) => {
-    for (const [pattern, re] of rules) if (re.test(l)) findings.push({ pattern, line: i + 1 });
+    for (const [pattern, res] of rules) if (res.some((re) => re.test(l))) findings.push({ pattern, line: i + 1 });
   });
   return findings;
 }
 
-module.exports = { INHERITED, benchEnv, gitIn, loadSuite, taskOf, briefFindings, safeRelative };
+// The record `validate` leaves for a task, and the gate `prepare` and `grade`
+// pass through: a task is used only if its last validation, at this fork and
+// tip, found nothing wrong.
+const recordFile = (suite) => join(suite.results, "validate.json");
+
+function readRecord(suite) {
+  if (!existsSync(recordFile(suite))) return {};
+  try {
+    return JSON.parse(readFileSync(recordFile(suite), "utf8"));
+  } catch (e) {
+    throw new Error(`unreadable ${recordFile(suite)}: ${e.message}`);
+  }
+}
+
+function validatedRecord(suite, task) {
+  const rec = readRecord(suite)[task.id];
+  if (!rec || rec.tip !== task.tip || rec.fork !== task.fork) throw new Error(`no validate record for ${task.id} at its fork and tip: run validate first`);
+  if (rec.ok !== true) throw new Error(`${task.id} did not pass validate: fix it and run validate again`);
+  return rec;
+}
+
+module.exports = { INHERITED, benchEnv, gitIn, loadSuite, taskOf, briefFindings, safeRelative, recordFile, readRecord, validatedRecord };

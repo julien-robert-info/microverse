@@ -5,11 +5,11 @@
 // the suite's install commands, laying the hidden oracle files over a tree.
 
 const { spawnSync } = require("node:child_process");
-const { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } = require("node:fs");
+const { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { dirname, join } = require("node:path");
 const { listProcesses, normPath, run } = require("../../scripts/orch-lib.js");
-const { gitIn, taskOf } = require("./suite.js");
+const { briefFindings, gitIn, taskOf, validatedRecord } = require("./suite.js");
 
 const MARKER = ".bench-slot";
 const LONG = 30 * 60 * 1000;
@@ -30,6 +30,24 @@ function withTempDir(prefix, fn) {
   }
 }
 
+// R4: a tree that holds a symbolic link (git mode 120000) is never unpacked.
+// Git Bash's GNU tar replaces such a link by a copy of its target, so the
+// project the link points at would land in the copy; a tar that keeps the link
+// would let the bench write through it. The check is made on the tree itself,
+// before any extraction, because the delivered tree of a pass is not trusted.
+// Not even under node_modules: the links of a package manager are made by the
+// install step, never committed.
+function refuseLinks(suite, rev, repo) {
+  const r = gitIn(repo, ["ls-tree", "-r", "-z", rev], suite.cmdEnv);
+  if (r.code !== 0) throw new Error(`git ls-tree ${rev} failed: ${tail(r)}`);
+  const links = [];
+  for (const entry of r.out.split("\0")) {
+    const tab = entry.indexOf("\t");
+    if (tab >= 0 && entry.startsWith("120000 ")) links.push(entry.slice(tab + 1));
+  }
+  if (links.length) throw new Error(`the tree ${rev.slice(0, 10)} holds symbolic links, which the bench never unpacks: ${links.slice(0, 5).join(", ")}`);
+}
+
 // Unpacks the tree of `rev` of the source into the existing folder `dest`.
 // `git archive` honours `export-ignore` of .gitattributes: files marked so in
 // the source are absent from the copy. The tar file sits in `dest` and is named
@@ -37,6 +55,7 @@ function withTempDir(prefix, fn) {
 // name as a host and unescapes backslashes of a `-C` path (`\b` becomes a
 // backspace), so no absolute path goes to it.
 function extractArchive(suite, rev, dest, repo = suite.source) {
+  refuseLinks(suite, rev, repo);
   const name = ".bench-tree.tar";
   const tar = join(dest, name);
   try {
@@ -117,10 +136,18 @@ function prepare(suite, taskId, { org = null } = {}) {
     return r.out.trim();
   };
 
+  // A task `validate` rejected is not prepared, and the brief is scanned again
+  // here: the file may have changed since the validation.
+  validatedRecord(suite, task);
+  const findings = briefFindings(readFileSync(task.brief, "utf8"), task);
+  if (findings.length) throw new Error(`brief of ${task.id} holds forbidden patterns (${[...new Set(findings.map((f) => f.pattern))].join(", ")})`);
+
   clearSlot(suite);
   mkdirSync(slot, { recursive: true });
-  // First thing in the folder, so that a copy that fails half-way can still be deleted.
-  writeFileSync(join(slot, MARKER), `${task.id}\n`);
+  // First thing in the folder, so that a copy that fails half-way can still be
+  // deleted. `grade` reads the task back from it, and the base once known.
+  const writeMarker = (base) => writeFileSync(join(slot, MARKER), `${JSON.stringify({ task: task.id, base })}\n`);
+  writeMarker(null);
   extractArchive(suite, task.fork, slot);
 
   git(["init", "-q", "-b", "main"]);
@@ -129,6 +156,14 @@ function prepare(suite, taskId, { org = null } = {}) {
   git([...author, "add", "-A"]);
   git([...author, "commit", "-q", "-m", "bench base"]);
   const base = git(["rev-parse", "HEAD"]);
+  writeMarker(base);
+
+  // Before `install`: its scripts must not run in a tree that is not checked.
+  const problems = [];
+  if (git(["rev-list", "--all", "--count"]) !== "1") problems.push("the copy has more than one commit");
+  if (git(["remote"]) !== "") problems.push("the copy has a remote");
+  problems.push(...forbiddenEntries(slot));
+  if (problems.length) throw new Error(`copy of ${task.id} refused: ${problems.join("; ")}`);
 
   install(suite, slot);
 
@@ -145,12 +180,6 @@ function prepare(suite, taskId, { org = null } = {}) {
     excluded.push(".claude/orchestration/organisation.json");
   }
   appendFileSync(join(slot, ".git", "info", "exclude"), `${excluded.join("\n")}\n`);
-
-  const problems = [];
-  if (git(["rev-list", "--all", "--count"]) !== "1") problems.push("the copy has more than one commit");
-  if (git(["remote"]) !== "") problems.push("the copy has a remote");
-  problems.push(...forbiddenEntries(slot));
-  if (problems.length) throw new Error(`copy of ${task.id} refused: ${problems.join("; ")}`);
   return { task: task.id, org, slot, base };
 }
 

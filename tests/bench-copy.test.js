@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
-const { join } = require("node:path");
+const { dirname, join, parse } = require("node:path");
 const { ROOT, commitFile, emptyHome, git, makeRepo, sh } = require("./helpers.js");
 const { prepare } = require("../tools/bench/copy.js");
 const { grade, validate } = require("../tools/bench/grade.js");
@@ -81,6 +81,26 @@ function makeSuite(src, { patch = () => {}, tasks } = {}) {
 
 const load = (src, patch) => loadSuite(makeSuite(src, { patch }).file);
 
+// What `validate` leaves for tasks it accepted, written directly, for the tests
+// of `prepare` that are not about validation.
+function approve(suite) {
+  mkdirSync(suite.results, { recursive: true });
+  const record = Object.fromEntries(suite.tasks.map((t) => [t.id, { fork: t.fork, tip: t.tip, ok: true, checks: {} }]));
+  writeFileSync(join(suite.results, "validate.json"), JSON.stringify(record));
+  return suite;
+}
+
+// Commits a symbolic link (git mode 120000) at `path` of the repository `cwd`
+// without needing the right to create one on disk.
+function commitLink(cwd, path, target) {
+  const blobFile = join(tmp("bench-blob-"), "target");
+  writeFileSync(blobFile, target);
+  const sha = git(cwd, "hash-object", "-w", blobFile).out.trim();
+  git(cwd, "update-index", "--add", "--cacheinfo", `120000,${sha},${path}`);
+  git(cwd, "-c", "user.name=agent", "-c", "user.email=agent@example.invalid", "commit", "-qm", `chore: link ${path}`);
+  return head(cwd);
+}
+
 test("T1 an invalid suite fails with the name of the field", () => {
   const src = makeSource();
   assert.doesNotThrow(() => load(src));
@@ -97,6 +117,11 @@ test("T1 an invalid suite fails with the name of the field", () => {
   git(other, "init", "-q", "-b", "main", ".");
   assert.throws(() => load(src, (r) => (r.slot = join(other, "slot"))), /field "slot".*git repository/);
   assert.throws(() => load(src, (r) => (r.results = join(other, "results"))), /field "results"/);
+  // Inside the `.git` folder of a repository: git answers with an error there, not with "no".
+  assert.throws(() => load(src, (r) => (r.slot = join(other, ".git", "slot"))), /field "slot".*git repository/);
+  // A slot that contains the source, and a drive or file system root (which contains everything).
+  assert.throws(() => load(src, (r) => (r.slot = dirname(src.dir))), /field "slot".*contain the source/);
+  assert.throws(() => load(src, (r) => (r.slot = parse(src.dir).root)), /field "slot".*root/);
   // The CLI reports the same, with exit code 2.
   const bad = makeSuite(src, { patch: (r) => delete r.source });
   const r = sh(process.execPath, [BENCH, "validate", "--suite", bad.file], ROOT, { HOME: emptyHome, USERPROFILE: emptyHome });
@@ -117,7 +142,7 @@ test("T1 a slot whose casing differs from the real path is refused", (t) => {
 test("T2 prepare gives one commit, no remote, and none of what came after the fork", () => {
   const src = makeSource();
   const { file } = makeSuite(src);
-  const suite = loadSuite(file);
+  const suite = approve(loadSuite(file));
   const r = prepare(suite, "t1", { org: "O2" });
   const slot = suite.slot;
   assert.equal(git(slot, "rev-list", "--all", "--count").out.trim(), "1");
@@ -138,19 +163,19 @@ test("T2 prepare gives one commit, no remote, and none of what came after the fo
 
 test("T2 prepare refuses a tree that holds a .env file", () => {
   const src = makeSource({ envFile: true });
-  const suite = loadSuite(makeSuite(src).file);
+  const suite = approve(loadSuite(makeSuite(src).file));
   assert.throws(() => prepare(suite, "t1"), /env file: \.env/);
 });
 
 test("T3 prepare deletes a marked slot and refuses a slot without the marker", () => {
   const src = makeSource();
-  const suite = loadSuite(makeSuite(src).file);
+  const suite = approve(loadSuite(makeSuite(src).file));
   prepare(suite, "t1");
   writeFileSync(join(suite.slot, "stale.txt"), "left by a pass");
   prepare(suite, "t1");
   assert.ok(!existsSync(join(suite.slot, "stale.txt")), "a marked slot is replaced");
 
-  const other = loadSuite(makeSuite(src).file);
+  const other = approve(loadSuite(makeSuite(src).file));
   mkdirSync(other.slot);
   writeFileSync(join(other.slot, "precious.txt"), "not a bench folder");
   assert.throws(() => prepare(other, "t1"), /marker/);
@@ -178,6 +203,43 @@ test("T4 validate: failing at the base and passing at the tip is valid, an oracl
   const cli = sh(process.execPath, [BENCH, "validate", "--suite", suite.file, "--task", "t1", "--json"], ROOT, { HOME: emptyHome, USERPROFILE: emptyHome });
   assert.equal(cli.code, 0, cli.out);
   assert.equal(JSON.parse(cli.out).tasks.length, 1);
+  // A rejected task is neither prepared nor graded; the slot of the others is not touched.
+  for (const id of ["t2", "t3"]) {
+    assert.throws(() => prepare(suite, id), /did not pass validate/, id);
+    assert.throws(() => grade(suite, id), /did not pass validate/, id);
+  }
+  assert.ok(!existsSync(suite.slot));
+  // An accepted task whose brief changed since is scanned again by prepare.
+  writeFileSync(join(suite.dir, "t1.md"), `see 0x${"ab12".repeat(10)}\n`);
+  assert.throws(() => prepare(suite, "t1"), /forbidden patterns \(address\)/);
+  assert.ok(!existsSync(suite.slot));
+});
+
+test("T8 a tree that holds a symbolic link is never unpacked, by prepare, validate or grade", () => {
+  const src = makeSource();
+  const outside = tmp("bench-outside-");
+  writeFileSync(join(outside, "leak.txt"), "outside the copy\n");
+  const withLink = commitLink(src.dir, "linked", outside);
+  const task = (id, fork, tip) => ({ id, fork, tip, merge: src.merge, brief: `${id}.md`, oracle: ["oracle.test.js"], zone: ["src.js"] });
+  const tasks = [task("t1", src.fork, src.tip), task("lf", withLink, withLink), task("lt", src.fork, withLink)];
+  const suite = loadSuite(makeSuite(src, { tasks }).file);
+
+  const v = validate(suite);
+  const by = Object.fromEntries(v.tasks.map((t) => [t.id, t]));
+  assert.equal(by.t1.ok, true, by.t1.problems.join("; "));
+  assert.match(by.lf.problems.join(), /symbolic links/);
+  assert.match(by.lt.problems.join(), /symbolic links/);
+  assert.equal(by.lf.ok || by.lt.ok, false);
+
+  // The gate of validate is lifted by hand: the refusal below is the link check, not the record.
+  approve(suite);
+  assert.throws(() => prepare(suite, "lf"), /symbolic links/);
+  assert.ok(!existsSync(join(suite.slot, "src.js")) && !existsSync(join(suite.slot, "linked")) && !existsSync(join(suite.slot, "leak.txt")), "nothing was unpacked");
+
+  // A pass that commits a link on its main: the delivered tree is refused before it is unpacked.
+  prepare(suite, "t1");
+  commitLink(suite.slot, "linked", outside);
+  assert.throws(() => grade(suite, "t1"), /symbolic links/);
 });
 
 test("T5 every forbidden brief pattern fails, a clean brief passes", () => {
@@ -186,7 +248,15 @@ test("T5 every forbidden brief pattern fails, a clean brief passes", () => {
   assert.deepEqual(names(CLEAN_BRIEF), []);
   assert.deepEqual(names(`wallet 0x${"1f".repeat(20)}`), ["address"]);
   assert.deepEqual(names(`id ${"ab".repeat(32)}`), ["hash64"]);
-  for (const amount of ["pays 12.50 EUR", "costs $300", "worth 1,000 USDC", "fee 0.5 ETH"]) assert.deepEqual(names(amount), ["amount"], amount);
+  // The `x` of the prefix is a word character: no `\b` stands before the digits.
+  assert.deepEqual(names(`tx 0x${"ab".repeat(32)}`), ["hash64"]);
+  assert.deepEqual(names(`tx 0X${"AB".repeat(32)}`), ["hash64"]);
+  assert.deepEqual(names(`wallet 0X${"1F".repeat(20)}`), ["address"]);
+  for (const amount of ["pays 12.50 EUR", "costs $300", "worth 1,000 USDC", "fee 0.5 ETH", "fee 1.5 eth", "left 0.25 GHST", "paid 12 EURe", "9 weth"]) {
+    assert.deepEqual(names(amount), ["amount"], amount);
+  }
+  // Numbers that are not amounts.
+  for (const plain of ["## 2. Scope", "step 2 of 3", "t1 Foo", "3 files", "2 Next", "the 41-character 0x" + "a".repeat(41)]) assert.deepEqual(names(plain), [], plain);
   assert.deepEqual(names(`at ${task.tip}`), ["tip-hash"]);
   assert.deepEqual(names(`prefix ${task.tip.slice(0, 10)}`), ["tip-hash"]);
   assert.deepEqual(names(`merged as ${task.merge}`), ["merge-hash"]);
@@ -233,6 +303,56 @@ test("T6 grade: a delivered fix passes the oracle, uncommitted work does not, sc
   assert.equal(JSON.parse(cli.out).quality.uncommitted, 1);
 });
 
+test("T9 grade refuses the copy of another task and a main that no longer descends from the recorded base", () => {
+  const src = makeSource();
+  const task = (id) => ({ id, fork: src.fork, tip: src.tip, merge: src.merge, brief: `${id}.md`, oracle: ["oracle.test.js"], zone: ["src.js"] });
+  const suite = loadSuite(makeSuite(src, { tasks: [task("t1"), task("t4")] }).file);
+  assert.equal(validate(suite).ok, true);
+  const slot = suite.slot;
+  const agent = ["-c", "user.name=agent", "-c", "user.email=agent@example.invalid"];
+
+  prepare(suite, "t1");
+  const marker = JSON.parse(readFileSync(join(slot, ".bench-slot"), "utf8"));
+  assert.equal(marker.task, "t1");
+  assert.equal(marker.base, head(slot));
+  writeFileSync(join(slot, "src.js"), "module.exports = () => 2;\n");
+  git(slot, "add", "-A");
+  git(slot, ...agent, "commit", "-qm", "fix: answer");
+  assert.throws(() => grade(suite, "t4"), /prepared for t1, not t4/);
+  assert.equal(grade(suite, "t1").filesChanged, 1);
+
+  // Rewriting the base commit leaves a single root, but not the recorded one.
+  git(slot, ...agent, "reset", "-q", "--soft", marker.base);
+  git(slot, ...agent, "commit", "-q", "--amend", "-m", "rewritten base");
+  assert.throws(() => grade(suite, "t1"), /does not descend from its base/);
+
+  rmSync(join(slot, ".bench-slot"));
+  assert.throws(() => grade(suite, "t1"), /marker/);
+});
+
+test("T10 grade counts non-ASCII paths and ignores dependencies and sub-agent worktrees as uncommitted work", () => {
+  const src = makeSource();
+  const suite = loadSuite(makeSuite(src).file);
+  assert.equal(validate(suite).ok, true);
+  const slot = suite.slot;
+  prepare(suite, "t1");
+  const name = "src/café.js";
+  mkdirSync(join(slot, "src"), { recursive: true });
+  writeFileSync(join(slot, name), "module.exports = 1;\n");
+  git(slot, "add", "-A");
+  git(slot, "-c", "user.name=agent", "-c", "user.email=agent@example.invalid", "commit", "-qm", "feat: accent");
+  mkdirSync(join(slot, "node_modules", "dep"), { recursive: true });
+  writeFileSync(join(slot, "node_modules", "dep", "index.js"), "x\n");
+  mkdirSync(join(slot, ".claude", "worktrees", "sub"), { recursive: true });
+  writeFileSync(join(slot, ".claude", "worktrees", "sub", "f.txt"), "x\n");
+  const done = grade(suite, "t1");
+  assert.equal(done.filesChanged, 1);
+  assert.equal(done.outsideZone, 1);
+  assert.equal(done.uncommitted, 0);
+  writeFileSync(join(slot, "loose.txt"), "x\n");
+  assert.equal(grade(suite, "t1").uncommitted, 1);
+});
+
 test("T7 a variable of the parent process is not seen by an install command", () => {
   const src = makeSource();
   const witness = node(
@@ -241,7 +361,7 @@ test("T7 a variable of the parent process is not seen by an install command", ()
   const { file } = makeSuite(src, { patch: (r) => (r.install = [witness]) });
   process.env.SECRET_X = "leak";
   try {
-    prepare(loadSuite(file), "t1");
+    prepare(approve(loadSuite(file)), "t1");
   } finally {
     delete process.env.SECRET_X;
   }
