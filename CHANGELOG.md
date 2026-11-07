@@ -8,6 +8,7 @@
 
 ### Added
 
+- Bench tool (`tools/bench/orch-bench.js`, maintainers only): `prepare` builds a throwaway one-commit copy of a repository at a task's base, `validate` checks that a task's hidden oracle fails at the base and passes at the tip and that its brief leaks nothing, `grade` scores what a pass delivered on `main`.
 - Portability CI: the tests run on Linux, macOS and Windows with Node.js 22 and 24 (`testedWith.node`), and a `clean-install` job runs `orch-doctor` and `plugin validate` on Linux and Windows with an empty home and the real Claude Code. The Claude Code version is written once, in `package.json` (`testedWith.claudeCode`); `engines.node` is now `>=22`.
 - `board` mod: Usage tab (week quota curve with the expected pace, cost per mission and model with cache share, productivity tiles, agent lanes of the last 90 minutes, merges since the last report).
 - `init` explains the three quota settings and how to change them; `orch-doctor` reports the audio engine (when the audio report is on) and whether the quota settings were ever adjusted (`audio` and `settings` records).
