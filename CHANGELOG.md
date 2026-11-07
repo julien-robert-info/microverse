@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.6.0] - 2026-11-07
+
 ### Fixed
 
 - `board` mod, narrow panes: a question card shows the id as the only button, with the title and each option title wrapping beside a letter button; the Pending/Sent pill no longer stretches; the Answer button has room above it; mission groups in list mode are separated by a blank row; a Merged card without a notes title no longer shows the long state sentence; "Cost per finished mission" ignores finished missions with no costed run in the period (a dash when none).
