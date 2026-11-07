@@ -48,16 +48,18 @@ async function judgeCommand(opts) {
       seed: typeof opts.seed === "string" ? opts.seed : undefined,
       claude: typeof opts.claude === "string" ? opts.claude : undefined,
       projects: typeof opts.projects === "string" ? opts.projects : undefined,
+      home: typeof opts.home === "string" ? opts.home : undefined,
     });
   } catch (e) {
     fail(e.message);
   }
-  if (res.stopped) process.exitCode = 1;
+  // A pass left without a judgment because its kept diff is gone is a failure to report, not a quiet gap.
+  if (res.stopped || res.judgments.some((j) => j.status === "skipped")) process.exitCode = 1;
   if (opts.json) {
     console.log(JSON.stringify({ v: 1, ...res }));
     return;
   }
-  const lines = res.judgments.map((j) => `${j.task} ${j.status} overall=${j.overall ?? "-"} usd=${j.usd.toFixed(3)}`);
+  const lines = res.judgments.map((j) => (j.status === "skipped" ? `${j.task} skipped: ${j.reason}` : `${j.task} ${j.status} overall=${j.overall ?? "-"} usd=${j.usd.toFixed(3)}`));
   lines.push(`total usd=${res.totalUsd.toFixed(3)}${res.stopped ? ` (stopped: ${res.stopped})` : ""}`);
   console.log(lines.join("\n"));
 }

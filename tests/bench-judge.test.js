@@ -4,6 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } = require("node:fs");
 const { createHash } = require("node:crypto");
+const { spawnSync } = require("node:child_process");
 const { tmpdir } = require("node:os");
 const { dirname, join } = require("node:path");
 const { ROOT, commitFile, emptyHome, git, makeRepo } = require("./helpers.js");
@@ -145,6 +146,15 @@ test("T1 keepDiff keeps the diff of a prepared copy under the campaign, writes n
   assert.equal(git(suite.slot, "status", "--porcelain", "--untracked-files=all").out, before, "the slot is untouched");
   assert.ok(!existsSync(join(suite.slot, "diffs")));
 
+  // An uncommitted change is not in the delivery: the kept diff is the same.
+  writeFileSync(join(suite.slot, "src.js"), "module.exports = () => 99;\n");
+  writeFileSync(join(suite.slot, "loose.txt"), "untracked\n");
+  const dirty = keepDiff({ suite, campaignDir: w.camp, session: "s-1b" });
+  assert.equal(dirty.diff.sha256, r.diff.sha256);
+  assert.ok(!readFileSync(join(w.camp, dirty.diff.file), "utf8").includes("99"));
+  git(suite.slot, "checkout", "--", "src.js");
+  rmSync(join(suite.slot, "loose.txt"));
+
   assert.throws(() => keepDiff({ suite, campaignDir: w.camp, session: "../x" }), /session/);
 
   // too-large: over 2 MB of diff.
@@ -163,6 +173,7 @@ test("T1 keepDiff keeps the diff of a prepared copy under the campaign, writes n
   // no-marker.
   rmSync(markerFile);
   assert.deepEqual(keepDiff({ suite, campaignDir: w.camp, session: "s-4" }), { diff: null, diffError: "no-marker" });
+  assert.ok(!existsSync(join(w.camp, "diffs", "s-4.diff")), "no diff file for a failure");
 });
 
 test("T2 a hostile git config of the copy runs nothing, in keepDiff or in grade", () => {
@@ -363,13 +374,23 @@ test("T4 anonymise fails closed and refuses an input over 150000 characters; the
   });
 });
 
+test("T4 an input that fails the final check is not sent, whatever the diff", async () => {
+  const w = world();
+  const res = await w.run({ afterReplace: "\nmorty slipped through" });
+  assert.equal(w.calls().length, 0, "the fake claude is never launched");
+  assert.deepEqual(res.judgments.map((j) => j.status), ["anonymisation-failed"]);
+  const [line] = w.lines("judgment");
+  assert.deepEqual({ s: line.status, c: line.cost }, { s: "anonymisation-failed", c: null });
+  assert.equal(w.lines("link").length, 1);
+});
+
 test("T5 the judge sees the brief, the checks and the diff and nothing of the pass or the campaign", async () => {
   const sessions = ["bbbbbbbb-2222-4222-8222-000000000001", "bbbbbbbb-2222-4222-8222-000000000002"];
   const w = world({ passes: [{ session: sessions[0], n: 3, org: "O2", minutes: 4242 }] });
   await w.run();
   const [call] = w.calls();
   const p = jsonl(join(w.camp, "passes.jsonl"))[0];
-  const witnesses = [sessions[0], p.fork, p.tip, "4242", "1.5", "camp-id-1", "synthetic"];
+  const witnesses = [sessions[0], p.fork, p.tip, "4242", "1.5", "camp-id-1", "synthetic", "O2"];
   const haystack = { stdin: call.stdin, env: JSON.stringify(call.env), cwd: call.cwd };
   for (const [where, text] of Object.entries(haystack)) {
     for (const x of witnesses) assert.ok(!text.includes(x), `${x} leaked into ${where}`);
@@ -704,6 +725,123 @@ test("T11 the judge folder: created with its marker, kept clean, never deleted f
   assert.throws(bad((j) => (j.timeoutMinutes = 0)), /judge\.timeoutMinutes/);
   assert.throws(bad((j) => delete j.cwd), /judge\.cwd/);
   assert.equal(loadSuite(makeSuite({ patch: (r) => delete r.judge }).file).judge, null);
+});
+
+const WIDE = { capWeek: 1000, capFive: 100000 };
+
+test("T8 a launched call without a figure counts as the most it could have spent; one never launched costs nothing", async () => {
+  // Timeout before any transcript: the bound is max-budget x 1.5, converted by the ratios.
+  const w = world({ cfg: { hang: true } });
+  await w.run({ timeoutMs: 800 });
+  const [line] = w.lines("judgment");
+  assert.deepEqual({ u: line.cost.usd, b: line.cost.bound, w: line.cost.weekPts, f: line.cost.fiveHourPts }, { u: null, b: true, w: 15, f: 150 });
+  assert.equal(w.lines("link").length, 0);
+  // The command restarts: the spend is known (it holds the bound), not "spend unknown".
+  w.setCfg({ answer: ANSWER });
+  const again = await w.run(WIDE);
+  assert.equal(again.stopped, null);
+  assert.deepEqual(again.judgments.map((j) => j.status), ["ok"]);
+  assert.ok(spent({ campaignDir: w.camp }).weekPts >= 15);
+  // The guard sees the bound: with a cap under it the next run stops, it does not go on blind.
+  const capped = world({ cfg: { hang: true } });
+  await capped.run({ timeoutMs: 800 });
+  capped.setCfg({ answer: ANSWER });
+  assert.equal((await capped.run({ capWeek: 14, capFive: 100000 })).stopped, "week cap");
+
+  // The process exits at once with nothing on its output: launched, no figure.
+  const quiet = world();
+  const exits = join(quiet.dir, "exits.js");
+  writeFileSync(exits, "process.stdin.resume();process.stdin.on('end',()=>process.exit(2));");
+  const none = await quiet.run({ claudeArgs: [exits] });
+  assert.equal(none.judgments[0].status, "error");
+  assert.equal(quiet.lines("judgment")[0].cost.bound, true);
+
+  // Never launched: the program does not exist. Cost null, and the command stops at the first.
+  const gone = world({ passes: [{ session: "11111111-aaaa-4aaa-8aaa-000000000001", n: 2 }, { session: "11111111-aaaa-4aaa-8aaa-000000000002", n: 3 }] });
+  const res = await gone.run({ claude: join(gone.dir, "no-such-claude"), claudeArgs: [] });
+  assert.equal(res.stopped, "launch failed");
+  assert.equal(gone.lines("judgment").length, 1);
+  assert.equal(gone.lines("judgment")[0].cost, null);
+});
+
+test("T8 a model without a price falls back on the figure the call reported", async () => {
+  const w = world({ cfg: { model: "claude-opus-9-9", answer: ANSWER } });
+  const res = await w.run();
+  assert.equal(res.judgments[0].status, "ok");
+  const { cost } = w.lines("judgment")[0];
+  assert.deepEqual(cost.unpriced, ["claude-opus-9-9"]);
+  assert.equal(cost.usdReported, 0.006);
+  assert.ok(Math.abs(cost.weekPts - 0.06) < 1e-9 && Math.abs(cost.fiveHourPts - 0.6) < 1e-9, JSON.stringify(cost));
+  assert.notEqual(spent({ campaignDir: w.camp }).weekPts, null);
+});
+
+test("T8 a rubric schema keyword the validator does not know is refused before any call", async () => {
+  const rubrics = tmp("bench-rubric-");
+  const src = join(ROOT, "tools", "bench", "rubric");
+  writeFileSync(join(rubrics, "r1.md"), readFileSync(join(src, "r1.md")));
+  const schema = JSON.parse(readFileSync(join(src, "r1.schema.json"), "utf8"));
+  schema.properties.defects.items.properties.summary.minLength = 1;
+  writeFileSync(join(rubrics, "r1.schema.json"), JSON.stringify(schema));
+  assert.throws(() => loadRubric("r1", rubrics), /minLength/);
+  const w = world({ cfg: { answer: ANSWER } });
+  await assert.rejects(() => w.run({ rubricDir: rubrics }), /minLength/);
+  assert.equal(w.calls().length, 0);
+});
+
+test("T9 after a failure that is not final the other passes of the same diff are not paid for", async () => {
+  const s = (n) => `22222222-bbbb-4bbb-8bbb-00000000000${n}`;
+  const w = world({ cfg: { subtype: "error_max_budget_usd" }, passes: [{ session: s(1), n: 2 }, { session: s(2), n: 2 }] });
+  const res = await w.run();
+  assert.equal(w.calls().length, 1);
+  assert.deepEqual(res.judgments.map((j) => j.status), ["budget"]);
+  assert.equal(w.lines("link").length, 0);
+  // Next run: one call judges both.
+  w.setCfg({ answer: ANSWER });
+  await w.run();
+  assert.equal(w.calls().length, 2);
+  assert.equal(w.lines("link").length, 2);
+});
+
+test("T9 a too-large pass judged under a1 is judged again under a2", async () => {
+  const big = sectionOf("src.js", Array.from({ length: 4000 }, (_, i) => `line ${i} ${"x".repeat(40)}`));
+  const w = world({ passes: [{ session: "33333333-cccc-4ccc-8ccc-000000000001", text: big }] });
+  await w.run();
+  assert.deepEqual(w.lines("judgment").map((l) => [l.status, l.anonymiser]), [["too-large", "a1"]]);
+  await w.run();
+  assert.equal(w.lines("judgment").length, 1, "same anonymiser: nothing to redo");
+  await w.run({ anonymiser: "a2" });
+  assert.deepEqual(w.lines("judgment").map((l) => [l.status, l.anonymiser]), [["too-large", "a1"], ["too-large", "a2"]]);
+  const keys = w.lines("link").map((l) => l.key);
+  assert.equal(keys.length, 2);
+  assert.notEqual(keys[0], keys[1]);
+  assert.equal(w.calls().length, 0);
+});
+
+test("T9 a kept diff that is missing or modified is reported, not skipped in silence", async () => {
+  const s = (n) => `44444444-dddd-4ddd-8ddd-00000000000${n}`;
+  const w = world({ cfg: { answer: ANSWER }, passes: [{ session: s(1), n: 2 }, { session: s(2), n: 3 }, { session: s(3), n: 4 }] });
+  rmSync(join(w.camp, "diffs", `${s(1)}.diff`));
+  writeFileSync(join(w.camp, "diffs", `${s(2)}.diff`), "changed after the fact\n");
+  const res = await w.run();
+  const skipped = res.judgments.filter((j) => j.status === "skipped");
+  assert.equal(skipped.length, 2);
+  assert.ok(skipped.every((j) => j.task === "t1" && /missing or changed/.test(j.reason)));
+  assert.equal(res.judgments.filter((j) => j.status === "ok").length, 1);
+  assert.equal(w.calls().length, 1);
+
+  // The command prints it, in --json too, and exits 1.
+  const data = tmp("bench-cal-");
+  writeFileSync(join(data, "calibration.json"), JSON.stringify({ at: Date.now(), ratio7: 10, ratio5: 100 }));
+  const run = (extra) =>
+    spawnSync(process.execPath, [join(ROOT, "tools", "bench", "orch-bench.js"), "judge", "--suite", join(w.dir, "suite.json"), "--id", "camp-id-1", "--claude", process.execPath, "--home", w.home, ...extra], {
+      encoding: "utf8", env: { ...process.env, CLAUDE_PLUGIN_DATA: data, HOME: emptyHome, USERPROFILE: emptyHome },
+    });
+  const text = run([]);
+  assert.equal(text.status, 1, text.stderr);
+  assert.match(text.stdout, /t1 skipped: the kept diff is missing or changed/);
+  const json = run(["--json"]);
+  assert.equal(json.status, 1);
+  assert.equal(JSON.parse(json.stdout).judgments.filter((j) => j.status === "skipped").length, 2);
 });
 
 test("the output validator accepts the rubric's schema and refuses what it does not know", () => {

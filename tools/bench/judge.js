@@ -20,6 +20,8 @@ const { passCost } = require("./transcripts.js");
 const RUBRIC_DIR = join(__dirname, "rubric");
 const JUDGE_MARKER = ".bench-judge";
 const PROMPT = "Score the submission given on standard input.";
+// A call that ran but left no figure counts for this many times its budget cap.
+const BOUND_MARGIN = 1.5;
 const FINAL = new Set(["ok", "invalid", "too-large", "anonymisation-failed"]);
 
 const sha256 = (data) => createHash("sha256").update(data).digest("hex");
@@ -35,10 +37,21 @@ function loadRubric(name, dir = RUBRIC_DIR) {
   const md = readFileSync(mdFile);
   const schemaBytes = readFileSync(schemaFile);
   const schema = JSON.parse(schemaBytes.toString("utf8"));
+  // Refused before any call: found at validation, it would cost a paid answer.
+  checkKeywords(schema);
   return { name, mdFile, schemaFile, schema, schemaText: JSON.stringify(schema), rubricSha: sha256(md), schemaSha: sha256(schemaBytes) };
 }
 
 const KEYWORDS = new Set(["type", "required", "properties", "additionalProperties", "items", "minimum", "maximum", "enum", "const", "maxItems", "maxLength", "title", "description"]);
+
+// Walks the schema where validateOutput looks: the schema itself, `items` and
+// each of `properties`.
+function checkKeywords(schema) {
+  if (!isObject(schema)) return;
+  for (const k of Object.keys(schema)) if (!KEYWORDS.has(k)) throw new Error(`schema keyword not supported by the bench: ${k}`);
+  checkKeywords(schema.items);
+  for (const s of Object.values(isObject(schema.properties) ? schema.properties : {})) checkKeywords(s);
+}
 
 const typeOk = (v, t) =>
   ({ object: isObject(v), array: Array.isArray(v), string: typeof v === "string", integer: Number.isInteger(v), number: typeof v === "number" && Number.isFinite(v), boolean: typeof v === "boolean", null: v === null })[t] ?? false;
@@ -214,17 +227,34 @@ function misconfiguration({ events, model, projects, cwd, session, cost }) {
   return null;
 }
 
-// The cost of a call from its transcript; without one, the figure the call
-// reported (points from the ratios), and null when it reported nothing.
-function costOf({ projects, cwd, session, ratios, events }) {
+// The cost of a launched call. From its transcript; a model the price table
+// does not know, or no transcript, falls back on the figure the call reported
+// (points from the ratios); with no figure at all, on the most the call could
+// have spent (`--max-budget-usd` with a margin), flagged `bound`. A call that
+// ran is never written as free or as unknown: either would let the guard
+// approve the next call on a spend it cannot see.
+function costOf({ projects, cwd, session, ratios, events, maxBudgetUsd }) {
+  const reported = events.filter((e) => e?.type === "result").at(-1)?.total_cost_usd;
+  const bound = (base) => ({
+    byRole: {}, usd: null, usdReported: null, unpriced: [], ...base,
+    weekPts: maxBudgetUsd * BOUND_MARGIN * ratios.ratio7, fiveHourPts: maxBudgetUsd * BOUND_MARGIN * ratios.ratio5, bound: true, ratios: { ...ratios },
+  });
+  let cost = null;
   try {
-    return passCost({ projects, slot: cwd, session, ratios, stream: events });
+    cost = passCost({ projects, slot: cwd, session, ratios, stream: events });
   } catch {
-    const reported = events.filter((e) => e?.type === "result").at(-1)?.total_cost_usd;
-    // A call that made no figure is not a free call: null points make the spend unknown.
-    if (!Number.isFinite(reported)) return { byRole: {}, usd: null, usdReported: null, unpriced: [], weekPts: null, fiveHourPts: null, ratios: { ...ratios } };
+    // no transcript
+  }
+  if (cost === null) {
+    if (!Number.isFinite(reported)) return bound({});
     return { byRole: {}, usd: reported, usdReported: reported, unpriced: [], weekPts: reported * ratios.ratio7, fiveHourPts: reported * ratios.ratio5, ratios: { ...ratios } };
   }
+  if (cost.unpriced.length) {
+    // The transcript's sum leaves the unpriced model out: it is a floor, not the cost.
+    if (!Number.isFinite(cost.usdReported)) return bound(cost);
+    return { ...cost, weekPts: cost.usdReported * ratios.ratio7, fiveHourPts: cost.usdReported * ratios.ratio5, ratios: { ...ratios } };
+  }
+  return cost;
 }
 
 // One call of the model and what to make of it:
@@ -244,19 +274,24 @@ async function attempt(ctx, input) {
   const seconds = Math.round((Date.now() - started)) / 1000;
   const events = parseEvents(r.stdout);
   const base = { session, seconds, startedAt: new Date(started).toISOString(), output: null, reason: null, model: null };
-  // A process that never started cost nothing; one that ran and left no figure is unknown.
-  const cost = r.failed ? null : costOf({ projects, cwd, session, ratios, events });
+  // A process that never started cost nothing.
+  const cost = r.failed ? null : costOf({ projects, cwd, session, ratios, events, maxBudgetUsd: j.maxBudgetUsd });
   const done = (status, reason = null) => ({ ...base, status, reason, cost, model: events.find((e) => e?.subtype === "init")?.model ?? null });
-  if (r.timedOut) return done("error", "timeout");
-  if (r.failed || !events.length) return done("error", r.failed ? String(r.failed.message) : "no output");
+  // A file left in the folder is a finding whatever became of the call.
+  const stray = () => {
+    try {
+      assertOnlyMarker(cwd);
+      return null;
+    } catch (e) {
+      return e.message;
+    }
+  };
+  if (r.timedOut) return stray() ? done("misconfigured", stray()) : done("error", "timeout");
+  if (r.failed || !events.length) return stray() ? done("misconfigured", stray()) : { ...done("error", r.failed ? String(r.failed.message) : "no output"), launchFailed: Boolean(r.failed) };
 
   const bad = misconfiguration({ events, model: j.model, projects, cwd, session, cost });
   if (bad) return done("misconfigured", bad);
-  try {
-    assertOnlyMarker(cwd);
-  } catch (e) {
-    return done("misconfigured", e.message);
-  }
+  if (stray()) return done("misconfigured", stray());
   const result = events.filter((e) => e?.type === "result").at(-1);
   if (!result) return done("error", "no result");
   if (result.subtype === "error_max_budget_usd") return done("budget");
@@ -269,7 +304,13 @@ async function attempt(ctx, input) {
       return done("invalid", "the answer is not JSON");
     }
   }
-  const errors = validateOutput(output, rubric.schema);
+  // The call is paid: a validator failure is a judgment with its cost, not a lost one.
+  let errors;
+  try {
+    errors = validateOutput(output, rubric.schema);
+  } catch (e) {
+    return done("error", `validator: ${e.message}`);
+  }
   if (errors.length) return done("invalid", errors[0]);
   return { ...done("ok"), output };
 }
@@ -370,7 +411,9 @@ async function judgeCampaign(opts) {
       diff = readFileSync(join(campaignDir, p.diff.file));
       if (sha256(diff) !== p.diff.sha256) throw new Error("changed");
     } catch (e) {
-      log(`${p.task} skipped: the kept diff is missing or changed (${e.message})`);
+      const reason = `the kept diff is missing or changed (${e.message})`;
+      result.judgments.push({ task: p.task, status: "skipped", overall: null, usd: 0, reason });
+      log(`${p.task} skipped: ${reason}`);
       continue;
     }
     const input = judgeInput({ suite, taskId: p.task, diff: diff.toString("utf8"), anonymiserVersion, afterReplace: opts.afterReplace });
@@ -405,6 +448,11 @@ async function judgeCampaign(opts) {
       append(rec);
       report(rec);
       last = { rec, reason: a.reason };
+      // The program cannot be started: every other pass would fail the same way.
+      if (a.launchFailed) {
+        result.stopped = "launch failed";
+        return result;
+      }
       if (a.status !== "invalid") break;
     }
     if (last.rec.status === "misconfigured") {
@@ -417,6 +465,12 @@ async function judgeCampaign(opts) {
       // Every other pass with the same diff shares this judgment: one call, one cost.
       for (let i = queue.length - 1; i >= 0; i--) {
         if (keyOf(queue[i]) === key) link(queue.splice(i, 1)[0], key);
+      }
+    } else {
+      // The same input would fail the same way and be paid again: those passes
+      // are left without a link and picked up by the next run.
+      for (let i = queue.length - 1; i >= 0; i--) {
+        if (keyOf(queue[i]) === key) queue.splice(i, 1);
       }
     }
   }
