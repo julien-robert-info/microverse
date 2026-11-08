@@ -4,16 +4,17 @@
 // present, stops it at the time limit, keeps the diff, grades, prices and
 // records one line of `passes.jsonl`. The campaign (campaign.js) chains passes.
 
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const { appendFileSync, existsSync, mkdirSync, realpathSync, writeFileSync } = require("node:fs");
 const net = require("node:net");
-const { join } = require("node:path");
+const { basename, join } = require("node:path");
 const lib = require("../../scripts/orch-lib.js");
 const { prepare } = require("./copy.js");
 const { keepDiff } = require("./diff.js");
 const { grade, readMarker } = require("./grade.js");
 const { killTree } = require("./proc.js");
+const { readLines } = require("./spend.js");
 const { gitIn, taskOf } = require("./suite.js");
 const { passActivity, passCost, passOutcome, scanLeaks } = require("./transcripts.js");
 
@@ -90,15 +91,29 @@ function commandLine({ suite, orgId, prompt, model, session, settingsFile, claud
   return args;
 }
 
+// The inline copy as `init` lists it: { name: "microverse", source:
+// "microverse@inline", path: <the --plugin-dir folder> }. The installed copy
+// is "microverse@microverse" and is not the version under test.
+function isInlineCopy(p, suite) {
+  if (p?.source === "microverse@inline") return true;
+  let dir;
+  try {
+    dir = realpathSync.native(`${suite.slot}-plugin`);
+  } catch {
+    return false;
+  }
+  return typeof p?.path === "string" && lib.normPath(p.path) === lib.normPath(dir);
+}
+
 // R2. Why the first init event does not match the organisation, or null.
 function initProblem(init, suite, orgId) {
   const org = suite.organisations[orgId];
   // Claude Code lists its own built-in plugins (path "builtin"): they are not a configuration choice.
   const plugins = (Array.isArray(init.plugins) ? init.plugins : []).filter((p) => p?.path !== "builtin" && !/@builtin$/.test(p?.source ?? ""));
-  const microverse = plugins.filter((p) => /microverse/i.test(JSON.stringify(p)));
-  if (org.plugin && microverse.length !== 1) return "the microverse plugin is not loaded exactly once";
-  if (plugins.length !== microverse.length) return "a plugin other than microverse is loaded";
-  if (!org.plugin && plugins.length) return "a plugin is loaded in an organisation without one";
+  if (org.plugin) {
+    if (plugins.length !== 1) return plugins.length ? "more than one plugin is loaded" : "the microverse plugin is not loaded";
+    if (!isInlineCopy(plugins[0], suite)) return "the plugin loaded is not the inline copy (microverse@inline)";
+  } else if (plugins.length) return "a plugin is loaded in an organisation without one";
   const names = (Array.isArray(init.skills) ? init.skills : []).map((s) => (typeof s === "string" ? s : s?.name ?? ""));
   for (const f of suite.forbiddenSkills) {
     if (names.some((n) => n === f || n.endsWith(`:${f}`))) return `the forbidden skill ${f} is loaded`;
@@ -167,9 +182,43 @@ function launch({ claude, args, cwd, env, timeoutMs, onInit }) {
 
 // R3. Processes still running from the slot after the call: killed with their
 // trees. Returns how many were killed and how many remain.
-async function sweep(slot) {
+//
+// The process list is read by a variant that throws: lib.listProcesses ends
+// the whole process on a failed listing, which would lose the line of a pass
+// already paid for.
+function listProcesses() {
+  if (process.platform === "win32") {
+    const r = spawnSync("powershell.exe", [
+      "-NoProfile", "-Command",
+      "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress",
+    ], { encoding: "utf8", windowsHide: true, timeout: 60000, maxBuffer: 64 * 1024 * 1024 });
+    if (r.error || r.status !== 0) throw new Error("cannot read the process list");
+    const list = JSON.parse(r.stdout || "[]");
+    return (Array.isArray(list) ? list : [list]).map((p) => ({ pid: p.ProcessId, ppid: p.ParentProcessId, name: p.Name ?? "", line: p.CommandLine ?? "" }));
+  }
+  const r = spawnSync("ps", ["-eo", "pid=,ppid=,comm=,args="], { encoding: "utf8", timeout: 60000, maxBuffer: 64 * 1024 * 1024 });
+  if (r.error || r.status !== 0) throw new Error("cannot read the process list");
+  return r.stdout.split("\n").filter(Boolean).map((l) => {
+    const m = /^\s*(\d+)\s+(\d+)\s+(\S+)\s*(.*)$/.exec(l);
+    return { pid: Number(m?.[1]), ppid: Number(m?.[2]), name: m?.[3] ?? "", line: m?.[4] ?? "" };
+  });
+}
+
+// True when `line` holds `key` as a whole path: what follows it ends the
+// path (so `<slot>-plugin` and `<slot>2` are other folders). Both are
+// normalised by normPath, which makes every separator a backslash.
+function holdsPath(line, key) {
+  const text = lib.normPath(line);
+  for (let i = text.indexOf(key); i !== -1; i = text.indexOf(key, i + 1)) {
+    const next = text[i + key.length];
+    if (next === undefined || /[\\"' ]/.test(next)) return true;
+  }
+  return false;
+}
+
+async function sweep(slot, { list = listProcesses } = {}) {
   const key = lib.normPath(slot);
-  const find = () => lib.listProcesses().filter((p) => p.pid !== process.pid && lib.normPath(p.line ?? "").includes(key));
+  const find = () => list().filter((p) => p.pid !== process.pid && holdsPath(p.line ?? "", key));
   let killed = 0;
   for (let round = 0; round < 3; round++) {
     const left = find();
@@ -197,10 +246,11 @@ function parseEvents(text) {
 }
 
 // The cost of a launched call: its transcript; a model without a price, or no
-// transcript, falls back on the figure the call reported, and with none on the
-// most it could have spent (budget cap with a margin), flagged `bound`. A call
-// that ran is never written as free or unknown: either would let the guard
-// approve the next one blind.
+// transcript, gives the points of the figure the call reported (flagged
+// `fromReported`, `usd` is never replaced by it), and with none the most it
+// could have spent (budget cap with a margin), flagged `bound`. A call that
+// ran is never written as free or unknown: either would let the guard approve
+// the next one blind.
 function costOf({ projects, slot, session, ratios, events, maxBudgetUsd }) {
   const reported = events.filter((e) => e?.type === "result").at(-1)?.total_cost_usd;
   const bound = (base) => ({
@@ -215,11 +265,12 @@ function costOf({ projects, slot, session, ratios, events, maxBudgetUsd }) {
   }
   if (cost === null) {
     if (!Number.isFinite(reported)) return bound({});
-    return { byRole: {}, usd: reported, usdReported: reported, unpriced: [], weekPts: reported * ratios.ratio7, fiveHourPts: reported * ratios.ratio5, ratios: { ...ratios } };
+    // `usd` is the measure by tokens: without a transcript there is none.
+    return { byRole: {}, usd: null, usdReported: reported, unpriced: [], weekPts: reported * ratios.ratio7, fiveHourPts: reported * ratios.ratio5, fromReported: true, ratios: { ...ratios } };
   }
   if (cost.unpriced.length) {
     if (!Number.isFinite(cost.usdReported)) return bound(cost);
-    return { ...cost, weekPts: cost.usdReported * ratios.ratio7, fiveHourPts: cost.usdReported * ratios.ratio5, ratios: { ...ratios } };
+    return { ...cost, weekPts: cost.usdReported * ratios.ratio7, fiveHourPts: cost.usdReported * ratios.ratio5, fromReported: true, ratios: { ...ratios } };
   }
   return cost;
 }
@@ -245,6 +296,57 @@ function mainAdvanced(suite) {
   const r = gitIn(suite.slot, ["rev-parse", "refs/heads/main"], suite.cmdEnv);
   return r.code === 0 && marker.base != null && r.out.trim() !== marker.base;
 }
+
+// --- what a line records about the world ------------------------------------
+
+const ROOT = join(__dirname, "..", "..");
+// A counter reading older than this says nothing about the quota now.
+const QUOTA_FRESH_MS = 10 * 60 * 1000;
+
+// `orch-quota --json`, or null when it cannot be read. Never throws.
+function readQuota() {
+  const r = spawnSync(process.execPath, [join(ROOT, "bin", "orch-quota"), "--json", "--no-write"], { encoding: "utf8", timeout: 30000, windowsHide: true });
+  if (r.status !== 0) return null;
+  try {
+    return JSON.parse(r.stdout.trim().split("\n").at(-1));
+  } catch {
+    return null;
+  }
+}
+
+// { five, week } (percent used) and the age of the older counter in seconds,
+// or null when either counter is missing, has no figure or is not fresh.
+function freshReading(quota, now) {
+  const five = quota?.counters?.five;
+  const week = quota?.counters?.week;
+  for (const c of [five, week]) {
+    if (!c || !Number.isFinite(c.used) || !Number.isFinite(c.observedAt) || now - c.observedAt > QUOTA_FRESH_MS) return null;
+  }
+  return { five: five.used, week: week.used, ageSeconds: Math.max(0, Math.round((now - Math.min(five.observedAt, week.observedAt)) / 1000)) };
+}
+
+function claudeVersion(claude, claudeArgs = []) {
+  const r = spawnSync(claude, [...claudeArgs, "--version"], { encoding: "utf8", timeout: 30000, windowsHide: true, shell: false });
+  return r.status === 0 ? r.stdout.trim().split("\n")[0] : null;
+}
+
+function pluginCommit(suite) {
+  if (!Object.values(suite.organisations).some((o) => o.plugin)) return null;
+  const dir = `${suite.slot}-plugin`;
+  if (!existsSync(dir)) return null;
+  const r = gitIn(dir, ["rev-parse", "HEAD"], suite.cmdEnv);
+  return r.code === 0 ? r.out.trim() : null;
+}
+
+// $ per million tokens of a model, for the five counters, or null without a price.
+function priceVector(model) {
+  const v = [0, 1, 2, 3, 4].map((i) => lib.priceOf(model, [0, 1, 2, 3, 4].map((j) => (j === i ? 1e6 : 0))));
+  return v.every((x) => Array.isArray(x)) ? v.map((x, i) => x[i]) : null;
+}
+
+// A misconfigured pass or one that never started is not counted against its
+// organisation: a relaunch retries the cell. Its cost still counts in the guard.
+const counted = (p) => p.outcome !== "misconfigured" && !p.cost?.neverStarted;
 
 // --- the pass -------------------------------------------------------------------
 
@@ -273,23 +375,32 @@ async function runPass(opts) {
   const model = opts.model ?? DEFAULT_MODEL;
   const args = commandLine({ suite, orgId, prompt: suite.prompts[orgId], model, session, settingsFile, claudeArgs: opts.claudeArgs });
 
+  const readQ = opts.quota ?? readQuota;
+  const before = attempt(() => freshReading(readQ(), Date.now()));
+  const passNo = readLines(join(campaignDir, "passes.jsonl")).filter((p) => p.task === taskId && p.org === orgId && counted(p)).length + 1;
+  let init = null;
   const started = Date.now();
   const r = await launch({
     claude, args, cwd: slot, env: suite.cmdEnv, timeoutMs: (opts.timeoutMinutes ?? DEFAULT_TIMEOUT_MINUTES) * 60000,
-    onInit: (init) => initProblem(init, suite, orgId),
+    onInit: (e) => {
+      init = e;
+      return initProblem(e, suite, orgId);
+    },
   });
   const minutes = Math.round(((Date.now() - started) / 60000) * 1000) / 1000;
   const events = parseEvents(r.stdout);
 
   // R4, in this order: the leftovers, the kept diff, the grade, then the figures.
-  const swept = await sweep(slot);
+  // A failed listing leaves `leftover: null`: the line is still written and the
+  // campaign stops on it.
+  const swept = await sweep(slot, { list: opts.listProcesses }).catch(() => ({ killed: null, left: null, error: "process listing failed" }));
   const projects = opts.projects ?? lib.projectsRoot();
   const advanced = mainAdvanced(suite);
   const kept = attempt(() => keepDiff({ suite, campaignDir, session }));
   const diffResult = kept.value ?? { diff: null, diffError: "git-error" };
   const graded = attempt(() => grade(suite, taskId));
   const cost = r.failed ? freeCost(ratios) : costOf({ projects, slot, session, ratios, events, maxBudgetUsd: org.maxBudgetUsd });
-  const leaks = attempt(() =>
+  const contamination = attempt(() =>
     scanLeaks({ projects, slot, session, source: suite.source, forbiddenPaths: suite.forbiddenPaths, hashes: { tip: task.tip, merge: task.merge } }));
   const activity = attempt(() => passActivity({ projects, slot, session, stream: events }));
 
@@ -297,21 +408,40 @@ async function runPass(opts) {
   let outcome;
   if (r.failed) outcome = "error";
   else if (r.misconfigured) outcome = "misconfigured";
-  else if (leaks.value?.length) outcome = "contaminated";
+  else if (contamination.value?.length) outcome = "contaminated";
   else if (r.timedOut) outcome = "timeout";
   else outcome = passOutcome({ stream: events, mainAdvanced: advanced });
 
   const quality = graded.value ? { ...graded.value, ...(activity.value ? { agents: activity.value.agents } : {}) } : null;
+  const after = attempt(() => freshReading(readQ(), Date.now()));
+  const b = before.value;
+  const a = after.value;
   const line = {
-    schema: 1, task: taskId, org: orgId, session, model, startedAt: new Date(started).toISOString(), minutes, outcome,
+    schema: 1, campaign: opts.campaign ?? basename(campaignDir), pass: passNo, task: taskId, org: orgId, session,
+    // The id the call resolved to; the configured alias is in the manifest.
+    model: init?.model ?? null,
+    env: {
+      claudeCode: opts.claudeCode !== undefined ? opts.claudeCode : claudeVersion(claude, opts.claudeArgs),
+      plugin: opts.pluginCommit !== undefined ? opts.pluginCommit : pluginCommit(suite),
+      models: { orchestrator: init?.model ?? null },
+    },
+    startedAt: new Date(started).toISOString(), minutes, outcome,
     reason: r.misconfigured ?? (r.failed ? String(r.failed.message) : null),
-    killed: swept.killed, leftover: swept.left,
+    killed: swept.killed, leftover: swept.left, ...(swept.error ? { sweepError: swept.error } : {}),
+    // A reading that is not fresh is null, never zero.
+    quota: {
+      weekBefore: b?.week ?? null, weekAfter: a?.week ?? null, fiveBefore: b?.five ?? null, fiveAfter: a?.five ?? null,
+      ageSeconds: b && a ? { before: b.ageSeconds, after: a.ageSeconds } : null,
+    },
     cost, quality, qualityError: graded.error, activity: activity.value, activityError: activity.error,
-    leaks: leaks.value, leaksError: leaks.error,
+    contamination: contamination.value, contaminationError: contamination.error,
     diff: diffResult.diff, diffError: diffResult.diffError ?? kept.error,
   };
   appendFileSync(join(campaignDir, "passes.jsonl"), `${JSON.stringify(line)}\n`);
   return line;
 }
 
-module.exports = { runPass, assertNoDatabase, portOpen, assertExe, settingsFor, commandLine, initProblem, sweep, DEFAULT_MODEL, DEFAULT_TIMEOUT_MINUTES };
+module.exports = {
+  runPass, assertNoDatabase, portOpen, assertExe, settingsFor, commandLine, initProblem, sweep, listProcesses, holdsPath,
+  readQuota, freshReading, claudeVersion, pluginCommit, priceVector, counted, QUOTA_FRESH_MS, DEFAULT_MODEL, DEFAULT_TIMEOUT_MINUTES,
+};
