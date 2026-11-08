@@ -145,7 +145,8 @@ test("T2 an init that does not match the organisation is misconfigured and the c
   for (const [name, org, cfg] of cases) {
     const w = world({ cfg: { ...cfg, hang: true } });
     const started = Date.now();
-    const line = await w.pass({ orgId: org });
+    // The short limit only turns a missed check into a failed assertion instead of a long wait.
+    const line = await w.pass({ orgId: org, timeoutMinutes: 0.3 });
     assert.equal(line.outcome, "misconfigured", name);
     assert.ok(line.reason, name);
     assert.ok(Date.now() - started < 60000, `${name}: killed, not waited for`);
