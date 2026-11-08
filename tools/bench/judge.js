@@ -417,7 +417,7 @@ async function judgeCampaign(opts) {
       continue;
     }
     const input = judgeInput({ suite, taskId: p.task, diff: diff.toString("utf8"), anonymiserVersion, afterReplace: opts.afterReplace });
-    const empty = { model: null, effort: j.effort, session: null, attempt: null, startedAt: new Date().toISOString(), seconds: null, scores: null, overall: null, defects: null, redactions: input.redactions, cost: null };
+    const empty = { model: null, resolvedModel: null, effort: j.effort, session: null, attempt: null, startedAt: new Date().toISOString(), seconds: null, scores: null, overall: null, defects: null, redactions: input.redactions, cost: null };
     if (input.status !== "ok") {
       const rec = { ...line, ...empty, status: input.status };
       append(rec);
@@ -436,7 +436,8 @@ async function judgeCampaign(opts) {
       }
       const a = await attempt(ctx, input.input);
       const rec = {
-        ...line, model: a.model, effort: j.effort, session: a.session, attempt: n, startedAt: a.startedAt, seconds: a.seconds, status: a.status,
+        // `resolvedModel` is a trace of what the alias pointed to; it is not part of the key.
+        ...line, model: a.model, resolvedModel: a.model, effort: j.effort, session: a.session, attempt: n, startedAt: a.startedAt, seconds: a.seconds, status: a.status,
         scores: null, overall: null, defects: null, redactions: input.redactions, cost: a.cost,
       };
       if (a.status === "ok") {
