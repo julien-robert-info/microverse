@@ -12,6 +12,7 @@ const { ROOT, commitFile, emptyHome, git, makeRepo } = require("./helpers.js");
 const lib = require("../scripts/orch-lib.js");
 const { runCampaign, takeLock } = require("../tools/bench/campaign.js");
 const { runPass, sweep } = require("../tools/bench/run.js");
+const { killTree } = require("../tools/bench/proc.js");
 const { loadSuite } = require("../tools/bench/suite.js");
 
 // profileTrust reads the approval store of the home it is run under.
@@ -95,9 +96,9 @@ function world({ cfg = {}, patch } = {}) {
   const w = { suite, dir: s.dir, camp: join(suite.results, "camp-1"), projects: join(s.dir, "projects"), log: join(s.dir, "fake.log"), cfgFile: join(s.dir, "fake.json") };
   w.setCfg = (c) => writeFileSync(w.cfgFile, JSON.stringify(c));
   w.setCfg(cfg);
-  const common = () => ({ suite, campaignDir: w.camp, claude: process.execPath, claudeArgs: [FAKE], projects: w.projects, ratios: RATIOS, allowPort: true });
+  const common = () => ({ suite, campaignDir: w.camp, claude: process.execPath, claudeArgs: [FAKE], projects: w.projects, ratios: RATIOS, allowPort: true, quota: fresh() });
   w.pass = (extra = {}) => runPass({ ...common(), taskId: "t1", orgId: "O0", ...extra });
-  w.campaign = (extra = {}) => runCampaign({ ...common(), id: "camp-1", quota: () => null, ...extra });
+  w.campaign = (extra = {}) => runCampaign({ ...common(), id: "camp-1", ...extra });
   w.calls = () => jsonl(w.log);
   w.passes = () => jsonl(join(w.camp, "passes.jsonl"));
   // Processes whose command line holds the slot.
@@ -107,27 +108,56 @@ function world({ cfg = {}, patch } = {}) {
 
 const argAfter = (args, flag) => args[args.indexOf(flag) + 1];
 
+// An orch-quota reading taken now, with the whole week left.
+const fresh = (five = 5, week = 0) => () => ({ counters: { five: { used: five, observedAt: Date.now() }, week: { used: week, observedAt: Date.now() } } });
+const INLINE = { name: "microverse", path: "C:\\synthetic\\plugin", source: "microverse@inline", version: "0.6.0" };
+
 test("T1 a nominal pass writes a full line with its costs, quality and diff", async () => {
   const w = world({ cfg: { commit: WORK, cost: 0.5 } });
-  const line = await w.pass();
+  // Different ratios, so that a swapped pair of them cannot pass.
+  const ratios = { ratio7: 0.4, ratio5: 3 };
+  const readings = [fresh(7, 3)(), fresh(9, 4)()];
+  const line = await w.pass({ ratios, quota: () => readings.shift() ?? null });
   assert.equal(line.outcome, "done");
   assert.ok(line.cost.usd > 0 && line.cost.weekPts > 0 && line.cost.fiveHourPts > 0, JSON.stringify(line.cost));
-  assert.equal(line.cost.weekPts, line.cost.usd * RATIOS.ratio7);
-  assert.equal(line.cost.fiveHourPts, line.cost.usd * RATIOS.ratio5);
+  assert.equal(line.cost.weekPts, line.cost.usd * 0.4);
+  assert.equal(line.cost.fiveHourPts, line.cost.usd * 3);
   assert.equal(line.quality.oracle.fail, 0);
   assert.ok(line.quality.oracle.pass >= 1);
   assert.equal(line.diff.files, 1);
   assert.equal(line.diffError, null);
   assert.deepEqual([line.killed, line.leftover], [0, 0]);
-  assert.equal(line.leaks.length, 0);
+  assert.equal(line.contamination.length, 0);
+  assert.ok(!("leaks" in line));
   assert.deepEqual(w.passes(), [line], "one line, as returned");
   assert.equal(line.session, argAfter(w.calls()[0].args, "--session-id"));
-  for (const k of ["task", "org", "session", "startedAt", "minutes", "outcome", "cost", "quality", "diff", "diffError", "killed"]) assert.ok(k in line, k);
+  for (const k of ["task", "org", "session", "startedAt", "minutes", "outcome", "cost", "quality", "diff", "diffError", "killed", "campaign", "pass", "env", "quota", "model"]) assert.ok(k in line, k);
+  assert.equal(line.campaign, "camp-1");
+  assert.equal(line.pass, 1);
+  assert.equal(line.model, "claude-sonnet-5-5", "the id the call resolved to");
+  assert.deepEqual(line.env, { claudeCode: "9.9.9 (Fake Code)", plugin: null, models: { orchestrator: "claude-sonnet-5-5" } });
+  assert.deepEqual([line.quota.weekBefore, line.quota.weekAfter, line.quota.fiveBefore, line.quota.fiveAfter], [3, 4, 7, 9]);
 
-  // Several result events: the last one counts.
+  // The same cell again is its second pass; with no fresh reading the figures are null, never zero.
+  assert.equal((await w.pass()).pass, 2);
+  const blind = await w.pass({ quota: () => null });
+  assert.deepEqual([blind.quota.weekBefore, blind.quota.weekAfter, blind.quota.fiveBefore, blind.quota.fiveAfter, blind.quota.ageSeconds], [null, null, null, null, null]);
+
+  // Several result events: the last one counts. Without a transcript the cost is the
+  // reported figure, flagged, and usd (the measure by tokens) is unknown.
   const w2 = world({ cfg: { commit: WORK, results: 3, cost: 0.1, noTranscript: true } });
-  const l2 = await w2.pass();
-  assert.equal(l2.cost.usd, 0.1 * 3);
+  const l2 = await w2.pass({ ratios });
+  assert.equal(l2.cost.usd, null);
+  assert.equal(l2.cost.fromReported, true);
+  assert.equal(l2.cost.usdReported, 0.1 * 3);
+  assert.equal(l2.cost.weekPts, 0.1 * 3 * 0.4);
+  assert.equal(l2.cost.fiveHourPts, 0.1 * 3 * 3);
+  // No transcript and no figure: the bound, not zero.
+  const w4 = world({ cfg: { commit: WORK, noTranscript: true, results: 0 } });
+  const l4 = await w4.pass({ ratios });
+  assert.equal(l4.cost.bound, true);
+  assert.equal(l4.cost.usd, null);
+  assert.ok(l4.cost.weekPts > 0);
   // A pass whose main did not advance is not "done".
   const w3 = world({ cfg: {} });
   assert.equal((await w3.pass()).outcome, "no-merge");
@@ -135,12 +165,14 @@ test("T1 a nominal pass writes a full line with its costs, quality and diff", as
 
 test("T2 an init that does not match the organisation is misconfigured and the call is killed", async () => {
   const cases = [
-    ["a plugin in O0", "O0", { initPlugins: [{ name: "microverse", source: "inline" }] }],
-    ["another plugin in O0", "O0", { initPlugins: [{ name: "other" }] }],
+    ["a plugin in O0", "O0", { initPlugins: [INLINE] }],
+    ["another plugin in O0", "O0", { initPlugins: [{ name: "other", path: "C:\\synthetic\\other", source: "other@market" }] }],
     ["no plugin in O2", "O2", { initPlugins: [] }],
-    ["an extra plugin in O2", "O2", { initPlugins: [{ name: "microverse" }, { name: "other" }] }],
+    ["an extra plugin in O2", "O2", { initPlugins: [INLINE, { name: "other", path: "C:\\synthetic\\other", source: "other@market" }] }],
+    ["microverse@microverse alone in O2", "O2", { initPlugins: [{ name: "microverse", path: "C:\\synthetic\\cache", source: "microverse@microverse", version: "0.6.0" }] }],
+    ["the inline copy and the installed copy in O2", "O2", { initPlugins: [INLINE, { name: "microverse", path: "C:\\synthetic\\cache", source: "microverse@microverse", version: "0.6.0" }] }],
     ["a forbidden skill", "O0", { initSkills: ["pi-ops"] }],
-    ["a forbidden plugin skill", "O2", { initPlugins: [{ name: "microverse" }], initSkills: ["x:pi-ops"] }],
+    ["a forbidden plugin skill", "O2", { initPlugins: [INLINE], initSkills: ["x:pi-ops"] }],
   ];
   for (const [name, org, cfg] of cases) {
     const w = world({ cfg: { ...cfg, hang: true } });
@@ -154,8 +186,12 @@ test("T2 an init that does not match the organisation is misconfigured and the c
     assert.equal(w.passes().length, 1, `${name}: the line is written`);
   }
   // The controls: the expected configuration is accepted.
-  const ok = world({ cfg: { initPlugins: [{ name: "microverse", source: "inline" }], commit: WORK } });
+  const ok = world({ cfg: { initPlugins: [INLINE], commit: WORK } });
   assert.equal((await ok.pass({ orgId: "O2" })).outcome, "done");
+  // The inline copy is also recognised by its folder.
+  const byPath = world({ cfg: { commit: WORK } });
+  byPath.setCfg({ commit: WORK, initPlugins: [{ name: "microverse", path: realpathSync.native(`${byPath.suite.slot}-plugin`), source: "elsewhere" }] });
+  assert.equal((await byPath.pass({ orgId: "O2" })).outcome, "done");
   // Claude Code's own built-in plugins are not a configuration choice.
   const ok0 = world({ cfg: { initPlugins: [{ name: "cc-plugin-x", path: "builtin", source: "cc-plugin-x@builtin" }], initSkills: ["local-data"], commit: WORK } });
   assert.equal((await ok0.pass()).outcome, "done");
@@ -178,22 +214,55 @@ test("T3 the time limit gives timeout and no process of the slot is left", async
   assert.ok(res.killed >= 1);
   assert.equal(res.left, 0);
   assert.throws(() => process.kill(orphan.pid, 0));
+
+  // A process on a folder that only starts like the slot is not the slot's.
+  const near = [`${where}-plugin`, `${where}2`].map((p) => {
+    const c = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "--", p], { stdio: "ignore", windowsHide: true, detached: true });
+    c.unref();
+    return c;
+  });
+  await sleep(600);
+  try {
+    const res2 = await sweep(where);
+    assert.deepEqual([res2.killed, res2.left], [0, 0]);
+    for (const c of near) assert.doesNotThrow(() => process.kill(c.pid, 0), "still running");
+  } finally {
+    for (const c of near) killTree(c.pid);
+  }
+});
+
+test("T3b a failed process listing keeps the line, the diff and the rest of the pass", async () => {
+  const w = world({ cfg: { commit: WORK, cost: 0.5 } });
+  const line = await w.pass({ listProcesses: () => { throw new Error("cannot read C:\\secret\\place"); } });
+  assert.equal(line.leftover, null);
+  assert.equal(line.killed, null);
+  assert.equal(line.sweepError, "process listing failed");
+  assert.ok(!JSON.stringify(line).includes("secret"), "no path in the line");
+  assert.equal(line.diff.files, 1, "the diff is kept after the failed sweep");
+  assert.ok(line.cost.usd > 0 && line.quality, "graded and costed");
+  assert.deepEqual(w.passes(), [line]);
 });
 
 test("T4 the spend cap stops the campaign with its reason, a stale quota reading is ignored, and a relaunch resumes", async () => {
   const w = world({ cfg: { commit: WORK, cost: 0.5, noTranscript: true }, patch: (raw) => delete raw.judge });
-  const stale = () => ({ counters: { five: { used: 99, observedAt: Date.now() - 3 * 3600 * 1000 }, week: { used: 99, observedAt: Date.now() - 3 * 3600 * 1000 } } });
+  // The launch needs one fresh reading; every later one is stale and ignored.
+  const staleAfterFirst = () => {
+    let n = 0;
+    return () => (n++ === 0 ? fresh()() : { counters: { five: { used: 99, observedAt: Date.now() - 3 * 3600 * 1000 }, week: { used: 99, observedAt: Date.now() - 3 * 3600 * 1000 } } });
+  };
   // Each pass costs 5 points of week against a cap of 10: the third is refused.
-  const first = await w.campaign({ passes: 2, capWeek: 10, quota: stale });
+  const first = await w.campaign({ passes: 2, capWeek: 10, quota: staleAfterFirst() });
   assert.equal(first.stopped, "week cap");
   assert.equal(w.passes().length, 2);
+  assert.ok(w.passes().every((p) => p.campaign === "camp-1" && p.pass === 1 && p.quota.weekBefore === null), "stale readings are null in the line");
   assert.equal(first.lines.filter((l) => /^t1 O[02] done /.test(l)).length, 2);
   const before = readFileSync(join(w.camp, "passes.jsonl"), "utf8");
   assert.equal(w.calls().length, 2);
 
-  const second = await w.campaign({ passes: 2, capWeek: 100, quota: stale });
+  const second = await w.campaign({ passes: 2, capWeek: 100, quota: staleAfterFirst() });
   assert.equal(second.stopped, null);
   assert.equal(w.passes().length, 4);
+  assert.deepEqual(w.passes().slice(2).map((p) => p.pass), [2, 2], "the pass index counts within the cell");
   assert.equal(readFileSync(join(w.camp, "passes.jsonl"), "utf8").startsWith(before), true, "the first two lines are not redone");
   assert.equal(w.calls().length, 4);
   const cells = w.passes().map((p) => `${p.task}${p.org}`).sort();
@@ -201,19 +270,45 @@ test("T4 the spend cap stops the campaign with its reason, a stale quota reading
 
   // A fresh reading above the five-hour cap stops before any call.
   const w2 = world({ cfg: { commit: WORK, noTranscript: true }, patch: (raw) => delete raw.judge });
-  const fresh = await w2.campaign({ passes: 1, quota: () => ({ counters: { five: { used: 95, observedAt: Date.now() - 1000 } } }) });
-  assert.match(fresh.stopped, /five-hour cap/);
+  const high = await w2.campaign({ passes: 1, quota: fresh(95, 0) });
+  assert.match(high.stopped, /five-hour cap/);
   assert.equal(w2.calls().length, 0);
+});
 
-  // The lock: held by a live process it refuses, left by a dead one it is taken over.
+test("T4b the launch needs a fresh reading and a week margin that covers the cap", async () => {
+  const w = world({ cfg: { commit: WORK, cost: 0.1, noTranscript: true }, patch: (raw) => delete raw.judge });
+  const old = Date.now() - 3600 * 1000;
+  const stale = () => ({ counters: { five: { used: 1, observedAt: old }, week: { used: 1, observedAt: old } } });
+  const noWeek = () => ({ counters: { five: { used: 1, observedAt: Date.now() } } });
+  for (const [name, quota] of [["absent", () => null], ["stale", stale], ["without the week counter", noWeek]]) {
+    await assert.rejects(() => w.campaign({ capWeek: 10, quota }), /no fresh orch-quota reading/, name);
+  }
+  // 100 - 95 = 5 points left against a cap of 10: refused, both numbers named.
+  await assert.rejects(() => w.campaign({ capWeek: 10, quota: fresh(5, 95) }), /5\.0%.*10%/);
+  assert.equal(w.calls().length, 0);
+  assert.ok(!existsSync(join(w.camp, "passes.jsonl")));
+  assert.ok(!existsSync(join(w.camp, "campaign.lock")), "no lock left by a refusal");
+  // Exactly enough margin is accepted.
+  const ok = await w.campaign({ capWeek: 10, quota: fresh(5, 90) });
+  assert.equal(ok.ran, 2);
+});
+
+test("T4c the lock: a live holder refuses, a dead one is taken over, an unreadable one is left alone", async () => {
+  const w = world({ cfg: {} });
   const lock = join(w.dir, "x.lock");
   const live = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", windowsHide: true });
   writeFileSync(lock, String(live.pid));
   assert.throws(() => takeLock(lock), /another campaign/);
+  assert.equal(readFileSync(lock, "utf8"), String(live.pid), "a live holder keeps its lock");
   live.kill();
   await new Promise((r) => live.on("exit", r));
   takeLock(lock);
   assert.equal(readFileSync(lock, "utf8"), String(process.pid));
+  for (const content of ["abc", "", "12abc", "-5", "1.5"]) {
+    writeFileSync(lock, content);
+    assert.throws(() => takeLock(lock), /lock file unreadable, remove it by hand/, JSON.stringify(content));
+    assert.equal(readFileSync(lock, "utf8"), content, "not taken over");
+  }
 });
 
 test("T5 a development database that accepts connections refuses the start", async () => {
@@ -350,6 +445,11 @@ test("T9 report prints the tables of a campaign, and the campaign never calls th
   assert.equal(m.capWeek, 100);
   assert.ok(Date.parse(m.date) > 0);
   assert.equal(m.suiteSha256, w.suite.sha256);
+  // Known only once a call resolved the model; the other fields are untouched.
+  assert.deepEqual(m.resolvedModels, { sonnet: "claude-sonnet-5-5" });
+  assert.deepEqual(Object.keys(m.prices), ["claude-sonnet-5-5"]);
+  assert.ok(m.prices["claude-sonnet-5-5"].length === 5 && m.prices["claude-sonnet-5-5"].every((x) => x > 0), JSON.stringify(m.prices));
+  assert.ok(!existsSync(join(w.camp, "manifest.json.tmp")));
 
   const r = spawnSync(process.execPath, [BENCH, "report", "--results", w.camp], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
@@ -363,5 +463,59 @@ test("T9 report prints the tables of a campaign, and the campaign never calls th
 
   // A resume with another suite file is refused: the manifest would lie.
   const other = world({ cfg: {} });
-  await assert.rejects(() => runCampaign({ suite: other.suite, id: "camp-1", campaignDir: w.camp, claude: process.execPath, claudeArgs: [FAKE], projects: w.projects, ratios: RATIOS, allowPort: true, quota: () => null }), /suite changed/);
+  await assert.rejects(() => runCampaign({ suite: other.suite, id: "camp-1", campaignDir: w.camp, claude: process.execPath, claudeArgs: [FAKE], projects: w.projects, ratios: RATIOS, allowPort: true, quota: fresh() }), /suite changed/);
+});
+
+test("T10 a process left in the slot, a failed sweep or an exception stops the campaign and the summary is still printed", async () => {
+  const slotOf = (w) => realpathSync.native(w.suite.slot);
+  // A process that the kills cannot reach (here a pid that does not exist) and that still holds the slot.
+  const stuck = (w) => () => [{ pid: 99999999, ppid: 1, name: "node", line: `node ${slotOf(w)}\\work.js` }];
+  const w = world({ cfg: { commit: WORK, cost: 0.1 } });
+  const left = await w.campaign({ passes: 1, capWeek: 100, listProcesses: stuck(w) });
+  assert.equal(left.stopped, "processes left in the slot (1)");
+  assert.equal(w.passes().length, 1, "no pass after it");
+  assert.equal(w.passes()[0].leftover, 1);
+  assert.ok(left.lines.includes("stopped: processes left in the slot (1)"));
+  assert.match(left.lines.at(-1), /judgeable pass/, "the summary is printed");
+  assert.ok(!existsSync(join(w.camp, "campaign.lock")));
+
+  const f = world({ cfg: { commit: WORK, cost: 0.1 } });
+  const failed = await f.campaign({ passes: 1, capWeek: 100, listProcesses: () => { throw new Error("no list"); } });
+  assert.match(failed.stopped, /^sweep failed/);
+  assert.equal(f.passes().length, 1);
+  assert.equal(f.passes()[0].leftover, null);
+  assert.match(failed.lines.at(-1), /judgeable pass/);
+
+  // runPass throwing (the plugin folder of O2 is gone) does not skip the summary or leave the lock.
+  const t = world({ cfg: { commit: WORK } });
+  rmSync(`${t.suite.slot}-plugin`, { recursive: true, force: true });
+  const thrown = await t.campaign({ passes: 1, capWeek: 100, orgs: ["O2"] });
+  assert.match(thrown.stopped, /^error: .*plugin/);
+  assert.equal(thrown.ran, 0);
+  assert.ok(thrown.lines.includes(`stopped: ${thrown.stopped}`));
+  assert.match(thrown.lines.at(-1), /judgeable pass/);
+  assert.ok(!existsSync(join(t.camp, "campaign.lock")));
+});
+
+test("T11 a relaunch retries the cells whose pass was misconfigured or never started", async () => {
+  const w = world({ cfg: { initSkills: ["pi-ops"], hang: true }, patch: (raw) => delete raw.judge });
+  const bad = await w.campaign({ passes: 1, capWeek: 100, orgs: ["O0"], timeoutMinutes: 0.3 });
+  assert.match(bad.stopped, /^misconfigured/);
+  assert.equal(w.passes().length, 1);
+  // The configuration is fixed: the cell is run again, as the first counted pass.
+  w.setCfg({ commit: WORK, cost: 0.1 });
+  const again = await w.campaign({ passes: 1, capWeek: 100, orgs: ["O0"] });
+  assert.equal(again.ran, 1);
+  assert.deepEqual(w.passes().map((p) => [p.outcome, p.pass]), [["misconfigured", 1], ["done", 1]]);
+  // Counted now: a third launch has nothing to do.
+  assert.equal((await w.campaign({ passes: 1, capWeek: 100, orgs: ["O0"] })).ran, 0);
+
+  // Same for a call that never started; its (zero) cost stays in the file.
+  const n = world({ cfg: { commit: WORK, cost: 0.1 }, patch: (raw) => delete raw.judge });
+  mkdirSync(n.camp, { recursive: true });
+  const never = { schema: 1, task: "t1", org: "O0", session: "s0", startedAt: new Date().toISOString(), minutes: 0, outcome: "error", cost: { usd: 0, weekPts: 0, fiveHourPts: 0, neverStarted: true } };
+  writeFileSync(join(n.camp, "passes.jsonl"), `${JSON.stringify(never)}\n`);
+  const run = await n.campaign({ passes: 1, capWeek: 100, orgs: ["O0"] });
+  assert.equal(run.ran, 1);
+  assert.equal(n.passes().length, 2);
 });

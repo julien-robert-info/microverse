@@ -610,11 +610,22 @@ test("T10b (Q100 c) a judgment carries the resolved model, and the key does not 
   assert.equal(j.resolvedModel, j.model);
   // The key is computed before the call from the configured model: a judgment
   // line written with another resolved model still has the same key.
-  const keyOf = (line) => line.key;
-  const again = world({ cfg: { model: "claude-opus-5-5" } });
+  // Both sides are configured with the same alias; the fake resolves it to
+  // another id on the second one.
+  const again = world({ cfg: { model: "claude-opus-6-0" } });
   await again.run();
-  assert.equal(keyOf(again.lines("judgment")[0]), keyOf(j));
+  const k = again.lines("judgment")[0];
+  assert.equal(k.key, j.key);
+  assert.equal(argAfterModel(again), "opus", "the same alias was asked for");
+  assert.equal(argAfterModel(w), "opus");
+  assert.notEqual(k.resolvedModel, j.resolvedModel);
+  assert.deepEqual([j.resolvedModel, k.resolvedModel], ["claude-opus-5-5", "claude-opus-6-0"]);
 });
+
+function argAfterModel(w) {
+  const a = w.calls()[0].args;
+  return a[a.indexOf("--model") + 1];
+}
 
 test("T10 spend sums passes and judgments, unknown is not zero, and the guard checks each cap", async () => {
   const w = world({ passes: [] });
