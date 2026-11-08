@@ -129,7 +129,14 @@ Also check:
   section of three or four lines, in the user's language: the summary keeps the
   missions in progress with their branches, the agents launched and not yet
   returned, the decisions not yet written to the notes, the questions awaiting
-  the user;
+  the user. The Board reads that file in a fixed format: read
+  `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/state-file.md`. When
+  `CLAUDE.local.md` does not exist, propose creating it in one write with the
+  skeleton of that file (headings and table header only, no example row), then
+  `# Compact instructions` last. When it exists, rewrite nothing: check that a
+  heading containing "question" sits above the question bullets (a plain
+  `Pending questions:` line is not read) and that the first cell of each mission
+  row is the Id alone (not `M1 Feed schema`), and show what to change;
 - tell the user that once the profile exists, the plugin's `SessionStart` hook
   loads the orchestration skill in every conversation of the project (new,
   resumed, cleared or compacted); nothing to configure;

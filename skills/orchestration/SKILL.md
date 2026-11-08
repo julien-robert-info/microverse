@@ -173,7 +173,9 @@ tool, never from PowerShell or cmd.exe.
 5. `agent-cleanup <branch>`: refuses while a process runs in the worktree or the
    branch is not merged.
 6. **State file**: the mission's line, merged commit, released reservation,
-   pending questions.
+   pending questions. Read `${CLAUDE_PLUGIN_ROOT}/skills/orchestration/state-file.md`
+   before creating or restructuring the file: the Board reads fixed English
+   tokens in it, whatever the user's language.
 7. **Chain**: by default the series runs on its own (§ 7): after a merge, the
    next launchable mission starts without asking, after a fresh `orch-quota`.
    Between two reports, trace lines only (§ 6).
