@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- State file contract: `skills/orchestration/state-file.md` lists the fixed English tokens the Board and `orch-status` read in `CLAUDE.local.md` (headings, table header, branch prefixes, `Answered`) with a skeleton; `/microverse:init` creates the state file from it when missing and checks the two shapes the Board cannot read when it exists, without rewriting it.
 - `orch-bench judge`: blind Opus judgment of a campaign's delivered diffs (anonymised, rubric r1, output validated by the bench, spend guard, one judgment per distinct diff), and the diff kept per pass. A call that ran without leaving a figure counts for 1.5 times its budget cap, and a pass whose kept diff is missing is reported with exit code 1.
 
 ## [0.6.0] - 2026-11-07

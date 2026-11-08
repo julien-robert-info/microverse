@@ -127,6 +127,11 @@ missions' design and measurements), `.claude/worktrees/` and
 `.claude/orchestration/`. A project that shares the profile with a team removes
 that last line and versions it.
 
+The Board and `orch-status` read `CLAUDE.local.md` through fixed English tokens
+(`## Missions`, `## Questions`, `| Id | Branch | State |`, `Answered`), whatever
+the language of the rest; `/microverse:init` writes the skeleton and
+`skills/orchestration/state-file.md` is the contract.
+
 ## Usage
 
 In a conversation opened at the project root, the `orchestration` skill loads
