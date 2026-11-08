@@ -156,7 +156,8 @@ test("T2 an init that does not match the organisation is misconfigured and the c
   // The controls: the expected configuration is accepted.
   const ok = world({ cfg: { initPlugins: [{ name: "microverse", source: "inline" }], commit: WORK } });
   assert.equal((await ok.pass({ orgId: "O2" })).outcome, "done");
-  const ok0 = world({ cfg: { initSkills: ["local-data"], commit: WORK } });
+  // Claude Code's own built-in plugins are not a configuration choice.
+  const ok0 = world({ cfg: { initPlugins: [{ name: "cc-plugin-x", path: "builtin", source: "cc-plugin-x@builtin" }], initSkills: ["local-data"], commit: WORK } });
   assert.equal((await ok0.pass()).outcome, "done");
 });
 

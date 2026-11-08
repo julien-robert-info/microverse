@@ -93,7 +93,8 @@ function commandLine({ suite, orgId, prompt, model, session, settingsFile, claud
 // R2. Why the first init event does not match the organisation, or null.
 function initProblem(init, suite, orgId) {
   const org = suite.organisations[orgId];
-  const plugins = Array.isArray(init.plugins) ? init.plugins : [];
+  // Claude Code lists its own built-in plugins (path "builtin"): they are not a configuration choice.
+  const plugins = (Array.isArray(init.plugins) ? init.plugins : []).filter((p) => p?.path !== "builtin" && !/@builtin$/.test(p?.source ?? ""));
   const microverse = plugins.filter((p) => /microverse/i.test(JSON.stringify(p)));
   if (org.plugin && microverse.length !== 1) return "the microverse plugin is not loaded exactly once";
   if (plugins.length !== microverse.length) return "a plugin other than microverse is loaded";
