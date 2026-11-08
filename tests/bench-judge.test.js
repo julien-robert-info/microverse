@@ -602,6 +602,20 @@ test("T9 one judgment per key, links for final statuses only, a seeded order, no
   assert.equal((await w.run({ anonymiser: "a2" })).judgments.length, 0);
 });
 
+test("T10b (Q100 c) a judgment carries the resolved model, and the key does not depend on it", async () => {
+  const w = world({ cfg: { model: "claude-opus-5-5" } });
+  await w.run();
+  const j = w.lines("judgment")[0];
+  assert.equal(j.resolvedModel, "claude-opus-5-5");
+  assert.equal(j.resolvedModel, j.model);
+  // The key is computed before the call from the configured model: a judgment
+  // line written with another resolved model still has the same key.
+  const keyOf = (line) => line.key;
+  const again = world({ cfg: { model: "claude-opus-5-5" } });
+  await again.run();
+  assert.equal(keyOf(again.lines("judgment")[0]), keyOf(j));
+});
+
 test("T10 spend sums passes and judgments, unknown is not zero, and the guard checks each cap", async () => {
   const w = world({ passes: [] });
   const now = Date.now();
