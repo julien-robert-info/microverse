@@ -7,7 +7,7 @@
 // FAKE_LOG). Every call is recorded in FAKE_LOG: arguments, working directory
 // and environment. `--version` answers and logs nothing.
 //
-// Settings (initPlugins defaults to microverse when --plugin-dir is passed, else none): initPlugins,initSkills, initModel, model, cost, noTranscript,
+// Settings (initPlugins defaults to the inline microverse plugin when --plugin-dir is passed, else none): initPlugins, initSkills, model, cost, noTranscript,
 // results (number of result events), subtype, hang, child (leave a process
 // whose command line holds the slot), commit ({ file, content } on the slot's
 // main), removeMarker, leak (a path read in a tool call), exitCode.
@@ -50,7 +50,7 @@ if (!cfg.noTranscript) {
   writeFileSync(join(dir, `${session}.jsonl`), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
 }
 
-out({ type: "system", subtype: "init", session_id: session, model, tools: ["Read", "Edit", "Bash"], mcp_servers: [], plugins: cfg.initPlugins ?? (args.includes("--plugin-dir") ? [{ name: "microverse", source: "inline" }] : []), skills: cfg.initSkills ?? [] });
+out({ type: "system", subtype: "init", session_id: session, model, tools: ["Read", "Edit", "Bash"], mcp_servers: [], plugins: cfg.initPlugins ?? (args.includes("--plugin-dir") ? [{ name: "microverse", path: after("--plugin-dir"), source: "microverse@inline", version: "0.6.0" }] : []), skills: cfg.initSkills ?? [] });
 
 if (cfg.child) spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "--", process.cwd()], { stdio: "ignore", windowsHide: true, detached: true }).unref();
 if (cfg.removeMarker) rmSync(join(process.cwd(), ".bench-slot"));
