@@ -30,6 +30,16 @@ test("the contract holds exactly one markdown block, the skeleton", () => {
   assert.equal(contract.split("```markdown").length, 2);
 });
 
+test("the Board test keeps a copy of the skeleton identical to the shipped one", () => {
+  const source = readFileSync(join(ROOT, "hooks", "board", "tests", "state-file.test.tsx"), "utf8");
+  const copy = /const SKELETON = `([^`]*)`/.exec(source)?.[1];
+  assert.equal(
+    copy,
+    skeleton,
+    "SKELETON in hooks/board/tests/state-file.test.tsx and the markdown block of skills/orchestration/state-file.md differ: update the one that is stale",
+  );
+});
+
 test("orch-status shows the mission and the question of the filled skeleton", () => {
   const { dir } = makeRepo({ checks: [] });
   const filled = skeleton
