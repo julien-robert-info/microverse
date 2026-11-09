@@ -323,13 +323,37 @@ test("T7 SendMessage calls, agents by type and permission denials", () => {
   addAgent(dir, "ddd4", "microverse:morty", [send("tu_c")]);
   addAgent(dir, "eee5", "microverse:morty", [call({ command: "ls" })]);
   addAgent(dir, "fff6", "microverse:council", [call({ command: "ls" })]);
-  const stream = lines(res({ permission_denials: [{}] }), res({ permission_denials: [{}, {}] }));
-  assert.deepEqual(passActivity({ projects, slot: SLOT, session: SESSION, stream }), {
+  assert.deepEqual(passActivity({ projects, slot: SLOT, session: SESSION }), {
     agents: { "microverse:morty": 2, "microverse:council": 1 },
     sendMessages: 3,
-    permissionDenials: 2,
+    permissionDenials: 0,
   });
-  assert.equal(passActivity({ projects, slot: SLOT, session: SESSION }).permissionDenials, null);
+});
+
+const refusal = (id, tool = "Bash", extra = {}) => ({
+  type: "user",
+  message: { content: [{ type: "tool_result", tool_use_id: id, is_error: true, content: `Permission to use ${tool} has been denied because Claude Code is running in don't ask mode.`, ...extra }] },
+});
+
+test("A4 denials: distinct tool_use ids, main file and sub-agents, exact text and is_error", () => {
+  const { projects, dir } = makeProjects();
+  const other = { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu_x", is_error: true, content: "Exit code 1" }] } };
+  const noFlag = refusal("tu_y", "Bash", { is_error: undefined });
+  const blocks = refusal("tu_z", "Edit", { content: [{ type: "text", text: "Permission to use Edit has been denied." }] });
+  writeMain(dir, [refusal("tu_1"), refusal("tu_1"), refusal("tu_2", "Read"), other, noFlag, blocks]);
+  addAgent(dir, "ddd4", "microverse:morty", [refusal("tu_3"), refusal("tu_3")]);
+  // Two denials in main + one in a sub-agent + the block-form one = 4; the repeated event counts once.
+  assert.equal(passActivity({ projects, slot: SLOT, session: SESSION }).permissionDenials, 4);
+  writeMain(dir, [refusal("tu_1"), refusal("tu_2", "Read"), other, noFlag]);
+  assert.equal(passActivity({ projects, slot: SLOT, session: SESSION }).permissionDenials, 3);
+});
+
+test("A5 the count comes from the transcripts, not from the last result", () => {
+  const { projects, dir } = makeProjects();
+  writeMain(dir, [refusal("tu_1")]);
+  addAgent(dir, "ddd4", "microverse:morty", [refusal("tu_2", "Edit")]);
+  const stream = lines(res({ permission_denials: [{}, {}, {}] }), res({ permission_denials: [] }));
+  assert.equal(passActivity({ projects, slot: SLOT, session: SESSION, stream }).permissionDenials, 2);
 });
 
 test("D2 a path or hash right after a JSON escape is found", () => {

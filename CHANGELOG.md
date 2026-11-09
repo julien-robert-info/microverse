@@ -7,6 +7,7 @@
 - `orch-bench run`, `campaign`, `report`: a bench pass of `claude -p` with nobody present (checked configuration, time limit with process sweep, diff kept before grading), a grid under the week and five-hour caps that resumes where `passes.jsonl` stops and never calls the judge, and the tables of a campaign folder. Judgments now record the resolved judge model.
 - Bench passes: the generated settings now allow the checks and setup of the profile the user approved (a pass is refused when it is not approved) and the plugin's `bin` scripts by bare name and by path, with `orch-trust` limited to `--status` and `--commands`.
 - Bench passes: `echo` and the tool of each approved `npx <tool>` check are allowed (never `npm run`, `npm` or `npx` as a whole), and a suite may list literal commands in `allowBash`, validated against the deny list and bare interpreters.
+- Bench passes: the generated settings give the plugin loaded by `--plugin-dir` the defaults of its manifest options (`quota_mode` off), so the skill text is substituted; `permissionDenials` now counts the distinct refused calls in the main and sub-agent transcripts instead of the last result.
 
 ## [0.6.0] - 2026-11-07
 
