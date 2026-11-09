@@ -15,7 +15,7 @@ const { keepDiff } = require("./diff.js");
 const { grade, readMarker } = require("./grade.js");
 const { killTree } = require("./proc.js");
 const { readLines } = require("./spend.js");
-const { gitIn, taskOf } = require("./suite.js");
+const { DENIED_BASH_PREFIXES, gitIn, taskOf } = require("./suite.js");
 const { passActivity, passCost, passOutcome, scanLeaks } = require("./transcripts.js");
 
 const DEFAULT_MODEL = "sonnet";
@@ -70,15 +70,16 @@ function settingsFor(suite, orgId, trusted) {
   const allow = [
     "Read", "Edit", "Write",
     ...suite.install.map((c) => `Bash(${c})`),
-    "Bash(git:*)", "Bash(node:*)", "Bash(npm test:*)", "Bash(npm ci:*)", "Bash(npx tsc:*)",
+    "Bash(git:*)", "Bash(node:*)", "Bash(npm test:*)", "Bash(npm ci:*)", "Bash(npx tsc:*)", "Bash(echo:*)",
     ...trusted.checks.flatMap((c) => [`Bash(${c})`, `Bash(${c}:*)`]),
+    ...npxTools(trusted.checks).map((t) => `Bash(npx ${t}:*)`),
+    ...(suite.allowBash ?? []).flatMap((c) => [`Bash(${c})`, `Bash(${c}:*)`]),
     ...trusted.setup.map((c) => `Bash(${c})`),
     ...READ_TOOLS.map((t) => `Bash(${t}:*)`),
     ...pluginBin,
   ];
   const deny = [
-    "Bash(ssh:*)", "Bash(scp:*)", "Bash(docker:*)", "Bash(psql:*)", "Bash(git push:*)", "Bash(npm run deploy:*)",
-    "Bash(npm run step:*)", "Bash(npm run db:*)", "Bash(curl:*)",
+    ...DENIED_BASH_PREFIXES.map((p) => `Bash(${p}:*)`),
     `Read(${slash(suite.source)}/**)`, `Edit(${slash(suite.source)}/**)`,
     ...suite.forbiddenPaths.flatMap((p) => [`Read(${slash(p)}/**)`, `Edit(${slash(p)}/**)`]),
     "Read(~/.claude/projects/**)",
@@ -89,6 +90,19 @@ function settingsFor(suite, orgId, trusted) {
     autoMemoryEnabled: false,
     permissions: { allow, deny },
   };
+}
+
+// Tool names of the approved checks written `npx <name> ...`, once each. Only
+// the tool is opened, never `npm run`, `npm`, `npx` or a package-manager prefix:
+// those reach `deploy`, `db:*` and the scripts that read `.env`. `npx tsc` is
+// already in the fixed rules.
+function npxTools(checks) {
+  const names = [];
+  for (const c of checks) {
+    const m = /^npx +(\S+)/.exec(c);
+    if (m && /^[A-Za-z0-9@][A-Za-z0-9@/._-]*$/.test(m[1]) && m[1] !== "tsc" && !names.includes(m[1])) names.push(m[1]);
+  }
+  return names;
 }
 
 // Bare name (found on PATH through --plugin-dir) and full path, per script.

@@ -47,6 +47,32 @@ function strings(obj, key, path, { min = 0 } = {}) {
   return obj[key];
 }
 
+// Command prefixes a pass never runs: the deny list of the generated settings
+// and the `allowBash` validation both read this one list, so they cannot drift.
+const DENIED_BASH_PREFIXES = ["ssh", "scp", "docker", "psql", "git push", "npm run deploy", "npm run step", "npm run db", "curl"];
+
+const ALLOW_BASH_UNSAFE = /[*()`;&|<>$\\'"\r\n]/;
+// A bare interpreter or a bare `npm run` would let a worker run anything.
+const ALLOW_BASH_BARE = ["npm", "npm run", "npx", "node", "git", "bash", "sh", "python", "python3", "cmd"];
+const ALLOW_BASH_SHELLS = ["bash ", "sh ", "python", "cmd", "powershell", "pwsh"];
+
+// Optional `allowBash`: literal commands a worker may run, one rule pair each.
+// The deny list stays authoritative at run time; this only fails early.
+function allowBash(obj) {
+  if (obj.allowBash === undefined) return [];
+  if (!Array.isArray(obj.allowBash)) throw bad("allowBash", "must be an array of strings");
+  obj.allowBash.forEach((e, i) => {
+    const f = `allowBash[${i}]`;
+    if (typeof e !== "string" || e === "") throw bad(f, "must be a non-empty string");
+    if (e !== e.trim()) throw bad(f, "must not start or end with a space");
+    if (ALLOW_BASH_UNSAFE.test(e)) throw bad(f, "must be one literal command (no wildcard, quote, substitution, separator or redirection)");
+    if (DENIED_BASH_PREFIXES.some((p) => e.startsWith(p))) throw bad(f, "starts with a command the bench denies");
+    if (/orch-trust|orch-speak/.test(e)) throw bad(f, "must not name orch-trust or orch-speak");
+    if (ALLOW_BASH_BARE.includes(e) || ALLOW_BASH_SHELLS.some((p) => e.startsWith(p))) throw bad(f, "is a bare interpreter, a shell or a bare `npm run`: name the script");
+  });
+  return obj.allowBash;
+}
+
 function positive(obj, key, path) {
   if (typeof obj[key] !== "number" || !Number.isFinite(obj[key]) || obj[key] <= 0) throw bad(path + key, "must be a positive number");
   return obj[key];
@@ -151,6 +177,7 @@ function loadSuite(file) {
   if (!isObject(raw.env) || !Object.values(raw.env).every((v) => typeof v === "string")) throw bad("env", "must be an object of strings");
   suite.env = raw.env;
   suite.install = strings(raw, "install", "");
+  suite.allowBash = allowBash(raw);
   suite.oracleCommand = str(raw, "oracleCommand", "");
   if (!suite.oracleCommand.includes("{files}")) throw bad("oracleCommand", "must contain {files}");
   suite.stateTemplate = at(str(raw, "stateTemplate", ""));
@@ -267,4 +294,4 @@ function validatedRecord(suite, task) {
   return rec;
 }
 
-module.exports = { INHERITED, benchEnv, gitIn, inGitRepo, loadSuite, taskOf, briefFindings, safeRelative, recordFile, readRecord, validatedRecord };
+module.exports = { DENIED_BASH_PREFIXES, INHERITED, benchEnv, gitIn, inGitRepo, loadSuite, taskOf, briefFindings, safeRelative, recordFile, readRecord, validatedRecord };
