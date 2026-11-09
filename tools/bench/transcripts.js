@@ -273,8 +273,21 @@ function passOutcome({ stream, mainAdvanced }) {
 
 // --- activity --------------------------------------------------------------
 
-// SendMessage calls, agents by type and the permission denials of the last
-// result (null without a result: unknown is not zero).
+// With --permission-mode dontAsk the harness answers a call that no rule allows
+// with this error text. Only the transcripts show it: a sub-agent's refusals
+// never reach a `result` of the main stream. Whether a `deny` rule yields the
+// same text has not been checked.
+const DENIAL_TEXT = /^Permission to use \S+ has been denied/;
+
+function resultText(b) {
+  if (typeof b.content === "string") return b.content;
+  if (Array.isArray(b.content)) return b.content.map((p) => (typeof p?.text === "string" ? p.text : "")).join("");
+  return "";
+}
+
+// SendMessage calls, agents by type and the permission denials of the session
+// (distinct tool_use ids answered by a denial error, main file and sub-agents).
+// `stream` is accepted but no longer feeds the denial count.
 function passActivity({ projects, slot, session, stream = null }) {
   const { main, agents } = sessionFiles(projects, slot, session);
   const types = {};
@@ -284,9 +297,10 @@ function passActivity({ projects, slot, session, stream = null }) {
   }
   // Streamed replies repeat a tool call: count each tool_use id once.
   const sent = new Set();
+  const denied = new Set();
   for (const file of [main, ...agents]) {
     for (const text of readFileSync(file, "utf8").split("\n")) {
-      if (!text.includes('"SendMessage"')) continue;
+      if (!text.includes('"SendMessage"') && !text.includes("has been denied")) continue;
       let o;
       try {
         o = JSON.parse(text);
@@ -295,11 +309,13 @@ function passActivity({ projects, slot, session, stream = null }) {
       }
       const content = o?.message?.content;
       if (!Array.isArray(content)) continue;
-      for (const b of content) if (b?.type === "tool_use" && b.name === "SendMessage") sent.add(b.id ?? `${file}:${sent.size}`);
+      for (const b of content) {
+        if (b?.type === "tool_use" && b.name === "SendMessage") sent.add(b.id ?? `${file}:${sent.size}`);
+        else if (b?.type === "tool_result" && b.is_error === true && typeof b.tool_use_id === "string" && DENIAL_TEXT.test(resultText(b))) denied.add(b.tool_use_id);
+      }
     }
   }
-  const denials = lastResult(streamEvents(stream))?.permission_denials;
-  return { agents: types, sendMessages: sent.size, permissionDenials: Array.isArray(denials) ? denials.length : null };
+  return { agents: types, sendMessages: sent.size, permissionDenials: denied.size };
 }
 
 module.exports = { passCost, scanLeaks, passOutcome, passActivity, pathPatterns };

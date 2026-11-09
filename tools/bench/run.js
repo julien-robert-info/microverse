@@ -6,7 +6,7 @@
 
 const { spawn, spawnSync } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
-const { appendFileSync, existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } = require("node:fs");
+const { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } = require("node:fs");
 const net = require("node:net");
 const { basename, join } = require("node:path");
 const lib = require("../../scripts/orch-lib.js");
@@ -89,7 +89,29 @@ function settingsFor(suite, orgId, trusted) {
     autoCompactWindow: 183000,
     autoMemoryEnabled: false,
     permissions: { allow, deny },
+    ...(org.plugin ? { pluginConfigs: pluginConfigs(`${slash(`${suite.slot}-plugin`)}/.claude-plugin/plugin.json`) } : {}),
   };
+}
+
+// A plugin loaded with --plugin-dir gets no option from the user's settings:
+// without these, `${user_config.*}` stays literal in the skill text. The key of
+// an inline plugin is `<name>@inline`. Every option with a default in the
+// manifest takes it, except the quota mode, which a pass keeps off (as `benchEnv`
+// does for the environment variable). Options without a default are not written.
+function pluginConfigs(manifest) {
+  let m;
+  try {
+    m = JSON.parse(readFileSync(manifest, "utf8"));
+  } catch (e) {
+    throw new Error(`${manifest} cannot be read as JSON (${e.code ?? e.message}): the plugin folder is misconfigured`);
+  }
+  if (typeof m?.name !== "string" || m.name === "") throw new Error(`${manifest} has no text "name": the plugin folder is misconfigured`);
+  const options = {};
+  for (const [key, spec] of Object.entries(m.userConfig ?? {})) {
+    if (spec && Object.hasOwn(spec, "default")) options[key] = spec.default;
+  }
+  if (Object.hasOwn(options, "quota_mode")) options.quota_mode = "off";
+  return { [`${m.name}@inline`]: { options } };
 }
 
 // Tool names of the approved checks written `npx <name> ...`, once each. Only

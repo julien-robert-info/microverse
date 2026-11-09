@@ -101,6 +101,22 @@ function approveSlot(suite) {
   writeFileSync(file, JSON.stringify(store));
 }
 
+// A plugin manifest of the test, not the repository's.
+const MANIFEST = {
+  name: "demo-plugin",
+  userConfig: {
+    week_target: { type: "number", default: 90 },
+    label: { type: "string", default: "x" },
+    quota_mode: { type: "string", default: "auto" },
+    quota_file: { type: "string" },
+    speak_voice: { type: "string", title: "no default" },
+  },
+};
+function writeManifest(slot, content) {
+  mkdirSync(join(`${slot}-plugin`, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(`${slot}-plugin`, ".claude-plugin", "plugin.json"), typeof content === "string" ? content : JSON.stringify(content));
+}
+
 function world({ cfg = {}, patch, approve = true } = {}) {
   const s = makeSuite({ patch });
   const suite = loadSuite(s.file);
@@ -110,6 +126,7 @@ function world({ cfg = {}, patch, approve = true } = {}) {
   writeFileSync(join(suite.results, "validate.json"), JSON.stringify({ t1: { fork: suite.tasks[0].fork, tip: suite.tasks[0].tip, ok: true, checks: { tests: true, lint: false } } }));
   mkdirSync(join(`${suite.slot}-plugin`, "bin"), { recursive: true });
   writeFileSync(join(`${suite.slot}-plugin`, "bin", "agent-check"), "");
+  writeManifest(suite.slot, MANIFEST);
   const w = { suite, dir: s.dir, camp: join(suite.results, "camp-1"), projects: join(s.dir, "projects"), log: join(s.dir, "fake.log"), cfgFile: join(s.dir, "fake.json") };
   w.setCfg = (c) => writeFileSync(w.cfgFile, JSON.stringify(c));
   w.setCfg(cfg);
@@ -393,6 +410,7 @@ function settingsWorld(binNames) {
   if (binNames) {
     mkdirSync(join(`${slot}-plugin`, "bin"), { recursive: true });
     for (const n of binNames) writeFileSync(join(`${slot}-plugin`, "bin", n), "");
+    writeManifest(slot, MANIFEST);
   }
   const suite = {
     slot, source: "/src/main", install: ["npm ci --ignore-scripts"], forbiddenPaths: ["/data/backups", "/data/other"],
@@ -510,6 +528,31 @@ test("P4 an unapproved profile or a missing bin folder stops the pass before the
   await assert.rejects(() => nobin.pass({ orgId: "O2" }), /cannot be listed/);
   assert.equal(nobin.calls().length, 0);
   assert.throws(() => settingsFor(settingsWorld(null).suite, "O2", TRUSTED), /cannot be listed/);
+});
+
+test("PC1 plugin arm: pluginConfigs has only <name>@inline, manifest defaults, quota_mode off, no key without default", () => {
+  const { suite } = settingsWorld(["agent-check"]);
+  const { pluginConfigs } = settingsFor(suite, "O2", TRUSTED);
+  assert.deepEqual(pluginConfigs, { "demo-plugin@inline": { options: { week_target: 90, label: "x", quota_mode: "off" } } });
+});
+
+test("PC2 arm without plugin: no pluginConfigs key", () => {
+  const { suite } = settingsWorld(["agent-check"]);
+  assert.ok(!("pluginConfigs" in settingsFor(suite, "O0", TRUSTED)));
+});
+
+test("PC3 manifest missing, not JSON or without a name: an error naming the file", () => {
+  const { suite, slot } = settingsWorld(["agent-check"]);
+  const file = `${slot}-plugin/.claude-plugin/plugin.json`;
+  const named = (e) => e.message.includes(file) && /misconfigured/.test(e.message);
+  rmSync(file);
+  assert.throws(() => settingsFor(suite, "O2", TRUSTED), named);
+  writeManifest(slot, "{ not json");
+  assert.throws(() => settingsFor(suite, "O2", TRUSTED), named);
+  writeManifest(slot, { userConfig: {} });
+  assert.throws(() => settingsFor(suite, "O2", TRUSTED), named);
+  writeManifest(slot, { name: 3 });
+  assert.throws(() => settingsFor(suite, "O2", TRUSTED), named);
 });
 
 test("T7 the diff is kept before the grade, for every outcome, and survives the next preparation", async () => {
