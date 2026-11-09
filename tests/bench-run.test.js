@@ -11,7 +11,7 @@ const { join } = require("node:path");
 const { ROOT, commitFile, emptyHome, git, makeRepo } = require("./helpers.js");
 const lib = require("../scripts/orch-lib.js");
 const { runCampaign, takeLock } = require("../tools/bench/campaign.js");
-const { runPass, sweep } = require("../tools/bench/run.js");
+const { runPass, settingsFor, sweep } = require("../tools/bench/run.js");
 const { killTree } = require("../tools/bench/proc.js");
 const { loadSuite } = require("../tools/bench/suite.js");
 
@@ -86,13 +86,30 @@ function makeSuite({ patch = () => {} } = {}) {
   return { file, dir };
 }
 
-function world({ cfg = {}, patch } = {}) {
+// Approves the profile the slot will hold once prepared (the one committed at
+// the fork of the source), under the slot's path: the slot does not exist yet.
+function approveSlot(suite) {
+  const text = git(source().dir, "show", `${source().fork}:.claude/orchestration/profile.json`).out.replace(/\r\n/g, "\n");
+  const key = join(realpathSync.native(join(suite.slot, "..")), "slot");
+  const file = join(emptyHome, ".claude", "microverse", "trust.json");
+  let store = {};
+  try {
+    store = JSON.parse(readFileSync(file, "utf8"));
+  } catch {}
+  store[process.platform === "win32" ? key.toLowerCase() : key] = createHash("sha256").update(text).digest("hex");
+  mkdirSync(join(emptyHome, ".claude", "microverse"), { recursive: true });
+  writeFileSync(file, JSON.stringify(store));
+}
+
+function world({ cfg = {}, patch, approve = true } = {}) {
   const s = makeSuite({ patch });
   const suite = loadSuite(s.file);
+  if (approve) approveSlot(suite);
   // What `validate` leaves for the task, written directly.
   mkdirSync(suite.results, { recursive: true });
   writeFileSync(join(suite.results, "validate.json"), JSON.stringify({ t1: { fork: suite.tasks[0].fork, tip: suite.tasks[0].tip, ok: true, checks: { tests: true, lint: false } } }));
-  mkdirSync(`${suite.slot}-plugin`, { recursive: true });
+  mkdirSync(join(`${suite.slot}-plugin`, "bin"), { recursive: true });
+  writeFileSync(join(`${suite.slot}-plugin`, "bin", "agent-check"), "");
   const w = { suite, dir: s.dir, camp: join(suite.results, "camp-1"), projects: join(s.dir, "projects"), log: join(s.dir, "fake.log"), cfgFile: join(s.dir, "fake.json") };
   w.setCfg = (c) => writeFileSync(w.cfgFile, JSON.stringify(c));
   w.setCfg(cfg);
@@ -367,6 +384,72 @@ test("T6 the call gets the whitelisted environment, the options and the settings
   }
   await assert.rejects(() => w.pass({ claude: "C:\\tools\\claude.cmd" }), /\.cmd|shell/);
   await assert.rejects(() => w.pass({ claude: "claude.BAT" }), /\.cmd|shell/);
+});
+
+// A suite shape for settingsFor, with a plugin `bin` folder in a temp dir.
+function settingsWorld(binNames) {
+  const dir = tmp("bench-settings-");
+  const slot = join(dir, "slot").replace(/\\/g, "/");
+  if (binNames) {
+    mkdirSync(join(`${slot}-plugin`, "bin"), { recursive: true });
+    for (const n of binNames) writeFileSync(join(`${slot}-plugin`, "bin", n), "");
+  }
+  const suite = {
+    slot, source: "/src/main", install: ["npm ci --ignore-scripts"], forbiddenPaths: ["/data/backups", "/data/other"],
+    organisations: { O0: { plugin: false, advisor: true }, O2: { plugin: true, advisor: false } },
+  };
+  return { suite, slot };
+}
+const TRUSTED = { setup: ["npm ci", "npm run build:deps"], checks: ["npm run typecheck", "npm test", "npx biome check .", "npm run build"] };
+const DENY_BEFORE = (src, forbidden) => [
+  "Bash(ssh:*)", "Bash(scp:*)", "Bash(docker:*)", "Bash(psql:*)", "Bash(git push:*)", "Bash(npm run deploy:*)",
+  "Bash(npm run step:*)", "Bash(npm run db:*)", "Bash(curl:*)",
+  `Read(${src}/**)`, `Edit(${src}/**)`,
+  ...forbidden.flatMap((p) => [`Read(${p}/**)`, `Edit(${p}/**)`]),
+  "Read(~/.claude/projects/**)",
+];
+
+test("P1 without plugin: the approved checks and setup, the read tools, no orch- entry", () => {
+  const { suite } = settingsWorld(null);
+  const { allow } = settingsFor(suite, "O0", TRUSTED).permissions;
+  for (const e of ["Bash(npx biome check .)", "Bash(npx biome check .:*)", "Bash(npm run typecheck:*)", "Bash(npm run build:*)", "Bash(grep:*)", "Bash(tail:*)", "Bash(head:*)", "Bash(wc:*)", "Bash(sort:*)", "Bash(uniq:*)", "Bash(ls:*)"]) assert.ok(allow.includes(e), e);
+  for (const c of TRUSTED.setup) assert.equal(allow.filter((a) => a === `Bash(${c})`).length, 1, c);
+  assert.ok(!allow.includes("Bash(npm run build:deps:*)"), "setup commands get no prefix form");
+  assert.ok(!allow.some((a) => a.startsWith("Bash(orch-")));
+  for (const never of ["cat", "find", "sed", "awk", "xargs", "tee", "curl"]) assert.ok(!allow.includes(`Bash(${never}:*)`), never);
+});
+
+test("P2 with plugin: bare names and full paths from the folder, orch-trust only in its read forms, orch-speak never", () => {
+  const { suite, slot } = settingsWorld(["agent-check", "orch-quota", "orch-trust", "orch-speak"]);
+  const { allow } = settingsFor(suite, "O2", TRUSTED).permissions;
+  const bin = `${slot}-plugin/bin`;
+  for (const f of ["agent-check", "orch-quota"]) for (const e of [`Bash(${f}:*)`, `Bash(${bin}/${f}:*)`]) assert.ok(allow.includes(e), e);
+  for (const e of ["Bash(orch-trust --status)", "Bash(orch-trust --commands:*)", `Bash(${bin}/orch-trust --status)`, `Bash(${bin}/orch-trust --commands:*)`]) assert.ok(allow.includes(e), e);
+  for (const e of ["Bash(orch-trust:*)", "Bash(orch-trust)", `Bash(${bin}/orch-trust:*)`, `Bash(${bin}/orch-trust)`, `Bash(${bin}/*)`]) assert.ok(!allow.includes(e), e);
+  assert.ok(!allow.some((a) => a.includes("orch-speak")));
+  assert.ok(!allow.some((a) => a.includes("\\")), "forward slashes only");
+});
+
+test("P3 the deny list and the other settings are those of before, for both arms", () => {
+  const { suite } = settingsWorld(["agent-check"]);
+  for (const orgId of ["O0", "O2"]) {
+    const s = settingsFor(suite, orgId, TRUSTED);
+    assert.deepEqual(s.permissions.deny, DENY_BEFORE("/src/main", suite.forbiddenPaths));
+    assert.equal(s.autoCompactWindow, 183000);
+    assert.equal(s.autoMemoryEnabled, false);
+    assert.equal(s.advisorModel, orgId === "O0" ? "opus" : undefined);
+  }
+});
+
+test("P4 an unapproved profile or a missing bin folder stops the pass before the call", async () => {
+  const un = world({ cfg: { commit: WORK }, approve: false });
+  await assert.rejects(() => un.pass(), /orch-trust|approved/);
+  assert.equal(un.calls().length, 0, "claude was not spawned");
+  const nobin = world({ cfg: { commit: WORK } });
+  rmSync(join(`${nobin.suite.slot}-plugin`, "bin"), { recursive: true, force: true });
+  await assert.rejects(() => nobin.pass({ orgId: "O2" }), /cannot be listed/);
+  assert.equal(nobin.calls().length, 0);
+  assert.throws(() => settingsFor(settingsWorld(null).suite, "O2", TRUSTED), /cannot be listed/);
 });
 
 test("T7 the diff is kept before the grade, for every outcome, and survives the next preparation", async () => {
