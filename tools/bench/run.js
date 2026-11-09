@@ -6,7 +6,7 @@
 
 const { spawn, spawnSync } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
-const { appendFileSync, existsSync, mkdirSync, realpathSync, writeFileSync } = require("node:fs");
+const { appendFileSync, existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } = require("node:fs");
 const net = require("node:net");
 const { basename, join } = require("node:path");
 const lib = require("../../scripts/orch-lib.js");
@@ -54,15 +54,26 @@ function assertExe(claude) {
 
 // R1. Generated settings of a pass. The permissions are those of a worker that
 // builds and tests in its copy and reaches neither the network, the database,
-// the deployment nor the source.
-function settingsFor(suite, orgId) {
+// the deployment nor the source. The allow list derives from the profile the
+// user approved (`trusted`), so a worker can run exactly the checks and setup
+// the user approved, and from the plugin's `bin` folder, so no script name is
+// written by hand. The checks also get `:*` so that `<check> 2>&1 | tail` is
+// matched segment by segment. `orch-trust` is only allowed in its read forms:
+// `orch-trust <sha256>` is the user's approval, which an agent never runs.
+const READ_TOOLS = ["grep", "head", "tail", "wc", "sort", "uniq", "ls"];
+const PLUGIN_NO_ALLOW = ["orch-trust", "orch-speak"];
+
+function settingsFor(suite, orgId, trusted) {
   const org = suite.organisations[orgId];
   const slash = (p) => p.replace(/\\/g, "/");
-  const pluginBin = org.plugin ? [`Bash(${slash(`${suite.slot}-plugin`)}/bin/*)`] : [];
+  const pluginBin = org.plugin ? pluginRules(`${slash(`${suite.slot}-plugin`)}/bin`) : [];
   const allow = [
     "Read", "Edit", "Write",
     ...suite.install.map((c) => `Bash(${c})`),
     "Bash(git:*)", "Bash(node:*)", "Bash(npm test:*)", "Bash(npm ci:*)", "Bash(npx tsc:*)",
+    ...trusted.checks.flatMap((c) => [`Bash(${c})`, `Bash(${c}:*)`]),
+    ...trusted.setup.map((c) => `Bash(${c})`),
+    ...READ_TOOLS.map((t) => `Bash(${t}:*)`),
     ...pluginBin,
   ];
   const deny = [
@@ -78,6 +89,22 @@ function settingsFor(suite, orgId) {
     autoMemoryEnabled: false,
     permissions: { allow, deny },
   };
+}
+
+// Bare name (found on PATH through --plugin-dir) and full path, per script.
+function pluginRules(bin) {
+  let names;
+  try {
+    names = readdirSync(bin);
+  } catch (e) {
+    throw new Error(`${bin} cannot be listed (${e.code ?? e.message}): the plugin folder is misconfigured`);
+  }
+  const rules = [];
+  for (const f of names.filter((n) => !PLUGIN_NO_ALLOW.includes(n)).sort()) rules.push(`Bash(${f}:*)`, `Bash(${bin}/${f}:*)`);
+  if (names.includes("orch-trust")) {
+    for (const p of ["orch-trust", `${bin}/orch-trust`]) rules.push(`Bash(${p} --status)`, `Bash(${p} --commands:*)`);
+  }
+  return rules;
 }
 
 function commandLine({ suite, orgId, prompt, model, session, settingsFile, claudeArgs = [] }) {
@@ -368,10 +395,12 @@ async function runPass(opts) {
 
   prepare(suite, taskId, { org: orgId });
   const slot = realpathSync.native(suite.slot);
+  const trust = lib.profileTrust(lib.mainRoot(slot));
+  if (trust.state !== "approved") throw new Error(`the profile of ${slot} is ${trust.state}: its orch-trust must be approved by the user before a pass (no pass started)`);
   mkdirSync(campaignDir, { recursive: true });
   const session = randomUUID();
   const settingsFile = join(campaignDir, `settings-${orgId}.json`);
-  writeFileSync(settingsFile, `${JSON.stringify(settingsFor(suite, orgId), null, 2)}\n`);
+  writeFileSync(settingsFile, `${JSON.stringify(settingsFor(suite, orgId, trust), null, 2)}\n`);
   const model = opts.model ?? DEFAULT_MODEL;
   const args = commandLine({ suite, orgId, prompt: suite.prompts[orgId], model, session, settingsFile, claudeArgs: opts.claudeArgs });
 
