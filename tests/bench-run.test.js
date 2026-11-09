@@ -441,6 +441,66 @@ test("P3 the deny list and the other settings are those of before, for both arms
   }
 });
 
+const ARMS = ["O0", "O2"];
+
+test("T1 echo is allowed in both arms", () => {
+  const { suite } = settingsWorld(["agent-check"]);
+  for (const o of ARMS) assert.ok(settingsFor(suite, o, TRUSTED).permissions.allow.includes("Bash(echo:*)"), o);
+});
+
+test("T2 an npx check opens its tool prefix, tsc stays single", () => {
+  const { suite } = settingsWorld(["agent-check"]);
+  const trusted = { setup: [], checks: ["npx biome check .", "npx tsc --noEmit"] };
+  for (const o of ARMS) {
+    const { allow } = settingsFor(suite, o, trusted).permissions;
+    assert.ok(allow.includes("Bash(npx biome:*)"), o);
+    assert.equal(allow.filter((a) => a === "Bash(npx tsc:*)").length, 1, o);
+  }
+});
+
+test("T3 no generic npm, npx, pnpm or yarn prefix is ever derived", () => {
+  const { suite } = settingsWorld(["agent-check"]);
+  const trusted = { setup: [], checks: ["npm run typecheck", "npm run build", "npm test", "pnpm exec foo", "yarn lint", "npx -y foo", "npx biome check ."] };
+  const { allow } = settingsFor(suite, "O0", trusted).permissions;
+  for (const r of ["Bash(npm run:*)", "Bash(npm:*)", "Bash(npx:*)", "Bash(pnpm:*)", "Bash(yarn:*)"]) assert.ok(!allow.includes(r), r);
+  // The check's own two forms exist; nothing broader is derived from its flag.
+  assert.deepEqual(allow.filter((a) => a.startsWith("Bash(npx -")), ["Bash(npx -y foo)", "Bash(npx -y foo:*)"]);
+  for (const r of ["Bash(npm run typecheck)", "Bash(npm run typecheck:*)"]) assert.ok(allow.includes(r), r);
+  assert.ok(!allow.some((a) => /^Bash\((npm|npx|pnpm|yarn)( run)?:\*\)$/.test(a)));
+  const { suite: s2 } = settingsWorld(["agent-check", "orch-trust"]);
+  s2.allowBash = ["npm run lint"];
+  assert.ok(!settingsFor(s2, "O2", TRUSTED).permissions.allow.some((a) => /^Bash\((npm|npx|pnpm|yarn)( run)?:\*\)$/.test(a)));
+});
+
+test("T4 setup and install commands never give an npx prefix", () => {
+  const { suite } = settingsWorld(["agent-check"]);
+  suite.install = ["npx foo install"];
+  const { allow } = settingsFor(suite, "O0", { setup: ["npx foo setup"], checks: [] }).permissions;
+  assert.ok(!allow.includes("Bash(npx foo:*)"));
+});
+
+test("T5 allowBash gives two rules per entry in both arms, none when absent", () => {
+  const { suite } = settingsWorld(["agent-check"]);
+  const before = ARMS.map((o) => settingsFor(suite, o, TRUSTED).permissions.allow);
+  suite.allowBash = ["npm run lint", "npm run format"];
+  ARMS.forEach((o, i) => {
+    const { allow } = settingsFor(suite, o, TRUSTED).permissions;
+    const added = allow.filter((a) => !before[i].includes(a));
+    assert.deepEqual(added.sort(), ["Bash(npm run format)", "Bash(npm run format:*)", "Bash(npm run lint)", "Bash(npm run lint:*)"], o);
+  });
+  suite.allowBash = [];
+  assert.deepEqual(settingsFor(suite, "O0", TRUSTED).permissions.allow, before[0]);
+});
+
+test("T6 suite validation refuses unsafe allowBash entries and names the index", () => {
+  const load = (entries) => () => loadSuite(makeSuite({ patch: (r) => (r.allowBash = entries) }).file);
+  const refused = ["npm run deploy", "npm run deployment", "npm run db:apply", "npm run step", "curl http://x", "git push", "docker ps", "ssh host", "orch-trust", "node", "npm run", "lint; rm -rf x", "npm run lint && npm run format", "npm run lint | tail", "npm run $X", " npm run lint", "python x.py", "bash -c x", "", 7];
+  for (const e of refused) assert.throws(load(["npm run lint", e]), /allowBash\[1\]/, JSON.stringify(e));
+  assert.throws(load("npm run lint"), /allowBash/);
+  assert.deepEqual(load(["npm run lint", "npm run format", "npm run typecheck"])().allowBash, ["npm run lint", "npm run format", "npm run typecheck"]);
+  assert.deepEqual(loadSuite(makeSuite().file).allowBash, []);
+});
+
 test("P4 an unapproved profile or a missing bin folder stops the pass before the call", async () => {
   const un = world({ cfg: { commit: WORK }, approve: false });
   await assert.rejects(() => un.pass(), /orch-trust|approved/);
