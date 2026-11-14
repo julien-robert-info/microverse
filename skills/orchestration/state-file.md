@@ -27,8 +27,8 @@ creating or restructuring the state file, and keep the tokens below exactly.
 - Second cell: the branch in backticks, starting with `feat/`, `fix/`, `docs/`,
   `chore/`, `refactor/`, `test/` or `perf/`. Any other branch is shown but not
   linked.
-- State cell: a sentence, and the merged commit as a backticked hash of 7 to 40
-  hex characters.
+- State cell: one sentence (state, commit, what waits), with the merged commit
+  as a backticked hash of 7 to 40 hex characters.
 - Optional: `NOTES § N` in the row links it to the `## N.` heading of
   `NOTES.local.md`; without such headings it links nothing.
 - A mission's notes file is `notes/<Id>.md` or `notes/<Id>.review-<n>.md`; any
@@ -57,4 +57,4 @@ Example row, added under the header (never part of the skeleton):
 
 The `## Resume` heading holds free text to restart from. `orch-status` shows the
 sections whose title starts with missions, questions, resume or reprise. Keep
-the whole state file under 60 lines: `context-guard` warns past that.
+the whole state file under 60 lines and 6 KB: `context-guard` warns past either.

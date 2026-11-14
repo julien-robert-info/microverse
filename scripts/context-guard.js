@@ -10,7 +10,7 @@
 // <plugin data>/context-guard/<session_id>.json.
 "use strict";
 
-const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { COMPACT_OFFSET, lastContext, readTail } = require("./orch-lib.js");
@@ -21,6 +21,7 @@ const MAX_WINDOW = 1e6;
 const MARGIN = 20e3;
 const TAIL_BYTES = 512 * 1024;
 const LOCAL_MD_LINES = 60;
+const LOCAL_MD_BYTES = 6144;
 
 function main() {
   const payload = JSON.parse(readFileSync(0, "utf8"));
@@ -84,6 +85,14 @@ function main() {
     if (lines > LOCAL_MD_LINES) {
       state.localMdWarned = true;
       messages.push(`CLAUDE.local.md has ${lines} lines (limit ${LOCAL_MD_LINES}): shrink it, history goes to the notes`);
+    }
+  }
+  // Bytes, not characters: the file is loaded whole in every conversation.
+  if (!state.localMdBytesWarned && existsSync(localMd)) {
+    const bytes = statSync(localMd).size;
+    if (bytes > LOCAL_MD_BYTES) {
+      state.localMdBytesWarned = true;
+      messages.push(`CLAUDE.local.md is ${bytes} bytes (limit ${LOCAL_MD_BYTES}): shrink it, history goes to the notes`);
     }
   }
 

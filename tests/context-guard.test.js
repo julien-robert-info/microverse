@@ -200,3 +200,59 @@ test("CLAUDE.local.md warns above 60 lines, once per session", () => {
   assert.match(message(run(ctx, {})), /CLAUDE\.local\.md has 61 lines/);
   assert.equal(run(ctx, {}).stdout, "");
 });
+
+const writeMd = (ctx, content) => writeFileSync(join(ctx.project, "CLAUDE.local.md"), content);
+
+test("CLAUDE.local.md over 6144 bytes in few lines warns on bytes only", () => {
+  const ctx = setup();
+  transcript(ctx, 1000);
+  writeMd(ctx, `${"a".repeat(6145)}\n`);
+  const out = message(run(ctx, {}));
+  assert.match(out, /^CLAUDE\.local\.md is 6146 bytes \(limit 6144\): shrink it/);
+  assert.doesNotMatch(out, /lines/);
+});
+
+test("CLAUDE.local.md under both limits is silent", () => {
+  const ctx = setup();
+  transcript(ctx, 1000);
+  writeMd(ctx, `${"a".repeat(6143)}\n`);
+  assert.equal(run(ctx, {}).stdout, "");
+});
+
+test("the bytes warning is given once per session", () => {
+  const ctx = setup();
+  transcript(ctx, 1000);
+  writeMd(ctx, "a".repeat(7000));
+  assert.match(message(run(ctx, {})), /is 7000 bytes/);
+  assert.equal(run(ctx, {}).stdout, "");
+  assert.match(message(run(ctx, {}, "s2")), /is 7000 bytes/);
+});
+
+test("the lines and bytes warnings fire together and independently", () => {
+  const ctx = setup();
+  transcript(ctx, 1000);
+  writeMd(ctx, `${Array.from({ length: 70 }, () => "x".repeat(100)).join("\n")}\n`);
+  const out = message(run(ctx, {}));
+  assert.match(out, /CLAUDE\.local\.md has 70 lines \(limit 60\)/);
+  assert.match(out, /CLAUDE\.local\.md is 7070 bytes \(limit 6144\)/);
+  // The line warning spent does not hide a later bytes warning, and vice versa.
+  const ctx2 = setup();
+  transcript(ctx2, 1000);
+  writeMd(ctx2, `${Array.from({ length: 70 }, () => "z").join("\n")}\n`);
+  const lineOnly = message(run(ctx2, {}));
+  assert.match(lineOnly, /70 lines/);
+  assert.doesNotMatch(lineOnly, /bytes/);
+  writeMd(ctx2, "w".repeat(7000));
+  const bytesOnly = message(run(ctx2, {}));
+  assert.match(bytesOnly, /is 7000 bytes/);
+  assert.doesNotMatch(bytesOnly, /lines/);
+});
+
+test("the byte limit counts bytes, not characters", () => {
+  const ctx = setup();
+  transcript(ctx, 1000);
+  const content = `${"é".repeat(3100)}\n`;
+  assert.ok(content.length < 6144 && Buffer.byteLength(content) > 6144);
+  writeMd(ctx, content);
+  assert.match(message(run(ctx, {})), /is 6201 bytes/);
+});

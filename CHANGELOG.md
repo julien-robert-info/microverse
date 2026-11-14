@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `context-guard` hook: also warns, once per session and independently of the line warning, when `CLAUDE.local.md` exceeds 6 KB (bytes, not characters): a few very long lines weigh as much as many lines in a file loaded in every conversation.
 - State file contract: `skills/orchestration/state-file.md` lists the fixed English tokens the Board and `orch-status` read in `CLAUDE.local.md` (headings, table header, branch prefixes, `Answered`) with a skeleton; `/microverse:init` creates the state file from it when missing and checks the two shapes the Board cannot read when it exists, without rewriting it.
 - `orch-bench judge`: blind Opus judgment of a campaign's delivered diffs (anonymised, rubric r1, output validated by the bench, spend guard, one judgment per distinct diff), and the diff kept per pass. A call that ran without leaving a figure counts for 1.5 times its budget cap, and a pass whose kept diff is missing is reported with exit code 1.
 - `orch-bench run`, `campaign`, `report`: a bench pass of `claude -p` with nobody present (checked configuration, time limit with process sweep, diff kept before grading), a grid under the week and five-hour caps that resumes where `passes.jsonl` stops and never calls the judge, and the tables of a campaign folder. Judgments now record the resolved judge model.

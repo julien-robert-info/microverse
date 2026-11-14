@@ -22,7 +22,7 @@ loss:
   data, past decisions. One file per mission, `notes/<mission>.md`, and
   `NOTES.local.md` is only an index (one line per file). Read the index, then one
   section of one file, never a whole file. The state file stays short (the
-  `context-guard` hook warns past 60 lines): history goes to the notes;
+  `context-guard` hook warns past 60 lines or 6 KB): history goes to the notes;
 - **project profile** (`.claude/orchestration/profile.json` and `rules.md`,
   unversioned by default; `rules.md` is copied into the worktrees by a
   `.worktreeinclude`): worktree setup, checks, servers, patterns to watch,
