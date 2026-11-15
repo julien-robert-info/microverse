@@ -43,7 +43,8 @@ do not block the merge) or **rejected** (a defect that loses or corrupts data,
 or a brief rule not applied).
 
 Then the defects ranked by severity, most severe first, each under its own
-heading `D<rank>`. For each: `file:line`, the defect in one sentence, the
+heading `D<rank> [rule|code|test|doc]` (`rule`: a rule the brief left open or
+wrong; `code`, `test`, `doc`: the part that is defective). For each: `file:line`, the defect in one sentence, the
 scenario that breaks, the evidence, and the fix it calls for in one line. Then
 the brief's rules you checked and found correctly applied, in one line each. If
 nothing survives, say so plainly.

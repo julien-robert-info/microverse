@@ -2,7 +2,8 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { existsSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } = require("node:fs");
+const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { commitFile, git, hasMergeTree, makeRepo, script } = require("./helpers.js");
 
@@ -241,4 +242,61 @@ test("the text of a green run keeps its exact lines", { skip: !hasMergeTree }, (
   const sha = /    (\w+) feat: a/.exec(r.out)?.[1];
   assert.ok(sha, r.out);
   assert.equal(r.out.replace(/\r\n/g, "\n"), `commits (1):\n    ${sha} feat: a\nOK  merge\nOK  worktree clean\nOK  ok1\nOK  patterns (1)\n\nfeat/x: all green\n`);
+});
+
+// Synthetic check: writes on both streams. `noTrace` removes the option the
+// developer's own environment may carry.
+const noisy = { name: "say", run: `node -e "console.log('out-line');console.error('err-line')"` };
+const noTrace = { CLAUDE_PLUGIN_OPTION_TRACE_DIR: undefined };
+const traceFolder = () => realpathSync.native(mkdtempSync(join(tmpdir(), "microverse-trace-")));
+
+test("--trace-dir writes check.json and one log per check, the output is unchanged", () => {
+  const { dir, wt } = makeRepo({ checks: [noisy, { name: "say", run: `node -e "console.log('second')"` }] });
+  const traces = traceFolder();
+  const plain = script("agent-check", ["feat/x"], dir, noTrace);
+  const traced = script("agent-check", ["feat/x", "--trace-dir", traces], dir, noTrace);
+  assert.equal(traced.code, plain.code);
+  assert.equal(traced.out, plain.out);
+  const root = join(traces, dir.replace(/[^A-Za-z0-9]/g, "-").toLowerCase(), "checks");
+  const [id] = readdirSync(root);
+  const headSha = git(wt, "rev-parse", "HEAD").out.trim();
+  assert.match(id, /^\d{8}T\d{9}Z-[0-9a-f]{12}$/);
+  assert.equal(id.slice(-12), headSha.slice(0, 12));
+  const rec = JSON.parse(readFileSync(join(root, id, "check.json"), "utf8"));
+  assert.equal(rec.kind, "check");
+  assert.equal(rec.head, headSha);
+  assert.equal(rec.branch, "feat/x");
+  assert.equal(rec.verdict, "green");
+  assert.equal(rec.merged, false);
+  const ran = rec.checks.filter((c) => c.name === "profile:say");
+  assert.equal(ran.length, 2);
+  assert.notEqual(ran[0].log, ran[1].log);
+  assert.match(readFileSync(join(root, id, ran[0].log), "utf8"), /out-line[\s\S]*err-line/);
+  assert.match(readFileSync(join(root, id, ran[1].log), "utf8"), /second/);
+  assert.equal(rec.checks.find((c) => c.name === "patterns").log, null);
+});
+
+test("the trace_dir option alone is enough, and a failing check is logged in full", () => {
+  // Slower than the hooks' time budget: the record still carries the head.
+  const slow = `setTimeout(()=>{console.log('x'.repeat(100));process.exit(3)},3700)`;
+  const { dir, wt } = makeRepo({ checks: [{ name: "boom", run: `node -e "${slow}"` }] });
+  const traces = traceFolder();
+  const r = script("agent-check", ["feat/x"], dir, { CLAUDE_PLUGIN_OPTION_TRACE_DIR: traces });
+  assert.equal(r.code, 1);
+  const root = join(traces, dir.replace(/[^A-Za-z0-9]/g, "-").toLowerCase(), "checks");
+  const [id] = readdirSync(root);
+  const rec = JSON.parse(readFileSync(join(root, id, "check.json"), "utf8"));
+  assert.equal(rec.verdict, "needs-fixes");
+  assert.equal(rec.head, git(wt, "rev-parse", "HEAD").out.trim());
+  assert.equal(id.slice(-12), rec.head.slice(0, 12));
+  assert.equal(readFileSync(join(root, id, "profile_boom.log"), "utf8"), `${"x".repeat(100)}\n`);
+});
+
+test("without the option agent-check writes no trace", () => {
+  const { dir } = makeRepo({ checks: [noisy] });
+  const traces = traceFolder();
+  const r = script("agent-check", ["feat/x"], dir, noTrace);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(readdirSync(traces), []);
+  assert.equal(existsSync(join(dir, "checks")), false);
 });
