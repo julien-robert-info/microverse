@@ -46,19 +46,22 @@ function fixture() {
   return { repo, home, traces, head, env, input, session: join(traces, "proj-slug", "sess-1") };
 }
 
-const run = (f, input, env = f.env) => spawnSync(process.execPath, [HOOK], { input: JSON.stringify(input), encoding: "utf8", env });
+const run = (f, input, env = f.env, cwd) => spawnSync(process.execPath, [HOOK], { input: JSON.stringify(input), encoding: "utf8", env, cwd });
 const records = (dir, kind = "launch") => readdirSync(dir).filter((n) => n.startsWith(`${kind}-`));
 const readRecord = (f) => JSON.parse(readFileSync(join(f.session, records(f.session)[0]), "utf8"));
 
 test("T1 an empty option records nothing, prints nothing, exits 0", () => {
   const f = fixture();
-  for (const value of ["", undefined, "${user_config.trace_dir}"]) {
-    const r = run(f, f.input("brief"), { ...f.env, CLAUDE_PLUGIN_OPTION_TRACE_DIR: value });
+  // Run from an empty folder: an empty path must not turn into a relative one.
+  const where = tmp();
+  for (const value of ["", "  ", undefined, "${user_config.trace_dir}"]) {
+    const r = run(f, f.input("brief"), { ...f.env, CLAUDE_PLUGIN_OPTION_TRACE_DIR: value }, where);
     assert.equal(r.status, 0);
     assert.equal(r.stdout, "");
     assert.equal(r.stderr, "");
   }
   assert.deepEqual(readdirSync(f.traces), []);
+  assert.deepEqual(readdirSync(where), []);
 });
 
 test("T2 launch record: format fields, exact head, brief copy with the same fingerprint", () => {

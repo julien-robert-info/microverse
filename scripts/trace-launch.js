@@ -108,11 +108,14 @@ function main(dir) {
   const now = new Date();
   const out = t.sessionDir(dir, p);
 
-  const top = t.gitLine(cwd, "rev-parse", "--show-toplevel");
+  // One git call for the three values (a spawn costs more than the answer);
+  // a repository with no commit yet answers the root alone.
+  const [headTop, headSha, headBranch] = (t.git(cwd, "rev-parse", "--show-toplevel", "HEAD", "--abbrev-ref", "HEAD") ?? "").split(/\r?\n/);
+  const top = headTop || t.gitLine(cwd, "rev-parse", "--show-toplevel");
   const repo = {
     top,
-    branch: top ? t.gitLine(cwd, "rev-parse", "--abbrev-ref", "HEAD") : null,
-    head: top ? t.gitLine(cwd, "rev-parse", "HEAD") : null,
+    branch: headBranch || null,
+    head: headSha || null,
     dirty: top ? t.dirty(cwd) : null,
   };
 
