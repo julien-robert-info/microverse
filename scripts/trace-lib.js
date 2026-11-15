@@ -1,15 +1,16 @@
-// Shared by the trace hooks (trace-launch.js, trace-stop.js): the `trace_dir`
-// option, the folder of a session, atomic writes, the error log, fingerprints
-// and the bounded read-only git calls. Format: docs/traces.md.
+// Shared by the trace hooks (trace-launch.js, trace-stop.js, trace-merge.js) and
+// agent-check: the `trace_dir` option, the folder of a session, atomic writes,
+// the error log, fingerprints, the bounded read-only git calls and the `check`
+// record. Format: docs/traces.md.
 //
 // Self-contained on purpose (no orch-lib): these hooks run on every agent
-// launch and stop, inside a 5 s timeout.
+// launch and stop and after every shell command, inside a short timeout.
 "use strict";
 
 const { createHash, randomBytes } = require("node:crypto");
 const { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } = require("node:fs");
 const { spawnSync } = require("node:child_process");
-const { dirname, join } = require("node:path");
+const { basename, dirname, join, resolve } = require("node:path");
 
 // Each external call is cut at 2 s; once the whole run has used up the budget
 // the remaining optional calls are skipped (their value becomes null), so the
@@ -19,9 +20,12 @@ const BUDGET_MS = 3500;
 const startedAt = Date.now();
 
 // Empty, absent or an unexpanded `${user_config.KEY}`: nothing is recorded.
-function traceDir() {
-  const raw = process.env.CLAUDE_PLUGIN_OPTION_TRACE_DIR;
-  return typeof raw === "string" && raw.trim() !== "" && !raw.includes("${") ? raw.trim() : null;
+// An explicit value (a `--trace-dir` argument) wins over the option, as
+// `--mode` does over quota_mode in bin/orch-quota.
+const isSet = (v) => typeof v === "string" && v.trim() !== "" && !v.includes("${");
+function traceDir(explicit) {
+  const raw = isSet(explicit) ? explicit : process.env.CLAUDE_PLUGIN_OPTION_TRACE_DIR;
+  return isSet(raw) ? raw.trim() : null;
 }
 
 const sha256 = (data) => createHash("sha256").update(data).digest("hex");
@@ -106,6 +110,52 @@ function fileSha(file) {
   }
 }
 
+// Same folder name as projectSlug of orch-lib (the name Claude Code gives a
+// project in ~/.claude/projects); repeated here to keep this module self-contained.
+const projectSlug = (dir) => dir.replace(/[^A-Za-z0-9]/g, "-").toLowerCase();
+
+// Root of the main worktree from any worktree of the repository, so that checks
+// and merges of one project land under one slug. Falls back to the top level
+// of `cwd` when the git dir is not a `.git` folder; null outside a repository.
+function mainRootOf(cwd) {
+  const common = gitLine(cwd, "rev-parse", "--git-common-dir");
+  if (common) {
+    const abs = resolve(cwd, common);
+    if (basename(abs) === ".git") return dirname(abs);
+  }
+  return gitLine(cwd, "rev-parse", "--show-toplevel");
+}
+
+// A check log is cut here, with a last line saying so.
+const LOG_MAX = 5 * 1024 * 1024;
+
+// <dir>/<slug>/checks/<stamp>-<head 12>/check.json and one <name>.log per
+// check that ran. The logs go first and check.json last, so a check.json that
+// exists always has its logs. `checks`: [{name, state, ms, text}]; `text` is the
+// complete output of a check that ran, else null (no log). Returns the id.
+function recordCheck(dir, { slug, at, repoTop, branch, head, merged, verdict, checks }) {
+  const id = `${stamp(at)}-${head ? head.slice(0, 12) : "unknown"}`;
+  const out = join(dir, safeSegment(slug), "checks", id);
+  const used = new Set();
+  const rows = checks.map((c) => {
+    let log = null;
+    if (typeof c.text === "string") {
+      const base = safeSegment(c.name).slice(0, 80);
+      let n = 1;
+      while (used.has(n === 1 ? base : `${base}-${n}`)) n++;
+      log = `${n === 1 ? base : `${base}-${n}`}.log`;
+      used.add(log.slice(0, -4));
+      let data = Buffer.from(c.text);
+      if (data.length > LOG_MAX) data = Buffer.concat([data.subarray(0, LOG_MAX), Buffer.from("\n[truncated at 5 MB]\n")]);
+      writeAtomic(join(out, log), data);
+    }
+    return { name: c.name, state: c.state, ms: c.ms ?? null, log };
+  });
+  const record = { v: 1, kind: "check", at: at.toISOString(), repoTop, branch, head, merged, verdict, checks: rows };
+  writeAtomic(join(out, "check.json"), JSON.stringify(record, null, 2) + "\n");
+  return id;
+}
+
 // Runs a hook body: nothing on stdout or stderr, exit code 0, whatever happens.
 function runHook(script, body) {
   const dir = traceDir();
@@ -129,4 +179,5 @@ function readPayload() {
 
 module.exports = {
   traceDir, sha256, hex8, safeSegment, sessionDir, stamp, writeAtomic, logError, call, git, gitLine, dirty, readJson, fileSha, runHook, readPayload,
+  projectSlug, mainRootOf, recordCheck,
 };

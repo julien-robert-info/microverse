@@ -4,7 +4,11 @@
 // the added lines, and the branch merges cleanly into the base. Prints OK or the
 // tail of each failure only.
 //
-// agent-check <branch> [--base main] [--no-checks] [--merged] [--json]
+// agent-check <branch> [--base main] [--no-checks] [--merged] [--json] [--trace-dir <dir>]
+//
+// --trace-dir (else the trace_dir option) also writes, once the checks are done,
+// <dir>/<slug>/checks/<id>/check.json and one .log per check with its complete
+// output (docs/traces.md); the output and the exit code do not change.
 //
 // --json prints one JSON object instead of the text, with the same verdict and
 // exit code: { v, branch, base, verdict, commits, checks[{ name, state, detail,
@@ -24,6 +28,7 @@
 const { spawnSync } = require("node:child_process");
 const { readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
+const trace = require("../scripts/trace-lib.js");
 const { approvalAsk, defaultBase, describeCommands, fail, git, mainRoot, parseArgs, profileTrust, repoRoot, sanitize, validBranch, worktreeFor } = require("../scripts/orch-lib.js");
 
 // One choke point for everything printed: branch names, commit subjects, file
@@ -48,9 +53,14 @@ const branch = opts._[0];
 const records = [];
 const indent = (lines) => lines.map((l) => `    ${l}`).join("\n");
 function add(name, state, detail, lines, text) {
-  records.push({ name, state, detail, lines });
+  const rec = { name, state, detail, lines };
+  records.push(rec);
   if (!json && text != null) console.log(text);
+  return rec;
 }
+// Trace only (never printed): duration and complete output of a profile check
+// that ran, by record.
+const ran = new Map();
 // JSON output: strings come from the repository, so sanitized, never cut.
 function emit(obj) {
   console.log(JSON.stringify({ v: 1, ...obj }, (_k, x) => (typeof x === "string" ? sanitize(x) : x)));
@@ -75,6 +85,29 @@ function finish(verdictLine) {
     });
   } else if (verdictLine) console.log(green ? `\n${branch}: all green` : `\n${branch}: needs fixes`);
   process.exitCode = green ? 0 : 1;
+  recordTrace(green);
+}
+
+// With --trace-dir (else the trace_dir option): leaves the full output of the
+// checks under the trace directory (docs/traces.md). Never changes the output,
+// the verdict or the exit code: a failure is a line in errors.log.
+function recordTrace(green) {
+  const dir = trace.traceDir(opts["trace-dir"]);
+  if (!dir) return;
+  try {
+    trace.recordCheck(dir, {
+      slug: trace.projectSlug(main ?? root),
+      at: new Date(),
+      repoTop: root,
+      branch,
+      head: trace.gitLine(root, "rev-parse", `refs/heads/${branch}`),
+      merged: records.some((r) => r.name === "merged" && r.state === "ok"),
+      verdict: green ? "green" : "needs-fixes",
+      checks: records.map((r) => ({ name: r.name, state: r.state, ms: ran.get(r)?.ms, text: ran.get(r)?.text ?? null })),
+    });
+  } catch (e) {
+    trace.logError(dir, "agent-check", e);
+  }
 }
 
 if (!branch) return stop("usage: agent-check <branch> [--base main] [--no-checks] [--merged] [--json]", 2);
@@ -265,13 +298,19 @@ function runChecks(wt, baseline) {
       add(id, "skip", d, [], `--  ${name}: ${d}`);
       continue;
     }
+    const t0 = Date.now();
     const r = spawnSync(check.run, { cwd: wt, shell: true, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-    if (r.status === 0) add(id, "ok", "", [], `OK  ${name}`);
+    const ms = Date.now() - t0;
+    // stdout then stderr, as the process wrote them (the two are not interleaved).
+    const full = `${r.stdout ?? ""}${r.stderr ? `\n[stderr]\n${r.stderr}` : ""}`;
+    let rec;
+    if (r.status === 0) rec = add(id, "ok", "", [], `OK  ${name}`);
     else {
       ok = false;
       const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
-      add(id, "fail", `code ${r.status ?? "?"}`, tailLines(out), `FAIL ${name} (code ${r.status ?? "?"}):\n${tail(out)}`);
+      rec = add(id, "fail", `code ${r.status ?? "?"}`, tailLines(out), `FAIL ${name} (code ${r.status ?? "?"}):\n${tail(out)}`);
     }
+    ran.set(rec, { ms, text: full });
   }
 
   // Checks can rewrite tracked files (generated code); `teardown` restores
