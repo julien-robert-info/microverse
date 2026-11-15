@@ -277,7 +277,9 @@ test("--trace-dir writes check.json and one log per check, the output is unchang
 });
 
 test("the trace_dir option alone is enough, and a failing check is logged in full", () => {
-  const { dir } = makeRepo({ checks: [{ name: "boom", run: `node -e "console.log('x'.repeat(100));process.exit(3)"` }] });
+  // Slower than the hooks' time budget: the record still carries the head.
+  const slow = `setTimeout(()=>{console.log('x'.repeat(100));process.exit(3)},3700)`;
+  const { dir, wt } = makeRepo({ checks: [{ name: "boom", run: `node -e "${slow}"` }] });
   const traces = traceFolder();
   const r = script("agent-check", ["feat/x"], dir, { CLAUDE_PLUGIN_OPTION_TRACE_DIR: traces });
   assert.equal(r.code, 1);
@@ -285,6 +287,8 @@ test("the trace_dir option alone is enough, and a failing check is logged in ful
   const [id] = readdirSync(root);
   const rec = JSON.parse(readFileSync(join(root, id, "check.json"), "utf8"));
   assert.equal(rec.verdict, "needs-fixes");
+  assert.equal(rec.head, git(wt, "rev-parse", "HEAD").out.trim());
+  assert.equal(id.slice(-12), rec.head.slice(0, 12));
   assert.equal(readFileSync(join(root, id, "profile_boom.log"), "utf8"), `${"x".repeat(100)}\n`);
 });
 

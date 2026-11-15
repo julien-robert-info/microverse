@@ -100,7 +100,8 @@ function recordTrace(green) {
       at: new Date(),
       repoTop: root,
       branch,
-      head: trace.gitLine(root, "rev-parse", `refs/heads/${branch}`),
+      // Not trace.git: it gives up once the hook-sized time budget is spent, which a long check does.
+      head: git(["rev-parse", `refs/heads/${branch}`], root).out.trim() || null,
       merged: records.some((r) => r.name === "merged" && r.state === "ok"),
       verdict: green ? "green" : "needs-fixes",
       checks: records.map((r) => ({ name: r.name, state: r.state, ms: ran.get(r)?.ms, text: ran.get(r)?.text ?? null })),
