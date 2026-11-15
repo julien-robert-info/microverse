@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `trace_dir` option and the `trace-launch` (`PreToolUse`, `Agent|Task`) and `trace-stop` (`SubagentStop`) hooks: with the option set, each agent launch leaves a `launch` record (repository head, brief copy and fingerprint, cited notes copied as at launch, plugin version, hook program names, settings fingerprints) and each stop a `stop` record (worktree branch, head, commits since the launch base), one file per record under `<trace_dir>/<project>/<session>/`. Empty by default: the hooks then do nothing. Format in `docs/traces.md`.
+
 - `context-guard` hook: also warns, once per session and independently of the line warning, when `CLAUDE.local.md` exceeds 6 KB (bytes, not characters): a few very long lines weigh as much as many lines in a file loaded in every conversation.
 - State file contract: `skills/orchestration/state-file.md` lists the fixed English tokens the Board and `orch-status` read in `CLAUDE.local.md` (headings, table header, branch prefixes, `Answered`) with a skeleton; `/microverse:init` creates the state file from it when missing and checks the two shapes the Board cannot read when it exists, without rewriting it.
 - `orch-bench judge`: blind Opus judgment of a campaign's delivered diffs (anonymised, rubric r1, output validated by the bench, spend guard, one judgment per distinct diff), and the diff kept per pass. A call that ran without leaving a figure counts for 1.5 times its budget cap, and a pass whose kept diff is missing is reported with exit code 1.

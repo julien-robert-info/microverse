@@ -65,6 +65,12 @@
             "command": "node",
             "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/quota-guard.js"],
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/trace-launch.js"],
+            "timeout": 5
           }
         ]
       },
@@ -100,6 +106,12 @@
             "command": "node",
             "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/stop-agent-servers.js"],
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/trace-stop.js"],
+            "timeout": 5
           }
         ]
       }
