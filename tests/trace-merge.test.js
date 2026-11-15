@@ -108,6 +108,12 @@ test("nothing is recorded for merge-base, --abort, a conflicted merge, a single 
   hook(ff.traces, mergeInput(ff.dir, "git merge feat/x"));
   assert.deepEqual(records(ff.session), []);
 
+  // A single-parent commit that merely carries a `merge:` subject.
+  const one = fixture();
+  commitFile(one.dir, "m.txt", "m\n", "merge: not a merge (E9z)");
+  hook(one.traces, mergeInput(one.dir, "git merge feat/x"));
+  assert.deepEqual(records(one.session), []);
+
   // A merge commit whose subject is not `merge:`.
   const other = fixture();
   git(other.dir, "merge", "--no-ff", "feat/x", "-m", "Merge branch feat/x (E9z)");
