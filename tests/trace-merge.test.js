@@ -182,6 +182,47 @@ test("a PowerShell line chaining merge and branch -d is recorded", () => {
   assert.equal(rec.mission, "E9z");
 });
 
+// One merge of feat/x, then the hook on `command`; returns the recorded branch.
+function branchOf(command) {
+  const { dir, traces, session } = fixture();
+  git(dir, "merge", "--no-ff", "feat/x", "-m", "merge: x (E9z)");
+  hook(traces, mergeInput(dir, command));
+  return readRecord(session).branch;
+}
+
+test("a redirection is never the branch (2>&1, >&2, &>f, >f, 2>f, >>f, <f, 2>/dev/null)", () => {
+  const m = `git merge --no-ff feat/x -m "merge: x (E9z)"`;
+  for (const r of ["2>&1", ">&2", "&>all.txt", ">out.txt", "2>err.txt", ">>out.txt", "<in.txt", "2>/dev/null"]) {
+    assert.equal(branchOf(`${m} ${r}`), "feat/x", r);
+  }
+  assert.equal(branchOf("git merge --no-ff feat/x 2>&1 >out.txt"), "feat/x");
+});
+
+test("a word after a separate redirection is not the branch", () => {
+  for (const r of ["> out.txt", "2> err.txt", ">> out.txt", "< in.txt", "&> all.txt"]) {
+    assert.equal(branchOf(`git merge --no-ff feat/x ${r}`), "feat/x", r);
+  }
+});
+
+test("a redirection before the branch is skipped and the branch still found", () => {
+  assert.equal(branchOf("git merge --no-ff 2>&1 feat/x"), "feat/x");
+  assert.equal(branchOf("git merge --no-ff > out.txt feat/x"), "feat/x");
+});
+
+test("a quoted branch holding > or & is kept whole", () => {
+  assert.equal(branchOf(`git merge --no-ff "a&b" `), "a&b");
+  assert.equal(branchOf(`git merge --no-ff "a>b&c"`), "a>b&c");
+});
+
+test("&& and a lone & stay separators: the last git merge wins", () => {
+  assert.equal(branchOf("git merge --no-ff feat/x && git branch -d feat/x"), "feat/x");
+  assert.equal(branchOf("git merge --no-ff other & git merge --no-ff feat/x 2>&1"), "feat/x");
+});
+
+test("without a redirection the branch is the last plain word", () => {
+  assert.equal(branchOf("git merge --no-ff -m 'merge: x (E9z)' feat/x"), "feat/x");
+});
+
 test("without the option the hook reads nothing and writes nothing", () => {
   const { dir } = fixture();
   git(dir, "merge", "--no-ff", "feat/x", "-m", "merge: x (E9z)");

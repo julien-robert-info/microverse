@@ -4,6 +4,7 @@
 
 - `trace_dir` option and the `trace-launch` (`PreToolUse`, `Agent|Task`) and `trace-stop` (`SubagentStop`) hooks: with the option set, each agent launch leaves a `launch` record (repository head, brief copy and fingerprint, cited notes copied as at launch, plugin version, hook program names, settings fingerprints) and each stop a `stop` record (worktree branch, head, commits since the launch base), one file per record under `<trace_dir>/<project>/<session>/`. Empty by default: the hooks then do nothing. Format in `docs/traces.md`.
 - Check and merge traces: with `trace_dir` set (or `--trace-dir <dir>`), `agent-check` leaves a `check.json` and the complete output of each check under `<trace_dir>/<project>/checks/<id>/`, and the new `trace-merge` hook (`PostToolUse`, `Bash|PowerShell`) records each `git merge` that produced a `merge:` commit (merge sha, the branch's commits, the linked check, the council's `notes/<mission>.review*.md` copied). The output and exit code of `agent-check` do not change. Format in `docs/traces.md`.
+- `trace-merge`: a redirection (`2>&1`, `> file`, `&>file`) at the end of the `git merge` command is no longer recorded as the merged `branch`.
 - `council` agent: each defect heading is `D<rank> [rule|code|test|doc]`.
 
 - `context-guard` hook: also warns, once per session and independently of the line warning, when `CLAUDE.local.md` exceeds 6 KB (bytes, not characters): a few very long lines weigh as much as many lines in a file loaded in every conversation.
