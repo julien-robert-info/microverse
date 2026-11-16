@@ -15,6 +15,7 @@ const t = require("./trace-lib.js");
 // Shell words of one command line, split into the segments between `;`, `&&`,
 // `||`, `|`, `&` and line breaks. Quotes group a word and are dropped; no
 // variable or escape is interpreted (the line is only inspected, never run).
+// An `&` next to `>` or `<` (`2>&1`, `>&2`, `&>file`) belongs to its word.
 function segments(command) {
   const out = [[]];
   let word = null;
@@ -32,6 +33,7 @@ function segments(command) {
       quote = c;
       word ??= "";
     } else if (/\s/.test(c) && c !== "\n") endWord();
+    else if (c === "&" && (command[i - 1] === ">" || command[i - 1] === "<" || command[i + 1] === ">")) word = (word ?? "") + c;
     else if (c === ";" || c === "&" || c === "|" || c === "\n") {
       endWord();
       if (out[out.length - 1].length) out.push([]);
@@ -45,6 +47,9 @@ function segments(command) {
 const VALUE_OPTS = new Set(["-m", "-F", "-s", "-X", "--message", "--file", "--strategy", "--strategy-option", "--into-name"]);
 // Global git options that take the next word as their value.
 const GIT_VALUE_OPTS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"]);
+
+// Start of a redirection word: `>f`, `2>f`, `>>f`, `<f`, `&>f`, `2>&1`, `>&2`.
+const REDIRECT = /^(?:\d*|&)(?:>>?|<)&?/;
 
 // The last `git [global options] merge [options] <branch>` of the command, as
 // { dir, branch }: `dir` from the `-C` options, `branch` the last word that is
@@ -68,6 +73,9 @@ function parseMerge(command, cwd) {
     for (let j = 0; j < rest.length; j++) {
       if (rest[j].startsWith("-")) {
         if (VALUE_OPTS.has(rest[j])) j++;
+      } else if (REDIRECT.test(rest[j])) {
+        // A bare operator (`>`, `2>`, `&>`) takes the next word as its target.
+        if (rest[j].replace(REDIRECT, "") === "") j++;
       } else branch = rest[j];
     }
     found = { dir, branch };

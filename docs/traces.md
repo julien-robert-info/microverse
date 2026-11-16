@@ -71,7 +71,7 @@ Written by the `trace-merge` hook (`PostToolUse`, `Bash|PowerShell`).
 
 - Detected when the command has `git` then `merge` as a word (global options such as `-C <path>` skipped; not `merge-base`, not `--abort` or `--quit`), and, in the repository of `cwd` (or of `git -C`), `HEAD` has two parents and a subject starting with `merge:`. The final state of the repository decides, not the exit code: a command chaining `git merge …; git branch -d …` is recorded, a conflicted merge (one parent) is not. `agent-check --merged` is not a `git merge` command and never matches.
 - One record per `mergeSha` in the session folder: a merge seen again writes nothing.
-- `mergeSha` = `HEAD`, `parents` = its two parents, `sideCommits` = `git rev-list HEAD^1..HEAD^2`, `branch` = last argument of the command that is neither an option nor an option's value (else `null`), `mission` = last `(<id>)` of the subject (else `null`).
+- `mergeSha` = `HEAD`, `parents` = its two parents, `sideCommits` = `git rev-list HEAD^1..HEAD^2`, `branch` = last argument of the command that is neither an option, an option's value nor a redirection (`2>&1`, `> file`) (else `null`), `mission` = last `(<id>)` of the subject (else `null`).
 - `check`: `<id>` of the latest `check` of the project whose `head` is `HEAD^2`, else `null`.
 - `reviews`: each `notes/<mission>.review*.md` of the repository root, copied to `reviews/<mergeSha>/<name>` with its sha256; `[]` when the mission is unknown or has none.
 
