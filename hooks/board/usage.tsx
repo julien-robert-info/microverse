@@ -21,6 +21,7 @@ import {
   roleProps,
   type Part,
 } from './kit'
+import { ageNote, asOf, readingOf, runningOf } from './quota'
 import { HUE_OF, kindOf, label as columnLabel, titleOf, viewsOf, type Column } from './missions'
 import { AGENT_HUE, PALETTE, TONE, textColor } from './tokens'
 
@@ -393,6 +394,7 @@ export const renderUsage = (context: BoardContext) => {
   const now = board.light?.at ?? Date.now()
   const series = seriesOf(status)
   const quota = quotaOf(status)
+  const isOff = status !== undefined && !isFailed(status.quota) && status.quota.mode === 'off'
   const runs = (series?.runs ?? []).filter(one => typeof one === 'object' && one !== null)
   const since = status?.report?.since.at ?? now - FALLBACK_PERIOD
   const cells = cellsFor(columns)
@@ -440,6 +442,9 @@ export const renderUsage = (context: BoardContext) => {
 
   // Week curve.
   const week = quota?.counters.week ?? null
+  // The live reading, as the Cockpit shows it; the points stay the history.
+  const limits = board.light?.usage?.value.rateLimits ?? []
+  const weekReading = isOff ? undefined : readingOf(limits, 'week', week, now)
   const history = quota?.history ?? []
   const pace =
     quota === undefined || week === null || !Array.isArray(history)
@@ -455,7 +460,7 @@ export const renderUsage = (context: BoardContext) => {
     if (quota === undefined || pace === null) {
       return <Text dimColor>no reading yet</Text>
     }
-    const usedNow = week?.used ?? history.at(-1)?.used ?? 0
+    const usedNow = weekReading?.percent ?? history.at(-1)?.used ?? 0
     const expected = Math.round(quota.pace?.expected ?? pace.expected)
     const target = quota.limits.target
     const sentence = `${Math.round(usedNow)} % used, expected ${expected} %, target ${target} % at reset`
@@ -493,17 +498,29 @@ export const renderUsage = (context: BoardContext) => {
   })()
 
   // Tiles of the account.
-  const five = quota?.counters.five ?? null
+  const five = isOff ? undefined : readingOf(limits, 'five', quota?.counters.five, now)
+  const fiveNote = five === undefined ? null : ageNote(five)
+  const running = runningOf(board)
   const account = (
     <Box key="account" flexDirection="row" flexWrap="wrap" gap={1} minWidth={0}>
-      {tile('five', '5 h window', five === null ? '–' : `${Math.round(five.used)} %`)}
+      {tile(
+        'five',
+        '5 h window',
+        five === undefined ? '–' : `${Math.round(five.percent)} %`,
+        fiveNote ?? undefined,
+      )}
       {tile(
         'room',
         'Room',
         quota === undefined ? '–' : String(Math.max(0, safe(quota.advice.more))),
-        quota === undefined ? undefined : quota.advice.text,
+        quota === undefined ? undefined : `${quota.advice.text}${running === undefined ? '' : asOf(running)}`,
       )}
-      {tile('running', 'Running', quota === undefined ? '–' : String(quota.running.total), 'agents')}
+      {tile(
+        'running',
+        'Running',
+        running === undefined ? '–' : String(running.total),
+        `agents${running === undefined ? '' : asOf(running)}`,
+      )}
       {tile('cost', 'Series cost', series === undefined ? '–' : money(series.total.cost))}
     </Box>
   )
