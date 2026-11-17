@@ -161,7 +161,7 @@ export const asOf = (running: Running): string =>
 // good one. Undefined when quota is off, failed or not read yet.
 export const runningOf = (board: BoardData): Running | undefined => {
   const quota = board.heavy?.status?.value.quota
-  if (quota === undefined || !('mode' in quota) || quota.mode !== 'metered') {
+  if (quota === undefined || 'error' in quota || quota.mode === 'off') {
     return undefined
   }
 

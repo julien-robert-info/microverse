@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { BoardData } from '../../../types/board'
 import { renderCockpit } from '../cockpit'
+import { STALE_READING_MS, ageNote, readingOf } from '../quota'
 import { lookFor, withLook } from '../kit'
 import { CURVE_POINTS, decimate, laneOf, paceOf, productivityOf, renderUsage, spendRows } from '../usage'
 
@@ -95,11 +96,25 @@ type Scene = {
   expected?: number
   isFinishing?: boolean
   roster?: string[]
+  // Live rate limits of the session (`light.usage`).
+  live?: { kind: string; percentUsed: number; resetsAt?: string }[]
+  // The 5 h counter: its value and how old the reading is.
+  five?: { used: number; ageMs: number }
+  // What `orch-status` gave for quota.
+  quota?: 'off' | 'error'
+  running?: number
+  // The last heavy read failed and kept this one.
+  isStale?: boolean
 }
 
 const quotaOf = (scene: Scene) => ({
   counters: {
-    five: { used: 19, resetsAt: NOW + HOUR, observedAt: NOW, source: 'statusline' },
+    five: {
+      used: scene.five?.used ?? 19,
+      resetsAt: NOW + HOUR,
+      observedAt: NOW - (scene.five?.ageMs ?? 0),
+      source: 'statusline',
+    },
     week:
       scene.week === null
         ? null
@@ -108,7 +123,7 @@ const quotaOf = (scene: Scene) => ({
   limits: { target: 98, reserve: 30, fiveHour: 90 },
   period: null,
   pace: { expected: scene.expected ?? 23, actual: 17, delta: -6, left: 81 },
-  running: { total: 2, others: 0 },
+  running: { total: scene.running ?? 2, others: 0 },
   agentCost: { points: 2, runs: null },
   advice: { level: 'launch', text: 'Launch', more: 2 },
   warnings: [],
@@ -144,7 +159,12 @@ const boardOf = (scene: Scene = {}, tab: 'usage' | 'cockpit' = 'usage'): BoardDa
     free: [],
     report: null,
     agents: { since: NOW - 7 * DAY, runs, total: { cost: total, advisor: { calls: 0, cost: 0 } } },
-    quota: quotaOf(scene),
+    quota:
+      scene.quota === 'off'
+        ? { mode: 'off', reason: 'no quota file' }
+        : scene.quota === 'error'
+          ? { error: 'no quota file' }
+          : quotaOf(scene),
     context: { error: 'none' },
   }
 
@@ -155,7 +175,7 @@ const boardOf = (scene: Scene = {}, tab: 'usage' | 'cockpit' = 'usage'): BoardDa
       at: NOW,
       worktrees: null,
       agents: sensed((scene.roster ?? []).map(id => ({ id, type: 'demo:morty', description: 'E2 task', status: 'running', firstSeenAt: NOW }))),
-      usage: null,
+      usage: scene.live === undefined ? null : sensed({ rateLimits: scene.live }),
       state: null,
       missions: {
         stateStamp: null,
@@ -176,8 +196,8 @@ const boardOf = (scene: Scene = {}, tab: 'usage' | 'cockpit' = 'usage'): BoardDa
     },
     heavy: {
       project: ROOT,
-      status: sensed(status as never),
-      failure: null,
+      status: { value: status as never, at: NOW - 3 * MINUTE },
+      failure: scene.isStale === true ? 'orch-status: exit 1' : null,
       missions: { hashes: { h1: { ancestor: true, at: NOW - HOUR } }, briefs: {} },
     },
     view: { tab, detail: null, toggled: [] },
@@ -401,4 +421,126 @@ test('T8 the Usage tab has one refresh button and keeps the tab keys; the Cockpi
   expect(count(narrow, 'refresh')).toBe(1)
   expect(count(narrow, 'row:mission:E2')).toBe(1)
   expect(texts(narrow)).not.toContain('Tokens')
+})
+
+// E33l-B: one live reading for the Cockpit and Usage, and the age of a stale one.
+const LIVE_FIVE = { kind: 'five_hour', percentUsed: 7, resetsAt: '2026-01-01T22:40:00Z' }
+const LIVE_WEEK = { kind: 'seven_day', percentUsed: 41, resetsAt: '2026-01-04T09:00:00Z' }
+const hhmm = (ms: number) =>
+  `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`
+
+const drawCockpit = (surface: (typeof SURFACES)[number], scene: Scene = {}) =>
+  renderCockpit({
+    ui: fake(surface),
+    columns: COLUMNS,
+    look: lookFor(surface, 'dark'),
+    actions: {} as never,
+    board: boardOf(scene, 'cockpit'),
+  }) as Node
+
+for (const surface of SURFACES) {
+  test(`E33l-B-T1 a live five_hour 7 % wins over the counter's 19 %, with no age note (${surface})`, async () => {
+    const tile = texts(byKey(draw(surface, { live: [LIVE_FIVE] }), 'tile:five')!)
+
+    expect(tile).toContain('7 %')
+    expect(tile.join(' ')).not.toMatch(/reading/)
+  })
+
+  test(`E33l-B-T2 the Cockpit and Usage show the same rounded 5 h value (${surface})`, async () => {
+    // A fraction that rounds the same way on both screens.
+    const scene = { live: [{ ...LIVE_FIVE, percentUsed: 7.4 }] }
+
+    expect(texts(byKey(draw(surface, scene), 'tile:five')!)).toContain('7 %')
+    expect(texts(drawCockpit(surface, scene))).toContain('7 %')
+  })
+
+  test(`E33l-B-T3 a counter read 5 min ago shows 19 % with no note (${surface})`, async () => {
+    const scene = { five: { used: 19, ageMs: 5 * MINUTE } }
+
+    expect(texts(byKey(draw(surface, scene), 'tile:five')!)).toContain('19 %')
+    expect(texts(byKey(draw(surface, scene), 'tile:five')!).join(' ')).not.toMatch(/reading/)
+    expect(texts(drawCockpit(surface, scene)).join(' ')).not.toMatch(/reading/)
+  })
+
+  test(`E33l-B-T4 a counter read 40 min ago says so on both screens (${surface})`, async () => {
+    const scene = { five: { used: 19, ageMs: 40 * MINUTE } }
+
+    expect(texts(byKey(draw(surface, scene), 'tile:five')!)).toEqual(
+      expect.arrayContaining(['19 %', 'reading 40 min old']),
+    )
+    expect(texts(drawCockpit(surface, scene)).join(' ')).toMatch(/limit 90 % · reading 40 min old/)
+  })
+
+  test(`E33l-B-T5 the live reading shows when quota is in error (${surface})`, async () => {
+    const scene = { live: [LIVE_FIVE], quota: 'error' as const }
+
+    expect(texts(byKey(draw(surface, scene), 'tile:five')!)).toContain('7 %')
+    // Without a live reading the dash stays.
+    expect(texts(byKey(draw(surface, { quota: 'error' }), 'tile:five')!)).toContain('–')
+  })
+
+  test(`E33l-B-T6 the week sentence uses the live 41 %, the points stay the history (${surface})`, async () => {
+    expect(texts(draw(surface, { live: [LIVE_WEEK] })).join(' ')).toMatch(/41 % used, expected/)
+    expect(texts(draw(surface)).join(' ')).toMatch(/17 % used, expected/)
+  })
+
+  test(`E33l-B-T7 quota off gives a dash on the tiles and keeps the Cockpit line (${surface})`, async () => {
+    const scene = { live: [LIVE_FIVE, LIVE_WEEK], quota: 'off' as const }
+
+    expect(texts(byKey(draw(surface, scene), 'tile:five')!)).toContain('–')
+    expect(texts(byKey(draw(surface, scene), 'tile:running')!)).toContain('–')
+    expect(texts(drawCockpit(surface, scene)).join(' ')).toContain('Quota off: no quota file')
+  })
+
+  test(`E33l-B-T11 a failed read after a good one dates Running, Room and the legend (${surface})`, async () => {
+    const scene = { isStale: true, running: 3 }
+    const at = ` · as of ${hhmm(NOW - 3 * MINUTE)}`
+    const tree = draw(surface, scene)
+
+    expect(texts(byKey(tree, 'tile:running')!)).toEqual(expect.arrayContaining(['3', `agents${at}`]))
+    expect(texts(byKey(tree, 'tile:room')!)).toContain(`Launch${at}`)
+    expect(texts(drawCockpit(surface, scene))).toContain(`3 running on the account${at}`)
+  })
+
+  test(`E33l-B-T12 a good read after a failed one has no as-of note (${surface})`, async () => {
+    expect(texts(draw(surface, { isStale: false, running: 3 })).join(' ')).not.toMatch(/as of/)
+    expect(texts(drawCockpit(surface, { running: 3 }))).toContain('3 running on the account')
+  })
+
+  test(`E33l-B-T13 the default tiles are unchanged (${surface})`, async () => {
+    const tree = draw(surface)
+
+    expect(texts(byKey(tree, 'tile:five')!)).toEqual(['5 h window', '19 %'])
+    expect(texts(byKey(tree, 'tile:running')!)).toEqual(['Running', '2', 'agents'])
+    expect(texts(byKey(tree, 'tile:room')!)).toEqual(['Room', '2', 'Launch'])
+  })
+}
+
+test('E33l-B-T14 readingOf falls back to the counter on a NaN percentage and drops an unreadable reset', async () => {
+  const counter = { used: 19, resetsAt: NOW + HOUR, observedAt: NOW - 40 * MINUTE, source: 'statusline' }
+
+  expect(readingOf([{ kind: 'five_hour', percentUsed: Number.NaN, resetsAt: 'x' }], 'five', counter, NOW)).toEqual({
+    percent: 19,
+    resetsAt: NOW + HOUR,
+    source: 'counter',
+    age: 40 * MINUTE,
+  })
+  expect(readingOf([{ kind: 'five_hour', percentUsed: 7, resetsAt: 'not a date' }], 'five', counter, NOW)).toEqual({
+    percent: 7,
+    resetsAt: undefined,
+    source: 'live',
+    age: 0,
+  })
+  expect(readingOf([{ kind: 'seven_day', percentUsed: 7 }], 'five', undefined, NOW)).toBeUndefined()
+  expect(readingOf([LIVE_FIVE], 'five', counter, NOW)?.resetsAt).toBe(Date.parse(LIVE_FIVE.resetsAt))
+})
+
+test('E33l-B-R2 the age note needs a counter older than 15 min and counts hours past 60 min', async () => {
+  const of = (age: number, source: 'live' | 'counter' = 'counter') =>
+    ageNote({ percent: 1, resetsAt: undefined, source, age })
+
+  expect(of(STALE_READING_MS)).toBeNull()
+  expect(of(STALE_READING_MS + 1)).toBe('reading 15 min old')
+  expect(of(2 * HOUR + 5 * MINUTE)).toBe('reading 2 h old')
+  expect(of(3 * HOUR, 'live')).toBeNull()
 })
