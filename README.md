@@ -304,9 +304,11 @@ The scripts can also be run by hand from the repository root:
 ```bash
 orch-quota --target 98 --reserve 30            # counts the running agents and learns their cost
 orch-quota --running 1 --agent-cost 15         # overrides, rarely needed
+orch-quota --live-session <id> --live-count 0  # that session's agents count as the registry says (here none), not by transcripts; both or neither
 orch-quota --calibrate                         # recompute the calibration now
 orch-quota --no-write                          # read-only: no refresh, no pruning, no saved calibration
 orch-status --target 98 --reserve 30           # what /microverse:status prints
+orch-status --live-session <id> --live-count 2 # passed to orch-quota only, as above (the board does this)
 orch-status --agents --verbose                 # one line per agent run, the full quota detail
 orch-usage --since 2026-01-01
 orch-usage --context

@@ -6,6 +6,11 @@
 - Check and merge traces: with `trace_dir` set (or `--trace-dir <dir>`), `agent-check` leaves a `check.json` and the complete output of each check under `<trace_dir>/<project>/checks/<id>/`, and the new `trace-merge` hook (`PostToolUse`, `Bash|PowerShell`) records each `git merge` that produced a `merge:` commit (merge sha, the branch's commits, the linked check, the council's `notes/<mission>.review*.md` copied). The output and exit code of `agent-check` do not change. Format in `docs/traces.md`.
 - `trace-merge`: a redirection (`2>&1`, `> file`, `&>file`) at the end of the `git merge` command is no longer recorded as the merged `branch`.
 - `council` agent: each defect heading is `D<rank> [rule|code|test|doc]`.
+- `orch-quota --live-session <id> --live-count <n>` (relayed by `orch-status`): the agents of that session are counted as `n`, as its registry says, instead of by their transcripts.
+
+### Fixed
+
+- Agents of the board's session stop counting as running as soon as they finish.
 
 - `context-guard` hook: also warns, once per session and independently of the line warning, when `CLAUDE.local.md` exceeds 6 KB (bytes, not characters): a few very long lines weigh as much as many lines in a file loaded in every conversation.
 - State file contract: `skills/orchestration/state-file.md` lists the fixed English tokens the Board and `orch-status` read in `CLAUDE.local.md` (headings, table header, branch prefixes, `Answered`) with a skeleton; `/microverse:init` creates the state file from it when missing and checks the two shapes the Board cannot read when it exists, without rewriting it.

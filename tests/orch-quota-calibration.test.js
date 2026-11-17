@@ -345,3 +345,86 @@ test("a fresh calibration is reused without reading the transcripts, --calibrate
   assert.match(run(fx, ["--calibrate"]).out, /5h: none/);
   assert.match(run(fx).out, /Agent cost: 15 points of 5h \(default\)/);
 });
+
+// --live-session / --live-count: the registry of the board's session replaces
+// the transcripts of that session. `setup(acc, t)` adds agents to proj-a / proj-b;
+// readings: 60 % of 5h, 10 % of the week, so two running agents leave no room.
+function liveRun(setup, args = [], { json = false } = {}) {
+  const acc = makeAccount();
+  const cwd = acc.project("proj-a");
+  acc.project("proj-b");
+  const t = Date.now();
+  setup(acc, t);
+  const file = join(acc.home, "quota.json");
+  writeFileSync(
+    file,
+    JSON.stringify({
+      observations: [
+        { periodType: "seven-day", usedFraction: 0.1, resetAt: t + 48 * HOUR, observedAt: t },
+        { periodType: "five-hour", usedFraction: 0.6, resetAt: t + 2 * HOUR, observedAt: t },
+      ],
+    }),
+  );
+  const r = script("orch-quota", ["--file", file, "--agent-cost", "15", ...(json ? ["--json"] : []), ...args], cwd, acc.env);
+  return json ? JSON.parse(r.out) : /Running: [^\n]*/.exec(r.out)?.[0];
+}
+
+const twoInS1 = (acc, t) => {
+  acc.agent("proj-a", "a1", "microverse:morty", req(t), MIN, {}, "s1");
+  acc.agent("proj-a", "a2", "microverse:rick", req(t), MIN, {}, "s1");
+};
+
+test("T1 live count 0 drops the unfinished agents of that session; without options they count", () => {
+  assert.equal(liveRun(twoInS1, ["--live-session", "s1", "--live-count", "0"]), "Running: 0 agents (0 in other projects)");
+  assert.equal(liveRun(twoInS1), "Running: 2 agents (0 in other projects)");
+});
+
+test("T2 live count 1 with no transcript in the session counts one", () => {
+  assert.match(liveRun(() => {}, ["--live-session", "s1", "--live-count", "1"]), /^Running: 1 agent /);
+});
+
+test("T3 mixed: the session's agent dropped, another session and another project kept", () => {
+  const line = liveRun(
+    (acc, t) => {
+      acc.agent("proj-a", "a1", "microverse:morty", req(t), MIN, {}, "s1");
+      acc.agent("proj-a", "a2", "microverse:morty", req(t), MIN, {}, "s2");
+      acc.agent("proj-b", "b1", "microverse:morty", req(t), MIN, {}, "s3");
+    },
+    ["--live-session", "s1", "--live-count", "1"],
+  );
+  assert.equal(line, "Running: 3 agents (1 in other projects)");
+});
+
+test("T3b session names are compared as written, not lowercased", () => {
+  assert.equal(liveRun((acc, t) => acc.agent("proj-a", "a1", "microverse:morty", req(t), MIN, {}, "Ab1"), ["--live-session", "ab1", "--live-count", "0"]), "Running: 1 agent (0 in other projects)");
+});
+
+test("T4 an incomplete or invalid pair is ignored", () => {
+  const same = "Running: 2 agents (0 in other projects)";
+  for (const args of [
+    ["--live-session", "s1"],
+    ["--live-count", "0"],
+    ["--live-session", "s1", "--live-count", "-1"],
+    ["--live-session", "s1", "--live-count", "x"],
+    ["--live-session", "s1", "--live-count", "1.5"],
+    ["--live-session", "s1", "--live-count", "101"],
+    ["--live-session", "s1", "--live-count", "--x"],
+    ["--live-session", "../x", "--live-count", "0"],
+  ]) {
+    assert.equal(liveRun(twoInS1, args), same, args.join(" "));
+  }
+});
+
+test("T5 --running wins over the live options", () => {
+  assert.equal(liveRun(twoInS1, ["--running", "4", "--live-session", "s1", "--live-count", "0"]), "Running: 4 agents (given)");
+});
+
+test("T6 --json: running.total and advice.more follow the live count", () => {
+  const stale = liveRun(twoInS1, [], { json: true });
+  assert.equal(stale.running.total, 2);
+  assert.equal(stale.advice.more, 0);
+  const live = liveRun(twoInS1, ["--live-session", "s1", "--live-count", "0"], { json: true });
+  assert.equal(live.running.total, 0);
+  assert.ok(live.advice.more > 0, JSON.stringify(live.advice));
+  assert.equal(live.running.others, 0);
+});

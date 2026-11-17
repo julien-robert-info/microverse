@@ -15,6 +15,8 @@
 //
 // <commit> is the previous report; without it the commit is taken from the
 // first line of CLAUDE.local.md that says "last report" or "dernier rapport".
+// --live-session <id> --live-count <n> go to orch-quota alone: the agents of
+// that session (the board's) count n, as its registry says, not by transcripts.
 // The other options go to orch-report and orch-quota (which always get
 // --no-write). Run from anywhere in the repository, even from an agent's
 // worktree: the project is the main worktree. Exits 0, except 2 on a usage
@@ -57,6 +59,11 @@ const cwd = process.cwd();
 const common = [];
 for (const o of ["target", "reserve", "five-hour", "file", "mode"]) {
   if (typeof opts[o] === "string" && opts[o] !== "" && !opts[o].includes("${")) common.push(`--${o}`, opts[o]);
+}
+// Only orch-quota counts running agents.
+const live = [];
+for (const o of ["live-session", "live-count"]) {
+  if (typeof opts[o] === "string" && opts[o] !== "" && !opts[o].includes("${")) live.push(`--${o}`, opts[o]);
 }
 const session = typeof opts.session === "string" && opts.session ? ["--session", opts.session] : [];
 
@@ -182,7 +189,7 @@ let context = null;
 let quotaDir = cwd;
 function readQuota(dir) {
   quotaDir = dir;
-  quota = siblingJson("orch-quota", ["--no-write", ...common], dir);
+  quota = siblingJson("orch-quota", ["--no-write", ...common, ...live], dir);
 }
 function readContext(dir) {
   context = siblingJson("orch-usage", ["--context", ...session], dir);
