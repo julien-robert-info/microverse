@@ -11,6 +11,7 @@
 ### Fixed
 
 - Agents of the board's session stop counting as running as soon as they finish.
+- Usage shows the same live 5-hour reading as the Cockpit; Running and Room say when their reading is stale.
 
 - `context-guard` hook: also warns, once per session and independently of the line warning, when `CLAUDE.local.md` exceeds 6 KB (bytes, not characters): a few very long lines weigh as much as many lines in a file loaded in every conversation.
 - State file contract: `skills/orchestration/state-file.md` lists the fixed English tokens the Board and `orch-status` read in `CLAUDE.local.md` (headings, table header, branch prefixes, `Answered`) with a skeleton; `/microverse:init` creates the state file from it when missing and checks the two shapes the Board cannot read when it exists, without rewriting it.
