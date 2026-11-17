@@ -296,12 +296,15 @@ const projectSlug = (dir) => dir.replace(/[^A-Za-z0-9]/g, "-").toLowerCase();
 const projectsRoot = () => join(homedir(), ".claude", "projects");
 
 // Every transcript of every project, from directory listings and stat only:
-// { path, project, kind: "conversation" | "agent", mtime }.
+// { path, project, kind: "conversation" | "agent", mtime }; an agent also has
+// `session`, the name of the session folder it sits in.
 function walkTranscripts(root = projectsRoot()) {
   const out = [];
-  const add = (path, project, kind) => {
+  const add = (path, project, kind, session) => {
     try {
-      out.push({ path, project, kind, mtime: statSync(path).mtimeMs });
+      const entry = { path, project, kind, mtime: statSync(path).mtimeMs };
+      if (session !== undefined) entry.session = session;
+      out.push(entry);
     } catch {
       // vanished between the listing and the stat
     }
@@ -320,7 +323,7 @@ function walkTranscripts(root = projectsRoot()) {
       if (e.isFile() && e.name.endsWith(".jsonl")) add(join(pdir, e.name), p.name, "conversation");
       else if (e.isDirectory()) {
         const sub = join(pdir, e.name, "subagents");
-        for (const a of list(sub)) if (a.isFile() && a.name.startsWith("agent-") && a.name.endsWith(".jsonl")) add(join(sub, a.name), p.name, "agent");
+        for (const a of list(sub)) if (a.isFile() && a.name.startsWith("agent-") && a.name.endsWith(".jsonl")) add(join(sub, a.name), p.name, "agent", e.name);
       }
     }
   }
@@ -343,17 +346,23 @@ const agentFinished = (info, mtime) => info.finished && info.metaMtime !== null 
 // and do not take a slot). An agent without the mark (interrupted, or from a
 // Claude Code that does not write it) counts for the whole window.
 // `others` are those of projects other than `currentSlug`.
-function countRunning(files, { now = Date.now(), currentSlug = null } = {}) {
+// `live` = { session, count }: the registry of that session is the truth for
+// its agents, so its transcripts are dropped (compared as is, not lowercased)
+// and `count` is added to the current project.
+function countRunning(files, { now = Date.now(), currentSlug = null, live = null } = {}) {
   let total = 0;
   let others = 0;
   for (const f of files) {
-    if (f.kind !== "agent" || f.mtime < now - RUNNING_WINDOW) continue;
+    if (f.kind !== "agent") continue;
+    if (live && f.session === live.session) continue;
+    if (f.mtime < now - RUNNING_WINDOW) continue;
     const info = agentInfo(f.path);
     if (info.type.endsWith("meeseeks")) continue;
     if (agentFinished(info, f.mtime)) continue;
     total++;
     if (f.project.toLowerCase() !== currentSlug) others++;
   }
+  if (live) total += live.count;
   return { total, others };
 }
 

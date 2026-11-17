@@ -579,3 +579,13 @@ test("the scripts are executable in git",{ skip: !existsSync(join(ROOT, ".git"))
     assert.match(r.stdout, /^100755 /, f);
   }
 });
+
+test("T7 --json: --live-session and --live-count reach orch-quota", () => {
+  const { acc, dir } = accProject("proj7", 0);
+  const t = Date.now();
+  for (const id of ["a1", "a2"]) acc.agent("proj7", id, "microverse:morty", [{ ts: t, dollars: 1 }], 60e3, {}, "s1");
+  const file = quotaFile(0.2, 0.1);
+  assert.equal(jsonOf(script("orch-status", ["--json", "--file", file], dir, acc.env)).quota.running.total, 2);
+  const j = jsonOf(script("orch-status", ["--json", "--file", file, "--live-session", "s1", "--live-count", "0"], dir, acc.env));
+  assert.equal(j.quota.running.total, 0);
+});

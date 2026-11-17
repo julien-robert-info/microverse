@@ -36,6 +36,10 @@
 // account are counted from their transcripts' modification times. Without
 // --agent-cost, the cost is learned from past runs (see --calibrate).
 //
+// --live-session <id> --live-count <n> (both, else ignored; --running wins):
+// the agents of that session are n, as its registry says, instead of what their
+// transcripts suggest; the other sessions keep the ten minutes rule.
+//
 // orch-quota --calibrate recomputes the calibration (points of each counter per
 // API-equivalent dollar, median cost of each agent role) and prints it. It is
 // otherwise recomputed when older than 6 hours.
@@ -172,13 +176,19 @@ prune();
 
 // Agents running and cost of one agent: given, else detected / learned.
 const files = lib.walkTranscripts();
+// Both live options or neither: a half-valid pair falls back to the 10 minutes rule.
+const liveCount = num(opts["live-count"], null);
+const live =
+  typeof opts["live-session"] === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(opts["live-session"]) && Number.isInteger(liveCount) && liveCount >= 0 && liveCount <= 100
+    ? { session: opts["live-session"], count: liveCount }
+    : null;
 let runningLine;
 // Other projects' agents are unknown when the count is given.
 let runningOthers = null;
 let running = num(opts.running, null);
 if (running !== null) runningLine = `Running: ${running} agent${running === 1 ? "" : "s"} (given)`;
 else {
-  const r = lib.countRunning(files, { now, currentSlug: lib.projectSlug(process.cwd()) });
+  const r = lib.countRunning(files, { now, currentSlug: lib.projectSlug(process.cwd()), live });
   running = r.total;
   runningOthers = r.others;
   runningLine = `Running: ${r.total} agent${r.total === 1 ? "" : "s"} (${r.others} in other projects)`;

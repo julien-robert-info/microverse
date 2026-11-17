@@ -90,6 +90,12 @@ test("a rick with no room for one more agent given the running ones asks for con
   assert.equal(guard(setup({ five: 60, week: 10 }), { type: "microverse:rick" }), null);
 });
 
+test("T8 the guard counts the agents of any session by transcripts, no live registry", () => {
+  const fx = setup({ five: 60, week: 10 });
+  for (const id of ["a1", "a2"]) fx.acc.agent("proj", id, "microverse:morty", [{ ts: Date.now(), dollars: 1 }], 60e3, {}, "s1");
+  assert.match(asked(guard(fx, { type: "microverse:rick" })), /2 running/);
+});
+
 test("5h five points over the limit asks as no more resuming", () => {
   const reason = asked(guard(setup({ five: 96, week: 10 })));
   assert.match(reason, /^Quota: no more resuming agents/);

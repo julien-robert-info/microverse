@@ -107,8 +107,9 @@ function makeAccount() {
     // A subagent transcript last written `ageMs` ago, with one request per `requests` item { ts, dollars }.
     // `meta.finished` sets the `finished` field of the .meta.json (a boolean), `meta.raw`
     // replaces its text, `meta.metaAgeMs` ages it (default: as old as the transcript).
-    agent(project, id, type, requests, ageMs = 0, meta = {}) {
-      const dir = join(folder(project), "main", "subagents");
+    // `session` only names the session folder, it is not written in the .meta.json.
+    agent(project, id, type, requests, ageMs = 0, meta = {}, session = "main") {
+      const dir = join(folder(project), session, "subagents");
       mkdirSync(dir, { recursive: true });
       const file = join(dir, `agent-${id}.jsonl`);
       const metaFile = join(dir, `agent-${id}.meta.json`);
