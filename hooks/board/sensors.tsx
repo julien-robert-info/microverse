@@ -15,6 +15,8 @@ type Engine = EngineInterface
 
 export const PROFILE = '.claude/orchestration/profile.json'
 const STATE_FILE = 'CLAUDE.local.md'
+// A session id is a folder name under the project: same test as quota.ts.
+const SESSION_ID = /^[A-Za-z0-9_-]{1,100}$/
 export const FINISHED = ['completed', 'failed', 'killed']
 const HEAVY_TIMEOUT_MS = 60_000
 // Same variable as orch-status's own git calls: a read must not take the
@@ -56,6 +58,28 @@ export const optionArgs = (options: PluginOptions): string[] =>
 
     return text === '' || /^\$\{.*\}$/.test(text) ? [] : [flag, text]
   })
+
+// What orch-quota needs to stop counting this session's finished agents: the
+// session's id and how many agents of the registry still run. `meeseeks` are
+// left out, as countRunning does. Read at the moment of the heavy read: the
+// light roster only refreshes while the pane is open. No option when either
+// call fails or the id is not one a folder name can be.
+export async function liveArgs($: Engine): Promise<string[]> {
+  try {
+    const id = await $.session.id()
+    const roster: AgentInfo[] = await $.agent.list()
+    if (!SESSION_ID.test(id)) {
+      return []
+    }
+    const count = roster.filter(
+      agent => !FINISHED.includes(agent.status) && !agent.type.endsWith('meeseeks'),
+    ).length
+
+    return ['--live-session', id, '--live-count', String(count)]
+  } catch {
+    return []
+  }
+}
 
 // The three readers below are function declarations: the engine follows `$`
 // into an imported function only when it is one.
@@ -270,6 +294,7 @@ export async function readHeavy(
         `${$.plugin.root}/bin/orch-status`,
         '--json',
         ...optionArgs(options),
+        ...(await liveArgs($)),
       ],
       { cwd: root, env: GIT_ENV, timeoutMs: HEAVY_TIMEOUT_MS },
     )

@@ -127,6 +127,9 @@ const world = (
     paneOpen?: boolean
     // Content of CLAUDE.local.md.
     state?: string
+    // What `$.session.id()` answers (a function may throw), and the registry.
+    sessionId?: () => string
+    roster?: () => unknown[]
   } = {},
 ) => {
   const seen: World = { heavy: [], opens: 0, commands: 0, every: 0, gitRuns: 0, logs: [] }
@@ -191,11 +194,15 @@ const world = (
       ],
     },
   }))
+  on('session.id', () => ({ value: (options.sessionId ?? (() => 'sess-1'))() }))
   on('agent.list', () => ({
-    value: [
-      { id: 'a1', type: 'demo:worker', description: 'task', status: 'running' },
-      { id: 'a2', type: 'demo:worker', description: 'old', status: 'completed' },
-    ],
+    value: (
+      options.roster ??
+      (() => [
+        { id: 'a1', type: 'demo:worker', description: 'task', status: 'running' },
+        { id: 'a2', type: 'demo:worker', description: 'old', status: 'completed' },
+      ])
+    )(),
   }))
   if (options.clock === false) {
     on('clock.now', () => {
@@ -241,6 +248,54 @@ test('the cockpit draws pace, context, series cost and agents', async ($, on) =>
     await ui.unmount()
   }
 })
+
+// The argv orch-status got on the first heavy read of a session.
+const heavyArgv = async (
+  $: Kit[0],
+  on: Kit[1],
+  options: Parameters<typeof world>[1],
+) => {
+  const { seen } = world(on, options)
+
+  await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
+  await $.turn.complete(done())
+  await new Promise(resolve => setTimeout(resolve, 20))
+
+  return seen.heavy[0]
+}
+
+test('E33l-B-T8 readHeavy passes the session id and the running count, meeseeks and finished left out', async ($, on) => {
+  const argv = await heavyArgv($, on, {
+    sessionId: () => 'sess-9',
+    roster: () => [
+      { id: 'a1', type: 'demo:worker', description: 'task', status: 'running' },
+      { id: 'a2', type: 'demo:worker', description: 'old', status: 'completed' },
+      { id: 'a3', type: 'microverse:meeseeks', description: 'look', status: 'running' },
+    ],
+  })
+
+  expect(argv.slice(-4)).toEqual(['--live-session', 'sess-9', '--live-count', '1'])
+})
+
+test('E33l-B-T9 a registry that throws leaves the options out and the read is made', async ($, on) => {
+  const argv = await heavyArgv($, on, {
+    roster: () => {
+      throw new Error('registry down')
+    },
+  })
+
+  expect(argv).toBeDefined()
+  expect(argv.join(' ')).not.toContain('--live')
+})
+
+for (const id of ['../x', 'a b', '']) {
+  test(`E33l-B-T10 the session id "${id}" is not a folder name: no live options`, async ($, on) => {
+    const argv = await heavyArgv($, on, { sessionId: () => id })
+
+    expect(argv).toBeDefined()
+    expect(argv.join(' ')).not.toContain('--live')
+  })
+}
 
 for (const surface of SURFACES) {
   // On Desktop the pane opens at start and reads orch-status once; a terminal
@@ -478,7 +533,8 @@ for (const surface of SURFACES) {
       await $.turn.complete(done())
       await clock?.settle()
 
-      expect(seen.heavy[0]?.slice(2)).toEqual(['--json', '--target', '95', '--five-hour', '85', '--mode', 'off'])
+      // The live-session options come last (E33l-B-T8 covers them).
+      expect(seen.heavy[0]?.slice(2, -4)).toEqual(['--json', '--target', '95', '--five-hour', '85', '--mode', 'off'])
     },
   )
 
@@ -500,7 +556,7 @@ for (const surface of SURFACES) {
       await $.turn.complete(done())
       await clock?.settle()
 
-      expect(seen.heavy[0]?.slice(2)).toEqual(['--json'])
+      expect(seen.heavy[0]?.slice(2, -4)).toEqual(['--json'])
     },
   )
 }

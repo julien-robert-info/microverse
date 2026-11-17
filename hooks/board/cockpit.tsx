@@ -2,8 +2,6 @@ import type {
   AgentsJson,
   BoardContext,
   ErrorJson,
-  LightRateLimit,
-  QuotaCounter,
   QuotaMetered,
 } from '../../types/board'
 import { renderAgentDetail, renderAgents } from './agents'
@@ -23,6 +21,7 @@ import {
 } from './kit'
 import { renderMissionDetail, renderMissions } from './missions'
 import { renderQuestionDetail, renderQuestions } from './questions'
+import { ageNote, asOf, readingOf, runningOf, type Reading } from './quota'
 import { PALETTE, TONE } from './tokens'
 import { renderUsage } from './usage'
 
@@ -108,27 +107,6 @@ export const contextSentence = (tokens: number, threshold: number) =>
 
 const contextHue = (percent: number) =>
   percent >= 90 ? TONE.error : percent >= 70 ? TONE.warning : TONE.info
-
-type Reading = { percent: number; resetsAt: number | undefined }
-
-// A window's reading: the live rate limit, else the counter `orch-status` kept.
-const readingOf = (
-  live: LightRateLimit[],
-  kind: string,
-  counter: QuotaCounter | undefined,
-): Reading | undefined => {
-  const found = live.find(limit => limit.kind === kind)
-  if (found !== undefined) {
-    return {
-      percent: found.percentUsed,
-      resetsAt: found.resetsAt === undefined ? undefined : new Date(found.resetsAt).getTime(),
-    }
-  }
-
-  return counter === undefined || counter === null
-    ? undefined
-    : { percent: counter.used, resetsAt: counter.resetsAt }
-}
 
 export const renderCockpit = (context: CockpitContext) => {
   const ui = withLook(context.ui, context.look ?? lookFor('terminal', null))
@@ -223,14 +201,16 @@ export const renderCockpit = (context: CockpitContext) => {
         hue: reading.percent >= 90 ? TONE.error : reading.percent >= 70 ? TONE.warning : TONE.success,
         markers: marker === undefined ? [] : [marker],
       })}
-      <Text {...roleProps(ui, 'caption')} wrap="truncate">{`resets ${resetOf(kind, reading.resetsAt)}${note}`}</Text>
+      <Text {...roleProps(ui, 'caption')} wrap="truncate">{`resets ${resetOf(kind, reading.resetsAt)}${note}${ageNote(reading) === null ? '' : ` · ${ageNote(reading)}`}`}</Text>
     </Box>
   )
 
   const isOff = quota !== undefined && !isFailed(quota) && quota.mode === 'off'
   const hasQuota = quota !== undefined && !isFailed(quota) && quota.mode !== 'off'
-  const five = readingOf(live, 'five_hour', hasQuota ? quota.counters.five : undefined)
-  const week = readingOf(live, 'seven_day', hasQuota ? quota.counters.week : undefined)
+  const readAt = light?.at ?? Date.now()
+  const five = readingOf(live, 'five', hasQuota ? quota.counters.five : undefined, readAt)
+  const week = readingOf(live, 'week', hasQuota ? quota.counters.week : undefined, readAt)
+  const running = runningOf(board)
 
   const pace = Card(ui, {
     box: { flexGrow: 1, minWidth: CARD_MIN },
@@ -266,7 +246,9 @@ export const renderCockpit = (context: CockpitContext) => {
                 {`expected ${quota.pace.expected} % · actual ${quota.pace.actual} % (${quota.pace.delta > 0 ? '+' : ''}${quota.pace.delta})`}
               </Text>
             )}
-            <Text {...roleProps(ui, 'caption')}>{`${quota.running.total} running on the account`}</Text>
+            {running !== undefined && (
+              <Text {...roleProps(ui, 'caption')}>{`${running.total} running on the account${asOf(running)}`}</Text>
+            )}
           </Box>
         )}
         {quota !== undefined && isFailed(quota) && (
